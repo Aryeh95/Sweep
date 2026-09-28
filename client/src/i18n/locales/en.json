@@ -139,6 +139,7 @@
       "low": "low confidence",
       "unknown": "motion unknown"
     },
+    "firstScan": "waiting for a second scan",
     "skill": "Track record: {{right}}% of {{lead}}-min rain calls came true",
     "stripAria": "Expected rain intensity over the next {{min}} minutes",
     "aria": "Nowcast: {{headline}}",

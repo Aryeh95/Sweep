@@ -253,7 +253,16 @@ const NowcastPanel = ({ compact = false }) => {
       : t("nowcast.moving", { speed: speedLabel(motion.speedKmh, speedUnit), dir: compass(motion.fromDeg) }))
     : null;
   const trendLine = trend && trend.label !== "steady" ? t(`nowcast.trend.${trend.label}`) : null;
-  const conf = t(`nowcast.confidence.${confidence}`);
+  // The confidence row. "motion unknown" in red is for an estimate that
+  // FAILED — echo near the pin whose scans do not match. An empty sky has
+  // nothing to track, which is not a fault: the row is dropped there
+  // (kiosk report 2026-09-28: a clear morning read "motion unknown" in
+  // red under "No rain expected"). One scan only gets a quiet note.
+  const quietReasons = ["no-echo", "no-echo-near"];
+  const nothingToTrack = !motion && quietReasons.includes(data.motionReason);
+  const firstScan = !motion && data.motionReason === "no-baseline";
+  const conf = firstScan ? t("nowcast.firstScan") : t(`nowcast.confidence.${confidence}`);
+  const confClass = firstScan ? styles["conf-quiet"] : (styles[`conf-${confidence}`] || "");
   const keyLead = arrival ? arrival.leadMin : (end ? end.leadMin : null);
   const skillLead = keyLead != null ? String(Math.min(60, Math.max(15, Math.round(keyLead / 15) * 15))) : null;
   const skill = hindcast && hindcast.leads && skillLead ? hindcast.leads[skillLead] : null;
@@ -311,9 +320,11 @@ const NowcastPanel = ({ compact = false }) => {
       <footer className={styles.foot}>
         {motionLine ? <span>{motionLine}{trendLine ? ` · ${trendLine}` : ""}</span> : null}
         {cellLine ? <span className={styles.cell}>{cellLine}</span> : null}
-        <span className={`${styles.conf} ${styles[`conf-${confidence}`] || ""}`}>
-          {conf}{mrms && mrms.weight ? ` · ${t("nowcast.withSurface")}` : ""}
-        </span>
+        {nothingToTrack ? null : (
+          <span className={`${styles.conf} ${confClass}`}>
+            {conf}{mrms && mrms.weight ? ` · ${t("nowcast.withSurface")}` : ""}
+          </span>
+        )}
         {/* One plain number: of the times the card called rain at this
           * lead, how often it came true (1 − false-alarm ratio). The miss
           * rate (1 − hit rate) lives in the tooltip — two percentages with

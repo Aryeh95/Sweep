@@ -139,6 +139,7 @@
       "low": "confiance faible",
       "unknown": "mouvement inconnu"
     },
+    "firstScan": "en attente d'un second balayage",
     "skill": "Bilan : {{right}} % des annonces de pluie à {{lead}} min se sont vérifiées",
     "stripAria": "Intensité de pluie prévue sur les {{min}} prochaines minutes",
     "aria": "Prévision immédiate : {{headline}}",

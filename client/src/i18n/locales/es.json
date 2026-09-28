@@ -139,6 +139,7 @@
       "low": "confianza baja",
       "unknown": "movimiento desconocido"
     },
+    "firstScan": "esperando un segundo barrido",
     "skill": "Historial: el {{right}}% de los avisos de lluvia a {{lead}} min se cumplieron",
     "stripAria": "Intensidad de lluvia prevista en los próximos {{min}} minutos",
     "aria": "Pronóstico inmediato: {{headline}}",

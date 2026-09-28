@@ -151,6 +151,8 @@
 .conf-medium { color: var(--rc-alert-watch, #ee7710); }
 .conf-low,
 .conf-unknown { color: var(--rc-alert-warn, #c62828); }
+/* Not a verdict on the estimate — a note that there is nothing to judge yet. */
+.conf-quiet { color: var(--rc-text-secondary, inherit); opacity: 0.7; }
 
 .skill {
   font-family: "Geist Mono", monospace;
