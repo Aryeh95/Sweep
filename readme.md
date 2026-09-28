@@ -5,18 +5,26 @@ screen. It runs a small Node/Express server and a React + Leaflet client and
 needs one API key (Mapbox, for the basemap). Everything radar-related comes
 from free, keyless public sources.
 
-It began as a fork of [thicla01/pi-weather-station](https://github.com/thicla01/pi-weather-station)
-(itself a fork of [elewin/pi-weather-station](https://github.com/elewin/pi-weather-station))
-and was stripped down in August 2026 from a forecast dashboard to a
-radar-only display. Forecasting lives on a separate e-paper device; this
+It is a fork of [thicla01/pi-weather-station](https://github.com/thicla01/pi-weather-station)
+(itself a fork of [elewin/pi-weather-station](https://github.com/elewin/pi-weather-station)),
+stripped down in August 2026 from a forecast dashboard to a radar-only
+display and developed since then at
+[Aryeh95/sweep](https://github.com/Aryeh95/sweep). Forecasting lives on a separate e-paper device; this
 project is about seeing precipitation, storm cells and lightning around home
 with the **age of every layer visible**.
 
 It runs on any Linux desktop or a Raspberry Pi (the reference deployment is
-a Surface Pro on Ubuntu), and on macOS in window mode. The repository and
-the on-disk service names still carry the historical `pi-weather-*`
-identifiers so existing installs keep updating; only the product name
-changed.
+a Surface Pro on Ubuntu), and on macOS in window mode. The on-disk names
+still carry the historical `pi-weather-*` identifiers (the
+`pi-weather-server` service, `~/.config/pi-weather-station/`, the log
+directory) so existing installs keep working across the rename; only the
+product name and the repository changed.
+
+> **Repository moved (2026-09-28).** Development moved from
+> `Aryeh95/pi-weather-station` to **`Aryeh95/sweep`**, a GitHub fork of the
+> upstream project with the full history grafted onto it. Installs cloned
+> from the old URL must repoint their remote or the in-app updater will
+> never see a new commit — see [Updating](#updating).
 
 | Platform | Auto-start | Kiosk mode |
 |---|---|---|
@@ -39,7 +47,9 @@ A GitHub Actions workflow builds a **signed release APK on every push to
 once the four signing secrets (`ANDROID_KEYSTORE_BASE64`,
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`)
 are set on the repository. Without them the job logs a warning and builds
-nothing; `cd app && npm run apk` still builds a debug APK locally.
+nothing; `cd app && npm run apk` still builds a debug APK locally. On a
+fresh fork GitHub disables workflows until they are enabled once under the
+repository's **Actions** tab.
 
 ## What it shows
 
@@ -100,7 +110,7 @@ a probability and a range rather than one number, shades a 0–90 min strip
 by likelihood in the active palette, says snow, sleet or hail when the
 dual-pol classifier does, and quotes its own measured track record
 (replayed against archived scans: it beats "same as now" at every lead,
-CSI 51 / 42 / 26 % at 15 / 30 / 60 min against 28 / 17 / 6 %). Every
+CSI 54 / 42 / 26 % at 15 / 30 / 60 min against 39 / 22 / 10 %). Every
 nowcast it issues is scored against the scans that arrive later, per pin,
 and the card quotes that live hit rate once it has enough of them. No
 forecast model, no key, no cloud call.
@@ -258,7 +268,7 @@ Three options live in `deploy/`. **Option 1 is recommended.**
 
 ```bash
 git clone https://github.com/Aryeh95/sweep.git
-cd pi-weather-station
+cd sweep
 bash deploy/install.sh
 ```
 
@@ -286,7 +296,7 @@ Each prompt shows its default in uppercase; Enter accepts it.
 
 ```bash
 git clone https://github.com/Aryeh95/sweep.git
-cd pi-weather-station
+cd sweep
 cp deploy/pi-weather-server.service ~/.config/systemd/user/
 npm install
 cd client && npm install && npm run prod && cd ..
@@ -372,6 +382,19 @@ open `https://localhost:8443/api/update-check`: `updateAvailable: false`
 with equal `localSha` / `latestSha` means there is nothing to pull on that
 branch; `error: true` with an `errorMessage` means the fetch itself failed
 (also logged in the server log).
+
+**Installs cloned before 2026-09-28** track the old `Aryeh95/pi-weather-station`
+URL, which no longer receives commits, so the checker will keep reporting
+"up to date" for ever. Repoint the remote once, on the kiosk:
+
+```bash
+cd ~/pi-weather-station        # or wherever the checkout lives
+git remote set-url origin https://github.com/Aryeh95/sweep.git
+git fetch origin && git pull --ff-only
+```
+
+The checkout directory can keep its old name; nothing in the service or
+the scripts depends on it.
 
 ## Uninstall
 

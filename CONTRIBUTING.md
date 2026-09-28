@@ -9,7 +9,7 @@ welcome.
 
 ```bash
 git clone https://github.com/Aryeh95/sweep.git
-cd pi-weather-station
+cd sweep
 npm install
 cd client && npm install && cd ..
 cp settings.example.json settings.json
