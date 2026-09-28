@@ -21,6 +21,7 @@ import {
   useMapEvents,
 } from "react-leaflet";
 import L from "leaflet";
+import { installGridLayerRedrawPatch } from "./leafletPatches";
 // Bundle Leaflet's stylesheet via webpack instead of the CDN <link>
 // that index.html used to carry. The CDN <link> + <script> were
 // failing SRI checks after unpkg shipped a re-encoded build whose
@@ -111,6 +112,10 @@ import {
   buildRadiusRingOptions,
   pointInGeometry,
 } from "./geometry";
+
+// Leaflet 1.9.4's GridLayer.redraw() keeps a fractional tile zoom, which
+// broke every basemap style switch on the free-zoom map — see leafletPatches.
+installGridLayerRedrawPatch(L);
 
 
 /* Shared empty-list default for the alert overlay components below.

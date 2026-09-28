@@ -1099,6 +1099,30 @@ values now, and `unitSystemPreset()` takes three arguments.
 
 ### Free zoom (2026-09-04)
 
+> **Leaflet 1.9.4 trap found 2026-09-28: `GridLayer.redraw()` does not
+> round the tile zoom.** `_setView` (pan / zoom / add) does
+> `Math.round(zoom)`; `redraw()` — reached through `TileLayer.setUrl()`,
+> which is what react-leaflet calls when a `url` prop changes, i.e. on
+> every dark ↔ light basemap switch — does `this._clampZoom(this._map.
+> getZoom())` and creates a tile level at 7.676…. Measured: the flip
+> requested `/api/tiles/streets-v12/6.676380220353304/29/38`; the proxy
+> `parseInt`s that to z6 and Leaflet draws it in a grid scaled by
+> 2^0.676 — on the kiosk, one uniform patch of ocean-blue with the radar
+> tiles shrunk into a corner, recovering on the next pan. Any layer
+> whose URL is swapped in place is exposed; the IEM layers are keyed by
+> stamp and remount instead, which is why only the basemap broke.
+> `WeatherMap/leafletPatches.js` replaces `redraw` with a copy that
+> resolves the zoom like `_setView` (installed at module load);
+> `test/leafletPatches.test.js` pins the rule and greps the installed
+> Leaflet for the unrounded original, so a Leaflet upgrade that fixes it
+> upstream fails the test and the patch can go. Two false leads on the
+> way, both measured and dropped: the 600/min tile limiter (a flip is
+> 15 tiles at 2000 px) and a rail-offset re-centre (the header band
+> measures identically in both themes). Also: a Playwright wheel test
+> persisted `defaultMapZoom: 18` into the sandbox's settings.json
+> through the normal 2-s debounce, and every later run opened at z18 —
+> check `advanced.display.defaultMapZoom` before trusting a repro.
+
 The map runs `zoomSnap: 0`. Leaflet's default of 1 rounds to the nearest
 whole level when a gesture ends, which on a touch screen reads as the map
 elastically springing back unless the pinch crossed half a level — the

@@ -71,7 +71,7 @@ const TOP_LEVEL_DECL_RE = /^(?:export\s+)?(?:async\s+)?(?:function\s+(\w+)\s*\(|
 // geometry, the temperature/speed conversions, and the astronomy helpers all
 // belonged to the forecast UI), and trimmed alertLogic to the government-alert
 // helpers.
-const EXPECTED_CHECK_COUNT = 54;
+const EXPECTED_CHECK_COUNT = 55;
 
 /**
  * The four copy-carrying test files and how to find their copies.
@@ -100,6 +100,11 @@ const PAIRS = [
     // Marker-delimited copy of WeatherMap/iemRadar.js — the two-layer
     // NEXRAD zoom band and frame-age classifier.
     testFile: "test/iemRadarLayers.test.js",
+  },
+  {
+    // Marker-delimited copy of the Leaflet redraw tile-zoom rule
+    // (WeatherMap/leafletPatches.js).
+    testFile: "test/leafletPatches.test.js",
   },
   {
     // Marker-delimited copy of the eventProductType classifier, used by the
@@ -370,7 +375,7 @@ test("verbatimSync: discovery found the full copied-declaration inventory", () =
   assert.equal(
     CHECKS.length,
     EXPECTED_CHECK_COUNT,
-    `expected ${EXPECTED_CHECK_COUNT} copied declarations across the seven test files, `
+    `expected ${EXPECTED_CHECK_COUNT} copied declarations across the eight test files, `
       + `found ${CHECKS.length} (${CHECKS.map((c) => c.name).join(", ")}) — `
       + "update EXPECTED_CHECK_COUNT if a copy was deliberately added/removed",
   );
