@@ -595,7 +595,7 @@ const ControlButtons = ({ labelled = false }) => {
   // localStorage-instant idiom + radarOverlaysDisabled gate as the legend
   // button. When ON and alerts are in range, a count badge coloured to
   // the worst tier present sits on the corner. Display-only — toggling
-  // never touches the banner / SenseHat / eligibility path.
+  // never touches the banner / eligibility path.
   const btnWeatherAlerts = (
     <div
       key="weatherAlerts"

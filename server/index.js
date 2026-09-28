@@ -90,8 +90,8 @@ const {
   sweepOrphanSettingsTmp,
 } = settingsCtrl;
 
-// Tighten settings.json to 0600 at startup — the file holds the API keys +
-// Homebridge credentials and must not be world-readable. Runs once on every
+// Tighten settings.json to 0600 at startup — the file holds the API keys
+// and must not be world-readable. Runs once on every
 // service start, so an existing fleet install created 0644 (before this
 // guard) self-tightens on the next restart. No-op if the file doesn't exist
 // yet (createSettingsFile writes it 0600). Mirrors the TLS-key chmod below.
@@ -531,7 +531,7 @@ const isLocalhostIp = (ip) => ip === "127.0.0.1" || ip === "::1" || ip === "::ff
 // resolves req.ip to 127.0.0.1 — impersonating localhost and bypassing
 // every localhostOnly gate (and unmasking GET /settings). Confirmed
 // with a faithful repro 2026-05-29: socket peer 192.168.x.x + that
-// header → req.ip 127.0.0.1 → full API keys + Homebridge creds returned.
+// header → req.ip 127.0.0.1 → full API keys returned.
 //
 // `req.socket.remoteAddress` is the kernel-level connection origin and
 // cannot be forged by an HTTP header. Both documented remote-access

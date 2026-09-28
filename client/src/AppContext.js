@@ -52,7 +52,7 @@ export const AppActionsContext = createContext(null);
 /**
  * System slice — field domain: server/platform facts (API key values,
  * isLocal, remoteSecurityEnabled, debugEnabled, serverPlatform,
- * isSystemd), brightness + sleep + Sense HAT hardware
+ * isSystemd), brightness + sleep hardware
  * state, in-app updater state, and global panel/layout flags (settings
  * + debug menus, the radar-maximized sentinels).
  * Update cadence: a burst at boot while settings, /api/is-local and
@@ -221,16 +221,6 @@ const HIDE_RADAR_LEGEND_STORAGE_KEY = "hideRadarLegend";
 export function AppContextProvider({ children }) {
   const [mapApiKey, setMapApiKey] = useState(null);
   const [reverseGeoApiKey, setReverseGeoApiKey] = useState(null);
-  // AirNow API key — drives the EPA AirNow source in /api/air-quality.
-  // The badge silently falls through to the next source when this is
-  // unset (so a Canadian-only install pays nothing for it). Lifted to
-  // AppContext only so the Settings panel can write it back via
-  // saveSettingsToJson; nothing else in the client reads the value
-  // directly.
-  // OpenAQ API key — drives the global air-quality fallback. Same
-  // skip-when-unset semantics as airNowApiKey; only material for
-  // kiosks outside the AirNow + Canadian-MELCC + ECCC footprint
-  // (i.e. anywhere outside US + Canada).
   // Seeded from the last position on app builds, so the very first render
   // already has coordinates and the map draws immediately.
   const [browserGeo, setBrowserGeo] = useState(() => (__STANDALONE__ ? readLastPosition() : null));
@@ -571,8 +561,6 @@ export function AppContextProvider({ children }) {
     fontSize, saveFontSize,
   } = useUiPreferences();
 
-  // Sense HAT display-mode toggle — server side probes `import sense_hat`
- 
   // Map zoom — three pieces of state working together:
   //   - defaultMapZoom : the user's preferred starting zoom, used on next mount
   //                      (Leaflet's MapContainer reads `zoom` only on init).

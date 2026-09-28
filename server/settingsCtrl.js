@@ -5,8 +5,8 @@ const SETTINGS_FILE = "../settings.json";
 const FILE_PATH = path.join(`${__dirname}/${SETTINGS_FILE}`);
 const ENCODING = "utf8";
 
-// settings.json holds the six API keys plus the indoorTemperature block
-// (Homebridge host + credentials), so it must never be world-readable.
+// settings.json holds the API keys (Mapbox, LocationIQ), so it must never be
+// world-readable.
 // Every write below passes this mode so a freshly CREATED file is 0600 from
 // the start; ensureSecurePermissions() re-tightens a file that already
 // exists with looser bits (a fleet install created 0644 before this guard).
@@ -34,13 +34,15 @@ function ensureSecurePermissions(filePath = FILE_PATH) {
   }
 }
 
+// The keys of features removed in the August 2026 radar rework
+// (`weatherApiKey` for Tomorrow.io, `anthropicApiKey`, `airNowApiKey`,
+// `openAqApiKey`, the Homebridge `indoorTemperature` block) are deliberately
+// NOT here: nothing reads them, and accepting them let a stale settings.json
+// look configured. A file that still carries them loses them on its next
+// write, which is the intended cleanup.
 const ALLOWED_KEYS = new Set([
-  "weatherApiKey", "mapApiKey", "reverseGeoApiKey", "anthropicApiKey", "airNowApiKey", "openAqApiKey",
+  "mapApiKey", "reverseGeoApiKey",
   "startingLat", "startingLon",
-  // Indoor temperature integration via Homebridge — opaque sub-object
-  // (homebridgeUrl, username, password, sensorName, enabled). Stripped from
-  // remote /settings responses to avoid leaking the password.
-  "indoorTemperature",
   // Advanced settings — opaque sub-object grouped by feature area, e.g.
   // advanced.ai.{extendedRadius, showSamplingPoints}. Default behavior when
   // absent matches the v2.6 baseline.
@@ -57,15 +59,15 @@ const ALLOWED_KEYS = new Set([
 ]);
 
 const API_KEY_FIELDS = new Set([
-  "weatherApiKey", "mapApiKey", "reverseGeoApiKey", "anthropicApiKey", "airNowApiKey", "openAqApiKey",
+  "mapApiKey", "reverseGeoApiKey",
 ]);
 
 // Top-level keys whose value is a structured sub-object that may contain
 // secrets (passwords, etc.) — entirely stripped from /settings responses to
-// remote clients. Local clients still see the full content.
-const REMOTE_HIDDEN_KEYS = new Set([
-  "indoorTemperature",
-]);
+// remote clients. Local clients still see the full content. Empty since the
+// Homebridge `indoorTemperature` block went; kept as the documented place for
+// the next secret-bearing sub-object, so the masking path stays exercised.
+const REMOTE_HIDDEN_KEYS = new Set([]);
 
 // Favorite-locations bounds. MAX_FAVORITES is enforced here as well as in the
 // client hook: the client cap is the UX affordance ("list full"), this one is
@@ -98,8 +100,8 @@ function round4(n) {
  * a finite, in-range coordinate. Without this guard a favorite carrying
  * `lon: null` would be accepted and quietly pinned to the Gulf of Guinea
  * instead of being rejected. Numeric STRINGS are still accepted on purpose:
- * settings.json legitimately stores coordinates as strings (sensehatCtrl
- * parseFloat()s `startingLat` for exactly that reason).
+ * settings.json legitimately stores coordinates as strings (install.sh
+ * writes the prompt answers verbatim).
  *
  * @param {*} v untrusted value
  * @returns {number|null} the number, or null when the input is not a
@@ -155,7 +157,7 @@ function sanitizeFavorites(val) {
 // The whitelist alone only answers "may this key exist?"; for keys whose shape
 // the server actually depends on, this answers "is the value well-formed?".
 // Keys absent from this table keep their value verbatim (the opaque
-// sub-objects, `advanced` and `indoorTemperature`, deliberately stay that way).
+// sub-object `advanced` deliberately stays that way).
 /**
  * Coerce a radar-site override to its 3-letter IEM form, or "" for
  * "automatic". Accepts `lwx`, `LWX` or `KLWX`; anything else is treated
@@ -221,9 +223,9 @@ function sanitizeSettings(obj) {
  *      and so still passes; if it carries a secret it must ALSO be added to
  *      API_KEY_FIELDS or REMOTE_HIDDEN_KEYS. Default-deny guards the unknown-
  *      key case, not the new-whitelisted-secret case.)
- *   1. Top-level keys in REMOTE_HIDDEN_KEYS (e.g. `indoorTemperature`) are
- *      stripped entirely — host / credentials are not even masked, the
- *      subtree is simply absent from the response.
+ *   1. Top-level keys in REMOTE_HIDDEN_KEYS are stripped entirely — not
+ *      even masked, the subtree is simply absent from the response. (Empty
+ *      today; it held the Homebridge credentials block.)
  *   2. API key fields are replaced with a boolean (true when set, false
  *      otherwise) so the remote sees whether a key is configured without
  *      ever receiving the value.
@@ -315,37 +317,6 @@ function getSettings(req, res) {
  * @param {Object} req
  * @param {Object} res
  */
-/**
- * When PATCHing the whole `advanced` blob, splice the server-owned
- * `advanced.sensehat` sub-block back in if the incoming payload omits it.
- *
- * `advanced.sensehat` (display mode + clock/radar brightness) is owned
- * exclusively by the Sense HAT endpoints (sensehatModeCtrl.persistSensehat),
- * not the client's advanced-settings form. The client rebuilds the whole
- * `advanced` blob from React state via buildAdvancedSubtree(), which has no
- * `sensehat` section — so a naive `{...current, advanced: val}` replace wipes
- * it. Observed live: toggling "sampling points" while in Radar mode reset the
- * Sense HAT to Weather (resolveMode fell back to its default) and cleared the
- * saved brightness values. Pure so it can be unit-tested.
- *
- * @param {object} currentSettings existing settings.json contents
- * @param {string} key the PATCHed top-level key
- * @param {*} val the incoming value for `key`
- * @returns {*} the value to write — sensehat spliced back in when applicable
- */
-function preserveServerOwnedAdvanced(currentSettings, key, val) {
-  if (key !== "advanced" || !val || typeof val !== "object" || val.sensehat) {
-    return val;
-  }
-  const existingSensehat = currentSettings
-    && currentSettings.advanced
-    && currentSettings.advanced.sensehat;
-  if (existingSensehat && typeof existingSensehat === "object") {
-    return { ...val, sensehat: existingSensehat };
-  }
-  return val;
-}
-
 function setSetting(req, res) {
   // `req.body` is undefined when the JSON body-parser didn't match (wrong
   // content-type / empty body) — destructure defensively so a malformed
@@ -395,7 +366,7 @@ function setSetting(req, res) {
       // path that can plant an arbitrarily-shaped value under a whitelisted
       // key — caught by an end-to-end curl, invisible to a unit test of the
       // pure helper.
-      [key]: sanitizeValue(key, preserveServerOwnedAdvanced(currentSettings, key, val)),
+      [key]: sanitizeValue(key, val),
     };
     writeContents(newSettings);
   };
@@ -429,8 +400,8 @@ function replaceSettings(req, res) {
 
   // Preserve top-level subtrees that aren't in the body. The v2
   // Settings panel only sends API keys + lat/lon on save, so a
-  // naive full replace silently wiped `advanced` (Direction C
-  // preview flag, AI flags, sleep mode, etc.) and `indoorTemperature`.
+  // naive full replace silently wiped `advanced` (display, sleep
+  // mode, radar palette, etc.), `favorites` and `radarSite`.
   // Merge: keep the body's keys, plus any whitelisted top-level
   // key from the current file that the body didn't touch.
   const finalize = (existing) => {
@@ -537,58 +508,29 @@ function getSettingsData() {
   });
 }
 
-// Serialised internal write chain. Internal (non-HTTP) settings writes —
-// e.g. the Sense HAT mode/brightness patches that used to write settings.json
-// directly from sensehatModeCtrl with raw `fs` — go through this so they
-// can't interleave their read-modify-write with each other, and so
-// settings.json has exactly one owning module (this one), per the CLAUDE.md
-// rule. (The HTTP handlers above remain the API's own writers; the data-loss
-// case where an advanced-blob PATCH races a sensehat write is handled on the
-// read side by preserveServerOwnedAdvanced.)
-let writeChain = Promise.resolve();
-
-/**
- * Run an async read-modify-write under the internal write lock so internal
- * mutations serialise instead of racing. A failed task is isolated so it
- * doesn't poison the chain for the next caller.
- *
- * @param {Function} task async function performing the mutation
- * @returns {Promise}
- */
-function serializeWrite(task) {
-  const run = writeChain.then(task, task);
-  writeChain = run.then(() => {}, () => {});
-  return run;
-}
-
 /**
  * Atomic write of the full settings object, with the secure file mode.
  *
  * Serialises into a sibling `.tmp` file (created 0600 from birth),
  * fsyncs so the bytes are physically on the SD card, then rename()s
  * over the target — an atomic operation on the same filesystem.
- * Readers (including the Python Sense HAT daemons, which re-read
- * settings.json on a ~1 s cadence for the live brightness sliders) and
- * a mid-write power cut therefore see either the old complete file or
- * the new complete file, never a truncated half-write. This matters:
- * settings.json holds every API key plus the Homebridge credentials,
- * and a torn write on a power-loss-prone Pi meant a deconfigured
- * kiosk. (2026-06 quality audit + the ROADMAP tech-debt item from
+ * Readers and a mid-write power cut therefore see either the old
+ * complete file or the new complete file, never a truncated half-write.
+ * This matters: settings.json holds the API keys, and a torn write on a
+ * power-loss-prone Pi meant a deconfigured kiosk. (2026-06 quality audit + the ROADMAP tech-debt item from
  * #212 — one fix closes both findings.)
  *
- * Failure hygiene: the tmp file holds a FULL settings copy (API keys +
- * Homebridge credentials), so the error path removes it before
+ * Failure hygiene: the tmp file holds a FULL settings copy (API keys
+ * included), so the error path removes it before
  * rethrowing, and sweepOrphanSettingsTmp() purges at startup whatever a
  * crash mid-write (SIGKILL, power cut) left behind. Both best-effort;
  * the tmp is 0600 from birth and gitignored either way.
  *
  * The tmp name carries a per-process sequence number: the HTTP write
- * handlers do NOT go through serializeWrite (only internal writes do,
- * see #208 — and nesting serializeWrite here would deadlock the
- * patchAdvancedSubKey path that already runs inside it), so two
- * concurrent writes sharing one fixed tmp path could truncate each
- * other mid-write and rename a torn file. Distinct tmp names make
- * each write self-contained; last rename wins, both files complete.
+ * handlers are not serialised against each other, so two concurrent
+ * writes sharing one fixed tmp path could truncate each other mid-write
+ * and rename a torn file. Distinct tmp names make each write
+ * self-contained; last rename wins, both files complete.
  *
  * @param {Object} obj settings to persist
  * @param {String} [filePath] target path (injectable for unit tests)
@@ -659,56 +601,6 @@ function writeSettingsFileCb(obj, cb) {
   writeSettingsFile(obj).then(() => cb(null), cb);
 }
 
-/**
- * Pure merge: produce the next settings object with `patch` merged into
- * `advanced.<subKey>`. The current object is run through `sanitizeSettings`
- * (so only whitelisted top-level keys survive) and only keys present in
- * `patch` are changed — sibling advanced subtrees and other sensehat keys are
- * preserved. Exported for unit testing; the I/O lives in patchAdvancedSubKey.
- *
- * @param {Object} current current settings
- * @param {String} subKey advanced sub-object name, e.g. "sensehat"
- * @param {Object} patch partial values to merge
- * @returns {Object} the next settings object
- */
-function mergeAdvancedSubKey(current, subKey, patch) {
-  const sanitized = sanitizeSettings(current || {});
-  const advanced = (sanitized.advanced && typeof sanitized.advanced === "object")
-    ? { ...sanitized.advanced }
-    : {};
-  const sub = (advanced[subKey] && typeof advanced[subKey] === "object")
-    ? { ...advanced[subKey] }
-    : {};
-  Object.assign(sub, patch);
-  advanced[subKey] = sub;
-  return { ...sanitized, advanced };
-}
-
-/**
- * Merge a partial patch into `advanced.<subKey>` of settings.json and persist
- * it, serialised against other internal writes. This is the single owning-
- * module entry point for the Sense HAT mode/brightness patches (previously a
- * raw-`fs` writer in sensehatModeCtrl that bypassed the whitelist + file-mode
- * discipline and was a second, unsynchronised writer).
- *
- * @param {String} subKey advanced sub-object name, e.g. "sensehat"
- * @param {Object} patch partial values to merge, e.g. { mode: "clock" }
- * @returns {Promise<Object>} the persisted settings object
- */
-function patchAdvancedSubKey(subKey, patch) {
-  return serializeWrite(async () => {
-    let current = {};
-    try {
-      current = await getSettingsData();
-    } catch {
-      current = {};
-    }
-    const next = mergeAdvancedSubKey(current, subKey, patch);
-    await writeSettingsFile(next);
-    return next;
-  });
-}
-
 module.exports = {
   getSettings,
   setSetting,
@@ -718,7 +610,6 @@ module.exports = {
   getSettingsData,
   ensureSecurePermissions,
   sweepOrphanSettingsTmp,
-  patchAdvancedSubKey,
   // Exported for regression testing only — internal helpers, not part of
   // the public surface. See test/settingsCtrl.test.js.
   __test: {
@@ -729,11 +620,7 @@ module.exports = {
     MAX_FAVORITES,
     MAX_LABEL_LEN,
     maskForRemote,
-    preserveServerOwnedAdvanced,
     ensureSecurePermissions,
-    patchAdvancedSubKey,
-    mergeAdvancedSubKey,
-    serializeWrite,
     writeSettingsFile,
     sweepOrphanSettingsTmp,
     FILE_MODE,

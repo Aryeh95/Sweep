@@ -59,19 +59,6 @@ four autostart paths (labwc / wayfire / LXDE-pi / XDG) in `install.sh` and
 `uninstall.sh` and inject the Wayland environment. Deferred for blast
 radius, not difficulty.
 
-### 🧹 Installer cleanup
-`deploy/install.sh` still prompts for a Tomorrow.io key and a Sense HAT,
-carries the Homebridge probe, and ships `pi-sensehat*.service`. Remove the
-dead phases and the two unit files. Keep the on-disk `pi-weather-*`
-identifiers (service, config dir, log path) — existing installs and the
-updater's drift check depend on them.
-
-### 🔧 Settings allow-list trim
-`server/settingsCtrl.js` still accepts `weatherApiKey`, `anthropicApiKey`,
-`airNowApiKey`, `openAqApiKey` and `indoorTemperature`. Nothing reads them.
-Drop them (and the `REMOTE_HIDDEN_KEYS` entry) so a stale `settings.json`
-cannot look configured. One-line change plus tests.
-
 ### ❤️ Health classifier
 LocationIQ is optional but listed critical in `healthCtrl.js`; a failing
 geocoder paints the dot red. Move it to non-critical. Also add an Express

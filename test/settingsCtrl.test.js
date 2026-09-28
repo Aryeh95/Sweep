@@ -7,12 +7,15 @@
 //     client) from writing arbitrary keys into settings.json on a PATCH
 //     or PUT. Drop the gate by accident and any caller can plant fields
 //     the server will then read back as settings.
-//   - maskForRemote is the gate that prevents secrets (API keys, the
-//     `indoorTemperature` sub-object with Homebridge host + password)
-//     from leaving the server when a remote client polls GET /settings.
-//     CLAUDE.md is explicit: "host/credentials are not even masked" —
-//     the indoorTemperature subtree must be entirely absent from the
-//     remote response, not merely null-ed or boolean-ed.
+//   - maskForRemote is the gate that prevents secrets (the API keys, and
+//     any sub-object listed in REMOTE_HIDDEN_KEYS) from leaving the server
+//     when a remote client polls GET /settings. A hidden subtree must be
+//     entirely absent from the remote response, not merely null-ed or
+//     boolean-ed.
+//   - The keys of removed features (Tomorrow.io, Anthropic, AirNow, OpenAQ,
+//     the Homebridge indoorTemperature block) must be REJECTED, not merely
+//     unused: while they were still allow-listed a stale settings.json
+//     looked configured for features that no longer exist.
 //
 // Both helpers are pure and exported via the controller's `__test`
 // surface — same pattern as radarAnalyzerCtrl and aiSummaryCtrl.
@@ -24,22 +27,19 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { __test } = require("../server/settingsCtrl");
-const { sanitizeSettings, maskForRemote, preserveServerOwnedAdvanced, ensureSecurePermissions, mergeAdvancedSubKey, serializeWrite, writeSettingsFile, sweepOrphanSettingsTmp, FILE_MODE, ALLOWED_KEYS, API_KEY_FIELDS, REMOTE_HIDDEN_KEYS } = __test;
+const { sanitizeSettings, maskForRemote, ensureSecurePermissions, writeSettingsFile, sweepOrphanSettingsTmp, FILE_MODE, ALLOWED_KEYS, API_KEY_FIELDS, REMOTE_HIDDEN_KEYS } = __test;
 
 // === sanitizeSettings: the input whitelist ===
 
 test("sanitizeSettings: passes through every allowed key", () => {
   const input = {
-    weatherApiKey: "abc",
     mapApiKey: "def",
     reverseGeoApiKey: "ghi",
-    anthropicApiKey: "jkl",
-    airNowApiKey: "mno",
-    openAqApiKey: "pqr",
     startingLat: 45.5,
     startingLon: -73.5,
-    indoorTemperature: { enabled: true, host: "homebridge.local" },
-    advanced: { ai: { extendedRadius: true } },
+    radarSite: "LWX",
+    favorites: [],
+    advanced: { display: { radarPalette: "scope" } },
   };
   const out = sanitizeSettings(input);
   for (const k of Object.keys(input)) {
@@ -60,14 +60,30 @@ test("sanitizeSettings: radarSite is coerced to its 3-letter IEM form or blank",
   assert.equal(sanitizeSettings({ radarSite: 42 }).radarSite, "");
 });
 
+test("sanitizeSettings: keys of removed features are dropped, not stored", () => {
+  // Tomorrow.io, the Claude summary, air quality and the Homebridge indoor
+  // sensor all went in the August 2026 radar rework. Their keys used to be
+  // allow-listed "for backward compatibility"; that only let an old
+  // settings.json keep looking configured.
+  const out = sanitizeSettings({
+    mapApiKey: "kept",
+    weatherApiKey: "tomorrow-io",
+    anthropicApiKey: "claude",
+    airNowApiKey: "airnow",
+    openAqApiKey: "openaq",
+    indoorTemperature: { enabled: true, homebridgeUrl: "http://homebridge.local:8581", password: "p" },
+  });
+  assert.deepEqual(out, { mapApiKey: "kept" });
+});
+
 test("sanitizeSettings: drops unknown keys silently", () => {
   const out = sanitizeSettings({
-    weatherApiKey: "kept",
+    mapApiKey: "kept",
     __proto__pollution: "evil",
     rogueKey: 123,
     "../../../etc/passwd": "nope",
   });
-  assert.equal(out.weatherApiKey, "kept");
+  assert.equal(out.mapApiKey, "kept");
   assert.ok(!("__proto__pollution" in out));
   assert.ok(!("rogueKey" in out));
   assert.ok(!("../../../etc/passwd" in out));
@@ -81,7 +97,7 @@ test("sanitizeSettings: null / undefined / non-object input → {}", () => {
 });
 
 test("sanitizeSettings: array input → {} (arrays are typeof 'object' but rejected)", () => {
-  assert.deepEqual(sanitizeSettings([{ weatherApiKey: "x" }]), {});
+  assert.deepEqual(sanitizeSettings([{ mapApiKey: "x" }]), {});
 });
 
 test("sanitizeSettings: empty object → {}", () => {
@@ -90,36 +106,30 @@ test("sanitizeSettings: empty object → {}", () => {
 
 test("sanitizeSettings: mixed allowed + unknown keys keeps only allowed", () => {
   const out = sanitizeSettings({
-    weatherApiKey: "kept",
+    mapApiKey: "kept",
     nope: "dropped",
     startingLat: 0,
     moreNope: { nested: "also dropped" },
   });
-  assert.deepEqual(out, { weatherApiKey: "kept", startingLat: 0 });
+  assert.deepEqual(out, { mapApiKey: "kept", startingLat: 0 });
 });
 
 // === maskForRemote: the remote-client safety layer ===
 
 test("maskForRemote: every API key field becomes a boolean reflecting truthiness", () => {
-  const out = maskForRemote({
-    weatherApiKey: "real-key",
-    mapApiKey: "",
-    reverseGeoApiKey: null,
-    anthropicApiKey: "another-real-key",
-    airNowApiKey: undefined,
-    openAqApiKey: "x",
-  });
-  assert.equal(out.weatherApiKey, true);
-  assert.equal(out.mapApiKey, false);
-  assert.equal(out.reverseGeoApiKey, false);
-  assert.equal(out.anthropicApiKey, true);
-  assert.equal(out.airNowApiKey, false);
-  assert.equal(out.openAqApiKey, true);
+  assert.deepEqual(maskForRemote({ mapApiKey: "real-key", reverseGeoApiKey: null }),
+    { mapApiKey: true, reverseGeoApiKey: false });
+  assert.deepEqual(maskForRemote({ mapApiKey: "", reverseGeoApiKey: "x" }),
+    { mapApiKey: false, reverseGeoApiKey: true });
+  assert.deepEqual(maskForRemote({ mapApiKey: undefined }), { mapApiKey: false });
 });
 
-test("maskForRemote: indoorTemperature subtree is entirely absent — not masked, stripped", () => {
+test("maskForRemote: a removed feature's credentials block never reaches a remote client", () => {
+  // Left over in an old settings.json from the Homebridge integration.
+  // It is no longer allow-listed, so default-deny drops it — the subtree
+  // is absent, not masked.
   const out = maskForRemote({
-    weatherApiKey: "x",
+    mapApiKey: "x",
     indoorTemperature: {
       enabled: true,
       host: "homebridge.local",
@@ -128,11 +138,7 @@ test("maskForRemote: indoorTemperature subtree is entirely absent — not masked
       sensorName: "Living Room",
     },
   });
-  // CLAUDE.md contract: "host/credentials are not even masked — the
-  // indoorTemperature subtree must be entirely absent from the remote
-  // response, not merely null-ed or boolean-ed."
   assert.ok(!("indoorTemperature" in out));
-  // Nothing about it leaks through the key itself either.
   const serialised = JSON.stringify(out);
   assert.ok(!serialised.includes("homebridge.local"));
   assert.ok(!serialised.includes("super-secret"));
@@ -151,15 +157,13 @@ test("maskForRemote: lat / lon pass through unchanged (not secrets)", () => {
 test("maskForRemote: `advanced` subtree passes through unchanged (no secrets)", () => {
   const out = maskForRemote({
     advanced: {
-      ai: { extendedRadius: true, showSamplingPoints: false },
+      display: { radarPalette: "scope", radarOpacity: 0.7 },
       sleep: { stage1Delay: 5 },
-      experimental: { uiC: false },
     },
   });
   assert.deepEqual(out.advanced, {
-    ai: { extendedRadius: true, showSamplingPoints: false },
+    display: { radarPalette: "scope", radarOpacity: 0.7 },
     sleep: { stage1Delay: 5 },
-    experimental: { uiC: false },
   });
 });
 
@@ -171,7 +175,7 @@ test("maskForRemote: default-deny — an unknown top-level key never reaches a r
   // and still passes; that's the case API_KEY_FIELDS / REMOTE_HIDDEN_KEYS
   // exist to handle.)
   const out = maskForRemote({
-    weatherApiKey: "secret-value",
+    mapApiKey: "secret-value",
     rogueSecret: "should-never-appear",
     debugToken: "also-secret",
     startingLat: 45.5,
@@ -179,7 +183,7 @@ test("maskForRemote: default-deny — an unknown top-level key never reaches a r
   assert.ok(!("rogueSecret" in out));
   assert.ok(!("debugToken" in out));
   // Known keys still behave: API key booleanised, lat passes through.
-  assert.equal(out.weatherApiKey, true);
+  assert.equal(out.mapApiKey, true);
   assert.equal(out.startingLat, 45.5);
 });
 
@@ -203,6 +207,8 @@ test("maskForRemote: empty object → empty object", () => {
 });
 
 test("maskForRemote: realistic full-settings input — full strip + mask roundtrip", () => {
+  // An old kiosk's file: the live keys plus everything the August 2026
+  // rework stopped reading.
   const full = {
     weatherApiKey: "wak-123",
     mapApiKey: "mak-456",
@@ -212,6 +218,7 @@ test("maskForRemote: realistic full-settings input — full strip + mask roundtr
     openAqApiKey: "oaq-000",
     startingLat: 45.5,
     startingLon: -73.5,
+    radarSite: "KLWX",
     indoorTemperature: {
       enabled: true,
       host: "homebridge.local",
@@ -220,38 +227,37 @@ test("maskForRemote: realistic full-settings input — full strip + mask roundtr
       password: "p4ssw0rd",
       sensorName: "Salon",
     },
-    advanced: { ai: { extendedRadius: true } },
+    advanced: { display: { radarPalette: "nws" } },
   };
   const out = maskForRemote(full);
 
-  // Booleans where real keys were configured
-  assert.equal(out.weatherApiKey, true);
-  assert.equal(out.mapApiKey, true);
-  assert.equal(out.anthropicApiKey, true);
-  assert.equal(out.openAqApiKey, true);
-  // Booleans (false) where keys were empty / unset
-  assert.equal(out.reverseGeoApiKey, false);
-  assert.equal(out.airNowApiKey, false);
-  // Non-secret data passes through
-  assert.equal(out.startingLat, 45.5);
-  assert.equal(out.startingLon, -73.5);
-  assert.deepEqual(out.advanced, { ai: { extendedRadius: true } });
-  // The secrets-bearing subtree is gone
-  assert.ok(!("indoorTemperature" in out));
+  assert.deepEqual(out, {
+    // Booleans where the live keys were configured / empty
+    mapApiKey: true,
+    reverseGeoApiKey: false,
+    // Non-secret data passes through (radarSite coerced to its IEM form)
+    startingLat: 45.5,
+    startingLon: -73.5,
+    radarSite: "LWX",
+    advanced: { display: { radarPalette: "nws" } },
+    // The removed features' keys and the credentials block are gone
+  });
+  assert.ok(!JSON.stringify(out).includes("p4ssw0rd"));
 });
 
 // === Sanity checks on the Sets themselves ===
 
-test("ALLOWED_KEYS includes all current top-level setting keys", () => {
-  const expected = [
-    "weatherApiKey", "mapApiKey", "reverseGeoApiKey", "anthropicApiKey",
-    "airNowApiKey", "openAqApiKey",
+test("ALLOWED_KEYS is exactly the current top-level setting keys", () => {
+  assert.deepEqual([...ALLOWED_KEYS].sort(), [
+    "advanced", "favorites", "mapApiKey", "radarSite", "reverseGeoApiKey",
     "startingLat", "startingLon",
-    "indoorTemperature",
-    "advanced",
-  ];
-  for (const k of expected) {
-    assert.ok(ALLOWED_KEYS.has(k), `ALLOWED_KEYS missing expected key "${k}"`);
+  ]);
+});
+
+test("ALLOWED_KEYS rejects the keys of removed features", () => {
+  for (const k of ["weatherApiKey", "anthropicApiKey", "airNowApiKey", "openAqApiKey", "indoorTemperature"]) {
+    assert.ok(!ALLOWED_KEYS.has(k), `"${k}" belongs to a removed feature and must not be accepted`);
+    assert.ok(!API_KEY_FIELDS.has(k));
   }
 });
 
@@ -263,103 +269,15 @@ test("API_KEY_FIELDS is a subset of ALLOWED_KEYS", () => {
   }
 });
 
-test("REMOTE_HIDDEN_KEYS includes indoorTemperature (Homebridge credentials)", () => {
-  assert.ok(REMOTE_HIDDEN_KEYS.has("indoorTemperature"));
-});
-
-// === preserveServerOwnedAdvanced: don't let a client advanced-PATCH wipe ===
-// === the Sense HAT mode/brightness the sensehat endpoints own.            ===
-//
-// Regression for the live bug: in Radar mode, toggling "sampling points"
-// (advanced.ai.showSamplingPoints) PATCHed the whole `advanced` blob rebuilt
-// from React state, which has no `sensehat` section — wiping advanced.sensehat
-// so resolveMode fell back to "weather" and the Sense HAT switched display.
-
-test("preserveServerOwnedAdvanced: splices existing sensehat into a client advanced PATCH", () => {
-  const current = { advanced: { sensehat: { mode: "radar", radarBrightness: 40 }, ai: { extendedRadius: false } } };
-  const incoming = { ai: { showSamplingPoints: true }, display: {} }; // client blob — no sensehat
-  const out = preserveServerOwnedAdvanced(current, "advanced", incoming);
-  assert.deepEqual(out.sensehat, { mode: "radar", radarBrightness: 40 });
-  assert.equal(out.ai.showSamplingPoints, true); // client section still applied
-});
-
-test("preserveServerOwnedAdvanced: keeps an explicit sensehat in the payload (no override)", () => {
-  const current = { advanced: { sensehat: { mode: "radar" } } };
-  const incoming = { sensehat: { mode: "clock" }, ai: {} };
-  const out = preserveServerOwnedAdvanced(current, "advanced", incoming);
-  assert.equal(out.sensehat.mode, "clock"); // caller-supplied sensehat wins
-});
-
-test("preserveServerOwnedAdvanced: no-op when there's no existing sensehat", () => {
-  const current = { advanced: { ai: {} } };
-  const incoming = { ai: { showSamplingPoints: true } };
-  const out = preserveServerOwnedAdvanced(current, "advanced", incoming);
-  assert.ok(!("sensehat" in out));
-});
-
-test("preserveServerOwnedAdvanced: ignores keys other than 'advanced'", () => {
-  const current = { advanced: { sensehat: { mode: "radar" } } };
-  assert.equal(preserveServerOwnedAdvanced(current, "weatherApiKey", "abc"), "abc");
-});
-
-// === mergeAdvancedSubKey: the pure merge behind patchAdvancedSubKey (the
-// single owning-module path that replaced sensehatModeCtrl's raw-fs writer) ===
-
-test("mergeAdvancedSubKey: only patched keys change; other sensehat keys persist", () => {
-  const current = { advanced: { sensehat: { mode: "radar", clockBrightness: 20, radarBrightness: 80 } } };
-  const out = mergeAdvancedSubKey(current, "sensehat", { mode: "clock" });
-  assert.deepEqual(out.advanced.sensehat, { mode: "clock", clockBrightness: 20, radarBrightness: 80 });
-});
-
-test("mergeAdvancedSubKey: sibling advanced subtrees are preserved", () => {
-  const current = { advanced: { ai: { extendedRadius: true }, sensehat: { mode: "weather" } } };
-  const out = mergeAdvancedSubKey(current, "sensehat", { mode: "radar" });
-  assert.deepEqual(out.advanced.ai, { extendedRadius: true });
-  assert.equal(out.advanced.sensehat.mode, "radar");
-});
-
-test("mergeAdvancedSubKey: creates advanced / sub-object when absent", () => {
-  assert.deepEqual(mergeAdvancedSubKey({}, "sensehat", { mode: "clock" }), { advanced: { sensehat: { mode: "clock" } } });
-  assert.deepEqual(mergeAdvancedSubKey({ advanced: {} }, "sensehat", { clockBrightness: 50 }), { advanced: { sensehat: { clockBrightness: 50 } } });
-});
-
-test("mergeAdvancedSubKey: unknown top-level keys are dropped (sanitized on the way out)", () => {
-  const current = { advanced: { sensehat: {} }, rogueKey: "leak", weatherApiKey: "k" };
-  const out = mergeAdvancedSubKey(current, "sensehat", { mode: "auto" });
-  assert.ok(!("rogueKey" in out));
-  assert.equal(out.weatherApiKey, "k"); // whitelisted key kept
-  assert.equal(out.advanced.sensehat.mode, "auto");
-});
-
-test("mergeAdvancedSubKey: does not mutate the input object", () => {
-  const current = { advanced: { sensehat: { mode: "radar" } } };
-  const snapshot = JSON.parse(JSON.stringify(current));
-  mergeAdvancedSubKey(current, "sensehat", { mode: "clock" });
-  assert.deepEqual(current, snapshot);
-});
-
-// === serializeWrite: internal writes run one-at-a-time (no interleaved
-// read-modify-write race between concurrent sensehat patches) ===
-
-test("serializeWrite: queued tasks run sequentially in submission order", async () => {
-  const order = [];
-  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-  const t1 = serializeWrite(async () => { order.push("1-start"); await delay(15); order.push("1-end"); });
-  const t2 = serializeWrite(async () => { order.push("2-start"); await delay(1); order.push("2-end"); });
-  await Promise.all([t1, t2]);
-  // t2 must not start until t1 has fully finished.
-  assert.deepEqual(order, ["1-start", "1-end", "2-start", "2-end"]);
-});
-
-test("serializeWrite: a rejecting task doesn't poison the chain for the next", async () => {
-  await assert.rejects(serializeWrite(async () => { throw new Error("boom"); }));
-  const out = await serializeWrite(async () => "ok");
-  assert.equal(out, "ok");
+test("REMOTE_HIDDEN_KEYS is a subset of ALLOWED_KEYS (a hidden key that is not allowed is dead)", () => {
+  for (const k of REMOTE_HIDDEN_KEYS) {
+    assert.ok(ALLOWED_KEYS.has(k), `hidden key "${k}" should also be allowed`);
+  }
 });
 
 // === ensureSecurePermissions: settings.json must be owner-only (0600) ===
-// The file holds the six API keys + the Homebridge credentials, so any other
-// local account being able to read it is the vulnerability this closes.
+// The file holds the API keys, so any other local account being able to
+// read it is the vulnerability this closes.
 
 test("FILE_MODE is 0600 (owner read/write only)", () => {
   assert.equal(FILE_MODE, 0o600);
@@ -394,9 +312,9 @@ test("ensureSecurePermissions: a non-existent path is a silent no-op (no throw)"
 test("writeSettingsFile: atomic write — content, 0600 mode, no .tmp leftover", async () => {
   const target = path.join(os.tmpdir(), `settings-atomic-${process.pid}-${Date.now()}.json`);
   try {
-    await writeSettingsFile({ weatherApiKey: "abc", startingLat: "45.5" }, target);
+    await writeSettingsFile({ mapApiKey: "abc", startingLat: "45.5" }, target);
     const parsed = JSON.parse(fs.readFileSync(target, "utf8"));
-    assert.deepEqual(parsed, { weatherApiKey: "abc", startingLat: "45.5" });
+    assert.deepEqual(parsed, { mapApiKey: "abc", startingLat: "45.5" });
     assert.equal(fs.statSync(target).mode & 0o777, FILE_MODE);
     const dir = path.dirname(target);
     const leftovers = fs.readdirSync(dir).filter((f) => f.startsWith(`${path.basename(target)}.`) && f.endsWith(".tmp"));
@@ -425,7 +343,7 @@ test("writeSettingsFile: a failed rename removes its tmp file (no secrets strand
   const target = path.join(dir, "settings.json");
   fs.mkdirSync(target); // rename(file -> existing directory) fails
   try {
-    await assert.rejects(() => writeSettingsFile({ weatherApiKey: "secret" }, target));
+    await assert.rejects(() => writeSettingsFile({ mapApiKey: "secret" }, target));
     const leftovers = fs.readdirSync(dir).filter((f) => f.endsWith(".tmp"));
     assert.deepEqual(leftovers, [], "the error path must clean up its tmp file");
   } finally {

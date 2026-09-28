@@ -49,11 +49,11 @@ function sortBySeverity(alerts) {
 /**
  * Default-hide test/exercise alerts (CAP status !== "Actual", tagged `isTest`
  * by the source). This is the single gate every consumer shares — it lives at
- * the orchestrator, NOT at an HTTP endpoint, because `getActiveAlertsAt` also
- * feeds the Sense HAT (no `req`) and `getNearbyAlertsAt` feeds the map-overlay
+ * the orchestrator, NOT at an HTTP endpoint, because `getActiveAlertsAt` is a
+ * reusable helper (no `req`) and `getNearbyAlertsAt` feeds the map-overlay
  * endpoint. Gating only `GET /api/weather-alerts` would still surface a test
- * alert on the LED matrix and as a coast-wide map polygon. `showTest` is the
- * maintainer's localhost-only opt-in (see the endpoint handlers).
+ * alert as a coast-wide map polygon. `showTest` is the maintainer's
+ * localhost-only opt-in (see the endpoint handlers).
  *
  * @param {Array<Object>} alerts
  * @param {Boolean} showTest when true, test alerts pass through
@@ -66,8 +66,7 @@ function filterTestAlerts(alerts, showTest) {
 /**
  * Merge every regional source's normalised alerts at the given
  * point and return them sorted by severity. Exposed as a reusable
- * helper so other controllers (notably `sensehatCtrl` for the LED
- * matrix alert override) can resolve "is there an active gov alert
+ * helper so other controllers can resolve "is there an active gov alert
  * here?" without duplicating the source-fan-out + sort logic. Each
  * source's `tryAlerts` is wrapped in `.catch(() => null)` so one
  * upstream failure doesn't blank the others.
@@ -134,8 +133,8 @@ async function getWeatherAlerts(req, res) {
  * Alerts with no polygon (a handful of zone-only NWS alerts whose zone
  * geometry couldn't be resolved) can't be circle-tested or drawn, so they
  * are omitted from `alerts` and only reported in `residualCount` (the
- * client's "+N not mapped" note). Nothing here feeds the banner / SenseHat
- * / eligibility — this whole path is display-only.
+ * client's "+N not mapped" note). Nothing here feeds the banner /
+ * eligibility — this whole path is display-only.
  *
  * @param {Number} lat
  * @param {Number} lon

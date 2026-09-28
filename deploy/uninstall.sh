@@ -35,7 +35,9 @@ else
         echo "   Service override directory removed."
     fi
 
-    # Sense HAT display service (optional — only present if Sense HAT was enabled)
+    # Sense HAT display service — LEGACY. Removed from the installer in the
+    # August 2026 radar rework; still cleaned up here for a kiosk that was
+    # installed before then and carries the unit.
     if systemctl --user list-unit-files pi-sensehat.service &>/dev/null; then
         echo ">> Stopping and disabling Sense HAT service..."
         systemctl --user stop pi-sensehat 2>/dev/null && echo "   pi-sensehat stopped." || echo "   pi-sensehat was not running."

@@ -276,7 +276,8 @@ The script:
 
 - Checks for Node.js and offers to install Node 22 (nvm on Bullseye 32-bit,
   NodeSource elsewhere)
-- Optionally writes `settings.json` from your keys
+- Optionally writes `settings.json` from your keys (Mapbox, LocationIQ) and
+  home coordinates
 - Optionally enables remote access (see below) and the debug panel
 - Runs `npm ci`. The client bundle ships pre-built in `client/dist/`, so the
   client only rebuilds with `--rebuild-client` or when `bundle.min.js` is missing
@@ -285,12 +286,10 @@ The script:
 - Optionally configures kiosk autostart for your display server, and offers
   to reboot
 
-Each prompt shows its default in uppercase; Enter accepts it.
-
-> `install.sh` still asks about a Tomorrow.io key and a Sense HAT in its
-> optional phases. Both features were removed in August 2026. Leave those
-> prompts empty / answer no. Cleaning up the script is tracked in
-> [ROADMAP.md](ROADMAP.md).
+Each prompt shows its default in uppercase; Enter accepts it. Re-running the
+script on a configured kiosk merges: existing values are kept unless you type
+a replacement, and keys left over from removed features (Tomorrow.io,
+Anthropic, air quality, Homebridge) are dropped from `settings.json`.
 
 ### Option 2 — systemd (manual)
 

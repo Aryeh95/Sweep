@@ -85,8 +85,8 @@ function unitSystemPreset(s, l, d) {
  *                                    clock, units (×5), hide flags
  *   2. Configuration & clés API    — settings.json side, write-locked
  *                                    from remote clients; API keys
- *                                    (variant B), coords, radar source,
- *                                    brightness, Homebridge
+ *                                    (variant B), coords, radar site,
+ *                                    brightness
  *   3. Avancé                       — collapsible; display / AI / sleep
  *
  * Renders inside a fixed-position overlay (z-index 5000), with
@@ -408,7 +408,7 @@ const SectionLocalPrefs = ({ ctx, lang }) => {
         * client never sees this row). NWS disseminates Test / Exercise
         * messages (e.g. the monthly National Tsunami Warning Center test) on
         * the live feed at real CAP severity; they're hidden by default
-        * EVERYWHERE (banner, map overlay, Sense HAT) and never sent to remote
+        * EVERYWHERE (banner, map overlay) and never sent to remote
         * viewers. This R&D toggle reveals them on THIS device (per-device
         * localStorage) with a neutral TEST badge. The server independently
         * ignores the showTest param for non-local requests, so the gate holds

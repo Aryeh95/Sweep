@@ -13,14 +13,14 @@
 //      weather proxy caches upstream responses under
 //      `type:fieldsHash:lat(4dp):lon(4dp)` (proxyCtrl.getCacheKey), so frozen
 //      rounded coordinates make a return visit to a favorite a cache hit
-//      instead of three fresh Tomorrow.io calls — which matters on a fleet
-//      where two Pis share a 25 req/h key. A refactor that drops the rounding
-//      would be invisible in the UI and only show up as quota pressure weeks
-//      later.
+//      instead of fresh upstream calls (the rule dates from the Tomorrow.io
+//      era, when two Pis shared a 25 req/h key; the proxy cache still keys
+//      on 4-dp coordinates). A refactor that drops the rounding would be
+//      invisible in the UI and only show up as quota pressure weeks later.
 //
 //   3. `favorites` membership in ALLOWED_KEYS is what stops a Settings-panel
 //      save from wiping the list (the same class of bug that already bit
-//      `advanced` and `indoorTemperature`).
+//      `advanced`).
 //
 // Helpers are reached through the controller's `__test` surface, same pattern
 // as settingsCtrl.test.js / radarAnalyzerCtrl.
@@ -183,9 +183,9 @@ test("sanitizeValue: coerces registered keys and passes everything else through"
   // end-to-end curl, not by a unit test of the pure helper.
   assert.deepEqual(sanitizeValue("favorites", "garbage"), []);
   assert.equal(sanitizeValue("favorites", [valid()]).length, 1);
-  // Keys with no registered sanitizer must be untouched — `advanced` and
-  // `indoorTemperature` are deliberately opaque.
-  const advanced = { ai: { extendedRadius: true } };
+  // Keys with no registered sanitizer must be untouched — `advanced` is
+  // deliberately opaque.
+  const advanced = { display: { radarPalette: "scope" } };
   assert.equal(sanitizeValue("advanced", advanced), advanced);
   assert.equal(sanitizeValue("startingLat", "45.5"), "45.5");
 });
@@ -201,9 +201,9 @@ test("sanitizeSettings: a garbage favorites value degrades to [] instead of pass
 });
 
 test("sanitizeSettings: leaves the opaque sub-objects untouched", () => {
-  // `advanced` and `indoorTemperature` are deliberately NOT in
-  // VALUE_SANITIZERS — adding a sanitizer for them is a separate decision.
-  const advanced = { ai: { extendedRadius: true }, sensehat: { mode: "clock" } };
+  // `advanced` is deliberately NOT in VALUE_SANITIZERS — adding a
+  // sanitizer for it is a separate decision.
+  const advanced = { display: { radarPalette: "scope" }, sleep: { stage1Delay: 5 } };
   assert.deepEqual(sanitizeSettings({ advanced }).advanced, advanced);
 });
 
@@ -212,10 +212,10 @@ test("maskForRemote: favorites reach remote clients (Q2 decision, pinned)", () =
   // client, matching the exposure startingLat/startingLon already have.
   // Flipping this is a policy change, not a refactor — if `favorites` is ever
   // added to REMOTE_HIDDEN_KEYS, this test must be updated on purpose.
-  const masked = maskForRemote({ favorites: [valid()], weatherApiKey: "secret" });
+  const masked = maskForRemote({ favorites: [valid()], mapApiKey: "secret" });
   assert.equal(masked.favorites.length, 1);
   assert.equal(masked.favorites[0].label, "Saint-Donat");
-  assert.equal(masked.weatherApiKey, true, "API keys stay masked to booleans");
+  assert.equal(masked.mapApiKey, true, "API keys stay masked to booleans");
   assert.ok(!API_KEY_FIELDS.has("favorites"));
   assert.ok(!REMOTE_HIDDEN_KEYS.has("favorites"));
 });
@@ -224,8 +224,8 @@ test("ALLOWED_KEYS contains favorites — this is what stops a Settings save fro
   // replaceSettings (PUT /settings) preserves every top-level key that is BOTH
   // in ALLOWED_KEYS and absent from the request body. The v3 Settings panel
   // sends only API keys + lat/lon, so this single membership is the whole
-  // anti-wipe guarantee — the same one `advanced` and `indoorTemperature`
-  // needed after they were silently clobbered. Asserted directly rather than
+  // anti-wipe guarantee — the same one `advanced` needed after it was
+  // silently clobbered. Asserted directly rather than
   // through the handler, which writes to a module-level FILE_PATH that cannot
   // be redirected to a temp file.
   assert.ok(ALLOWED_KEYS.has("favorites"));

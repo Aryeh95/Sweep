@@ -81,7 +81,7 @@ Reboot after it finishes to load the `usb-storage` blacklist into the kernel.
 Writes `/etc/modprobe.d/disable-usb-storage.conf`. The kernel no longer loads
 the driver that handles USB flash drives, external HDDs, etc., so plugging one
 in does nothing visible at the OS level. HID devices (keyboard, mouse,
-SenseHAT) are unaffected.
+touchscreen) are unaffected.
 
 Why: the most common casual attack is "run something from a USB stick." This
 closes that door cheaply.

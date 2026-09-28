@@ -330,4 +330,3 @@ kiosk flags; `install.sh` records the choice and `start-server` honours it.
 | Mosaic has no velocity counterpart | Low zoom always shows reflectivity |
 | `AppContext.js` is large | Seven slices, one 2,400-line file |
 | Self-signed certificate | Browser warning on first visit, by design |
-| `install.sh` still asks about removed features | Tomorrow.io key and Sense HAT prompts are harmless but stale |

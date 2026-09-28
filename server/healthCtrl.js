@@ -166,10 +166,9 @@ function isUnconfiguredAlternative(service, entry) {
 // reverse-DNS name or "homebridge.local:8581"). Service comments are
 // surfaced verbatim by GET /api/health, which is NOT localhost-gated, so a
 // comment sourced from a raw network-error message could disclose an
-// internal host to a remote client — the exact thing GET /settings strips
-// for the indoorTemperature block. Sources are also hardened at the point
-// of recording (see indoorTempCtrl), but this is defense in depth for any
-// current or future comment source that forgets.
+// internal host to a remote client. (The original case was the Homebridge
+// indoor-temperature source, removed in August 2026.) Defense in depth for
+// any current or future comment source that forgets to scrub.
 const IPV4_WITH_PORT = /\b\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?\b/g;
 const HOST_WITH_PORT = /\b[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+:\d{1,5}\b/gi;
 

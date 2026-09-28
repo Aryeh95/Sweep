@@ -100,17 +100,6 @@ journalctl --user -u pi-weather-server -n 50
 journalctl --user -u pi-weather-server -f
 ```
 
-### Sense HAT companion service (`pi-sensehat`)
-
-The optional Sense HAT display service is a Python script with no
-StandardOutput override, so its output **does** flow through the
-journal as expected:
-
-```bash
-journalctl --user -u pi-sensehat -n 50
-journalctl --user -u pi-sensehat -f
-```
-
 ## Other server-side artefacts
 
 Not strictly logs but commonly confused with them — same directory,
