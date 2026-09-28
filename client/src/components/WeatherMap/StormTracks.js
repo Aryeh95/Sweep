@@ -166,7 +166,11 @@ const StormTracks = ({
   cells, mesos, home = null, zoom = null, scanTime = null, hailMeta = null, timezone = null, dark = false, nightRed = false,
 }) => {
   const { t } = useTranslation();
-  const { clockTime, speedUnit, lengthUnit } = useContext(UiPrefsContext);
+  const { clockTime, speedUnit, lengthUnit, distanceUnit } = useContext(UiPrefsContext);
+  // Miss distance in the user's distance unit (was km regardless).
+  const passLabel = (km) => (distanceUnit === "mi"
+    ? `${km / 1.609344 < 1 ? "<1" : Math.round(km / 1.609344)} mi`
+    : `${km < 1 ? "<1" : Math.round(km)} km`);
   // MRMS MESH hail sizes in the user's precipitation unit (inches / mm).
   const sizeLabel = (mm) => (lengthUnit === "mm"
     ? `${Math.round(mm)} mm`
@@ -325,7 +329,7 @@ const StormTracks = ({
                 </div>
                 <div className={`${styles.cellPopupRow} ${arrival ? styles.cellPopupArrival : ""}`}>
                   {arrival
-                    ? t("radar.cellArrival", { lead: leadLabel(arrival.minutes), km: arrival.passKm })
+                    ? t("radar.cellArrival", { lead: leadLabel(arrival.minutes), dist: passLabel(arrival.passKm) })
                     : t("radar.cellNotToward")}
                 </div>
                 <div className={`${styles.cellPopupRow} ${severeHail(cell.hail) ? styles.cellPopupArrival : ""}`}>

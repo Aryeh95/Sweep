@@ -25,6 +25,33 @@ const TICK_MS = 15 * 1000;
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
 /**
+ * A distance in the user's unit: "74 km" / "46 mi", "<1 km" for tiny.
+ *
+ * @param {Number} km distance
+ * @param {String} unit "km" | "mi"
+ * @returns {String}
+ */
+function distanceLabel(km, unit) {
+  const mi = unit === "mi";
+  const v = mi ? km / 1.609344 : km;
+  if (v < 1) return mi ? "<1 mi" : "<1 km";
+  return `${Math.round(v)} ${mi ? "mi" : "km"}`;
+}
+
+/**
+ * A rain rate in the user's length unit: "2 mm/h" / "0.08 in/h".
+ *
+ * @param {Number} mmh rate in mm/h
+ * @param {String} unit "mm" | "in"
+ * @returns {String}
+ */
+function rateLabel(mmh, unit) {
+  if (unit === "mm") return `${mmh < 10 ? Math.round(mmh * 10) / 10 : Math.round(mmh)} mm/h`;
+  const inh = mmh / 25.4;
+  return `${inh < 0.1 ? inh.toFixed(2) : inh.toFixed(1)} in/h`;
+}
+
+/**
  * A lead in minutes as "55 min" or "1 h 55 min".
  *
  * @param {Number} min minutes
@@ -107,7 +134,7 @@ const NowcastPanel = ({ compact = false }) => {
   const { showNowcast, radarPalette } = useContext(AlertsContext);
   const { mapGeo, mapTimezone } = useContext(LocationContext);
   const { pollingPaused, radarSite } = useContext(SystemContext);
-  const { speedUnit, clockTime, darkMode } = useContext(UiPrefsContext);
+  const { speedUnit, distanceUnit, lengthUnit, clockTime, darkMode } = useContext(UiPrefsContext);
 
   const { data, stale, loading } = useNowcast({
     latitude: mapGeo ? mapGeo.latitude : null,
@@ -162,6 +189,9 @@ const NowcastPanel = ({ compact = false }) => {
     now: scanNow, arrival, peak, end, series, motion, trend, confidence, horizonMin, scanTime, site, hindcast, liveSkill, mrms, nearby, nearestRain, cells,
   } = data;
   const at = (lead) => clockAt(scanTime, lead, clockTime, mapTimezone);
+  // Every distance the card prints goes through the user's distance unit
+  // (kiosk report 2026-09-28: imperial settings, card still in km).
+  const dist = (km) => distanceLabel(km, distanceUnit);
   const cat = (name) => t(`nowcast.intensity.${name}`);
   const pct = (p) => Math.round((p ?? 0) * 100);
   const { ageMinutes, level } = frameAge(Date.parse(scanTime), now);
@@ -202,7 +232,7 @@ const NowcastPanel = ({ compact = false }) => {
     const range = hi != null && hi - lo >= 10 ? `${lo}–${hi}` : `~${fromNow(arrival.leadMin)}`;
     headline = t(`nowcast.${arrival.brief ? "brief" : "in"}.${typeOf(arrival)}`, { range });
     const parts = [cat(peak ? peak.category : arrival.category)];
-    if (peak && peak.rateMmh >= 0.5) parts.push(t("nowcast.rate", { rate: peak.rateMmh }));
+    if (peak && peak.rateMmh >= 0.5) parts.push(t("nowcast.rate", { rate: rateLabel(peak.rateMmh, lengthUnit) }));
     parts.push(t("nowcast.chance", { pct: pct(arrival.prob) }));
     if (end) parts.push(t("nowcast.endsAround", { time: at(end.leadMin), min: fromNow(end.leadMin) }));
     detail = parts.join(" · ");
@@ -212,7 +242,7 @@ const NowcastPanel = ({ compact = false }) => {
     // the first version said "motion unclear" over a band 74 km away that
     // had never been compared at all (Pikesville, 2026-09-27).
     headline = t("nowcast.motionUnknown");
-    detail = t("nowcast.motionUnknownDetail", { km: data.coreKm || data.gridKm });
+    detail = t("nowcast.motionUnknownDetail", { dist: dist(data.coreKm || data.gridKm) });
   } else {
     headline = t("nowcast.noRain", { min: horizonMin });
     // The highest chance anywhere in the window, so "dry" never hides a
@@ -223,22 +253,22 @@ const NowcastPanel = ({ compact = false }) => {
     else if (maxStep && maxStep.prob >= 0.2) detail = t("nowcast.someChance", { pct: pct(maxStep.prob), time: at(maxStep.leadMin) });
     else if (nearby) {
       detail = t(nearby.maxDbz >= 15 ? "nowcast.nearbyEcho" : "nowcast.nearbyLightEcho", {
-        km: nearby.distanceKm < 1 ? "<1" : Math.round(nearby.distanceKm), dir: compass(nearby.bearingDeg), dbz: Math.round(nearby.maxDbz),
+        dist: dist(nearby.distanceKm), dir: compass(nearby.bearingDeg), dbz: Math.round(nearby.maxDbz),
       });
     } else if (nearestRain) {
       // Rain somewhere in the grid but not beside the pin. Three honest
       // readings: it is closing but not inside the horizon ("~1 h 55 min
       // out"), it is not heading this way, or nothing near enough was
       // tracked so its motion is unknown.
-      const far = { km: Math.round(nearestRain.distanceKm), dir: compass(nearestRain.bearingDeg) };
+      const far = { dist: dist(nearestRain.distanceKm), dir: compass(nearestRain.bearingDeg) };
       if (motion && nearestRain.etaMin != null) {
         detail = t("nowcast.farRainClosing", { ...far, eta: leadLabel(Math.max(1, nearestRain.etaMin - elapsed)) });
       } else if (motion) {
         detail = t("nowcast.farRainAway", far);
       } else {
-        detail = t("nowcast.farRainUntracked", { ...far, core: data.coreKm || data.gridKm });
+        detail = t("nowcast.farRainUntracked", { ...far, core: dist(data.coreKm || data.gridKm) });
       }
-    } else detail = t("nowcast.noRainDetail", { km: data.gridKm });
+    } else detail = t("nowcast.noRainDetail", { dist: dist(data.gridKm) });
   }
 
   // A tracked storm cell on a path over the pin: named, with the tracker's
