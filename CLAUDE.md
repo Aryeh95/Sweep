@@ -1396,6 +1396,31 @@ DIX 2026-09-27 14–20 Z showers and LWX 2026-09-22 03–06 Z band):
   nothing to rounding — this is a convective-day fix, and the hindcast
   harness now fetches the STI product per scan (`cellsAtEpoch`) so a
   convective case can be measured when one is archived.
+- **Third kiosk report (Pikesville, 2026-09-27 21:11 local): "Rain
+  nearby, motion unclear" over a band 74 km NE.** The correlation runs on
+  the central ±60 km (`CORR_HALF_KM`); that core held 1 echo cell (needs
+  `MIN_ECHO_CELLS` 150), so `estimateMotion` returned null, while the
+  card's "rain nearby" test counted echo anywhere in the ±120 km grid
+  (1070 cells). The scans were never compared; "do not agree" was false.
+  Fix: `motionSearch` — when the core is sparse but the grid holds ≥ 100
+  echo cells, the same baseline loop runs on a `FAR_CORE_HALF_KM` (40)
+  core centred on the echo's intensity centroid, clamped so the shortest
+  baseline's full search window fits inside the grid (`correlate` already
+  took an off-centre `core`; it gained `core.minEcho`). Result carries
+  `scope: "far"`; the local field and trend are skipped for it (they read
+  the pin's neighbourhood) and confidence is capped at medium. Replayed
+  Pikesville: 39 km/h toward 225°, ncc 0.66, baseline 13 min — heading
+  for the pin, ~115 min out, past the 90-min horizon, so the honest card
+  is dry with the band named. A centroid-drift check on the same scans
+  gave a more westerly heading (285°) — the centroid is biased by echo
+  entering at the grid's NE edge, so it is a sanity check, not the
+  answer. `motionReason` (`no-baseline` / `no-echo` / `no-echo-near` /
+  `low-correlation` / `far-low-correlation`) and `nearestRain` (+ `etaMin` from the closing
+  speed) are in the payload; the card's red state is reserved for
+  `low-correlation`, every other dry case names the distant rain.
+  Pinned by a synthetic far-blob test (`motionSearch` finds 90 km/h
+  toward 225° from a blob centred 70 km NE, and the ensemble then
+  forecasts a real arrival).
 - The dock's Map group is now 16 buttons and did not fit a phone in
   portrait — the noise-filter, velocity, type and CC toggles were off the
   right edge, silently. The group wraps onto two rows now

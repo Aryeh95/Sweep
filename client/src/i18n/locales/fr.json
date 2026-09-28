@@ -119,7 +119,7 @@
     "noRainDetail": "Aucun écho de pluie à moins de {{km}} km ne se dirige vers ici",
     "horizonShort": "Au-delà de {{min}} min la pluie viendrait de hors de portée du radar",
     "motionUnknown": "Pluie à proximité, mouvement incertain",
-    "motionUnknownDetail": "Échos à moins de {{km}} km, mais les balayages ne s'accordent pas sur leur mouvement",
+    "motionUnknownDetail": "Pluie à moins de {{km}} km, mais les balayages ne s'accordent pas sur son mouvement",
     "peakAt": "{{intensity}} vers {{time}}",
     "endsAround": "fin vers {{time}}",
     "noEnd": "pleut encore à {{time}}",
@@ -170,7 +170,10 @@
       "graupel": "Neige roulée brève dans {{range}} min"
     },
     "cellOnTrack": "Cellule {{id}} en approche · ≈{{min}} min",
-    "cellOverhead": "Cellule {{id}} au-dessus"
+    "cellOverhead": "Cellule {{id}} au-dessus",
+    "farRainClosing": "La pluie à {{km}} km au {{dir}} se dirige vers ici · à environ {{eta}}",
+    "farRainAway": "La pluie à {{km}} km au {{dir}} ne se dirige pas vers ici",
+    "farRainUntracked": "Pluie à {{km}} km au {{dir}} · trop peu d'écho à moins de {{core}} km pour la suivre"
   },
   "conditions": {
     "title": "Conditions",

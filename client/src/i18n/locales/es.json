@@ -119,7 +119,7 @@
     "noRainDetail": "Ningún eco de lluvia en {{km}} km viene hacia aquí",
     "horizonShort": "Más allá de {{min}} min la lluvia vendría de fuera del alcance del radar",
     "motionUnknown": "Lluvia cerca, movimiento incierto",
-    "motionUnknownDetail": "Hay eco en {{km}} km, pero los barridos no coinciden en su movimiento",
+    "motionUnknownDetail": "Hay lluvia en {{km}} km, pero los barridos no coinciden en su movimiento",
     "peakAt": "{{intensity}} hacia las {{time}}",
     "endsAround": "termina hacia las {{time}}",
     "noEnd": "sigue lloviendo a las {{time}}",
@@ -170,7 +170,10 @@
       "graupel": "Nieve granulada breve en {{range}} min"
     },
     "cellOnTrack": "Célula {{id}} en rumbo · ≈{{min}} min",
-    "cellOverhead": "Célula {{id}} encima"
+    "cellOverhead": "Célula {{id}} encima",
+    "farRainClosing": "Lluvia a {{km}} km al {{dir}} viene hacia aquí · a unos {{eta}}",
+    "farRainAway": "La lluvia a {{km}} km al {{dir}} no viene hacia aquí",
+    "farRainUntracked": "Lluvia a {{km}} km al {{dir}} · demasiado poco eco en {{core}} km para seguirla"
   },
   "conditions": {
     "title": "Condiciones",

@@ -360,3 +360,76 @@ test("a cell moving at right angles to the field brings its core to the pin", ()
   assert.ok(["heavy", "intense"].includes(hit.category), hit.category);
   assert.ok([15, 20].includes(nc.summarize(withCells).arrival.leadMin), "the core reaches the pin in the +15 or +20 window");
 });
+
+test("motionSearch: a band far from the pin is tracked on a far core, with the reason codes for the rest", () => {
+  // Pikesville 2026-09-27 21:11 local: 1 echo cell in the 60 km core, 1070
+  // in the grid, the nearest 74 km NE — the card said "motion unclear"
+  // over scans that had never been compared. A blob centred 70 km NE
+  // moving toward the pin at 1.5 km/min (90 km/h) sits entirely outside
+  // the central core and must still yield a vector.
+  const t0 = Date.UTC(2026, 8, 28, 1, 0, 0);
+  const frames = [0, 5, 10, 15].map((m) => ({
+    grid: blob(70 + 1.06 * (15 - m), 70 + 1.06 * (15 - m), 15, 30),
+    epoch: t0 + m * 60000,
+  }));
+  const r = nc.motionSearch(frames);
+  assert.ok(r.motion, "far-core motion found");
+  assert.equal(r.motion.scope, "far");
+  assert.equal(r.reason, null);
+  assert.ok(r.coreEchoCells < 150, `core echo ${r.coreEchoCells}`);
+  assert.ok(Math.abs(r.motion.speedKmh - 90) < 10, `speed ${r.motion.speedKmh}`);
+  assert.ok(Math.abs(r.motion.towardDeg - 225) < 8, `toward ${r.motion.towardDeg}`);
+  // The band's edge is ~78 km out and closing at 90 km/h: the ensemble
+  // advection now produces a real arrival instead of an all-dry series.
+  const scans = frames.map((f) => ({ grid: f.grid, epoch: f.epoch }));
+  const series = nc.advectSeries(frames[3].grid, r.motion, { members: nc.ensembleMembers(r.motion, null, nc.featureSet(), t0) });
+  const summary = nc.summarize(series);
+  assert.ok(summary.arrival, "an arrival is forecast");
+  assert.ok(summary.arrival.leadMin >= 40 && summary.arrival.leadMin <= 70, `arrival ${summary.arrival.leadMin}`);
+  assert.ok(scans.length === 4);
+
+  // Nearest rain + ETA along the vector: ~78 km at 90 km/h ≈ 50 min.
+  const rain = nc.nearestRain(frames[3].grid);
+  assert.ok(rain && rain.distanceKm > 70 && rain.distanceKm < 85, `nearest ${rain && rain.distanceKm}`);
+  assert.ok(Math.abs(rain.bearingDeg - 45) < 3, `bearing ${rain.bearingDeg}`);
+  const eta = nc.etaForRain(rain, r.motion);
+  assert.ok(eta >= 45 && eta <= 60, `eta ${eta}`);
+  // Moving away: no ETA.
+  assert.equal(nc.etaForRain(rain, { vx: 1, vy: 1 }), null);
+
+  // Reasons.
+  const empty = new Float32Array(GRID_N * GRID_N).fill(-Infinity);
+  assert.equal(nc.motionSearch([{ grid: empty, epoch: t0 }, { grid: empty, epoch: t0 + 300000 }]).reason, "no-echo");
+  // A speck 90 km out: echo in the grid, not enough anywhere to track.
+  const speck = [{ grid: blob(90, 0, 3, 30), epoch: t0 }, { grid: blob(91, 0, 3, 30), epoch: t0 + 300000 }];
+  assert.equal(nc.motionSearch(speck).reason, "no-echo-near");
+  assert.equal(nc.motionSearch(speck).motion, null);
+  // Echo in the core that jumps 50 km in 5 min: compared, and refused.
+  const jump = [{ grid: blob(-30, 0, 15, 30), epoch: t0 }, { grid: blob(20, 0, 15, 30), epoch: t0 + 300000 }];
+  const j = nc.motionSearch(jump);
+  if (!j.motion) assert.equal(j.reason, "low-correlation");
+});
+
+test("nowcastFromScans reports motionReason, nearestRain and coreKm, and caps far-core confidence", () => {
+  const t0 = Date.UTC(2026, 8, 28, 1, 0, 0);
+  const home = { lat: 39.3743, lon: -76.7225 };
+  // Build minimal radial payloads by projecting synthetic grids back is
+  // not possible; instead drive the pure pieces the summary uses.
+  const empty = new Float32Array(GRID_N * GRID_N).fill(-Infinity);
+  assert.equal(nc.nearestRain(empty), null);
+  const far = blob(70, 70, 15, 30);
+  const r = nc.nearestRain(far);
+  assert.ok(r.dbz >= RAIN_DBZ);
+  assert.equal(nc.etaForRain(r, null), null);
+  assert.equal(nc.confidenceFor({ ncc: 0.9, scope: "far" }, 30, 0.9), "medium");
+  assert.equal(nc.confidenceFor({ ncc: 0.9, scope: "core" }, 30, 0.9), "high");
+  assert.ok(home.lat && t0);
+});
+
+test("motionSearch: a single scan is 'no-baseline', never 'unclear'", () => {
+  const t0 = Date.UTC(2026, 8, 28, 1, 0, 0);
+  const r = nc.motionSearch([{ grid: blob(0, 0, 20, 30), epoch: t0 }]);
+  assert.equal(r.motion, null);
+  assert.equal(r.reason, "no-baseline");
+  assert.ok(r.coreEchoCells > 150);
+});

@@ -558,7 +558,10 @@ probability at each 5-min lead.
   "end": { "leadMin": 20, "prob": 0.33 },
   "horizonMin": 90,
   "series": [{ "leadMin": 0, "prob": 1, "probRadar": 1, "probMrms": null, "dbz": 19.5, "dbzMax": 27, "category": "light", "rateMmh": 0.6, "ptype": "rain" }],
-  "motion": { "speedKmh": 33, "towardDeg": 252, "fromDeg": 72, "quality": 0.92, "baselineMin": 17, "localBlocks": 7 },
+  "motion": { "speedKmh": 33, "towardDeg": 252, "fromDeg": 72, "quality": 0.92, "baselineMin": 17, "localBlocks": 7, "scope": "core" },
+  "motionReason": null,
+  "nearestRain": { "distanceKm": 0.5, "bearingDeg": 90, "dbz": 19.5, "etaMin": 0 },
+  "coreKm": 60, "coreEchoCells": 812,
   "trend": { "dbPerHour": -0.1, "areaRatio": 0.94, "label": "steady" },
   "ensemble": { "members": 25, "previousUsed": false },
   "confidence": "medium",
@@ -575,7 +578,23 @@ or one step at ≥ 0.6), `earliestMin` (first ≥ 0.3), `latestMin` (first
 ≥ 0.7, or null) and `brief` (one wet step followed by a dry one) — the
 card quotes the range and says "brief shower". `nearby` names the
 strongest echo within 15 km of the pin (`maxDbz`, `distanceKm`,
-`bearingDeg`) so a dry answer can say what the map shows. `cells` lists
+`bearingDeg`) so a dry answer can say what the map shows; `nearestRain`
+names the nearest ≥ 15 dBZ echo anywhere in the ±120 km grid, with
+`etaMin` (its distance over the closing speed along `motion`, rounded to
+5 min; null when it is not closing or there is no motion) so a dry answer
+can say "Rain 74 km to the NE is heading this way · about 1 h 55 min
+out". Motion is measured by cross-correlation over the central
+±`coreKm` (60 km); `motion.scope` is `core` for that, or `far` when the
+core held too little echo (`coreEchoCells` < 150) and the vector came from
+a 40 km core centred on the echo's centroid instead — a distant band's
+motion, extrapolated to the pin, so confidence is capped at `medium`.
+`motionReason` says why `motion` is null: `no-baseline` (one scan, nothing
+to compare yet), `no-echo` (nothing ≥ 15 dBZ in the grid), `no-echo-near` (too little echo in the core and too little
+anywhere for the far core), `low-correlation` (echo in the core, but the
+scans do not match or the peak sat on the search window's edge) or
+`far-low-correlation`. Only `low-correlation` is the card's "motion
+unclear" state; the others are dry answers that name the distant rain.
+`cells` lists
 the SCIT storm cells (from `/api/storm-tracks`) whose forecast path passes
 within 15 km of the pin inside the horizon — `id`, `speedKmh`,
 `towardDeg`, `arrivalMin`, `passKm`, `rangeKm` — which the ensemble carries

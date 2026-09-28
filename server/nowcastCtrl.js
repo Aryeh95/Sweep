@@ -97,6 +97,14 @@ const REFINE_SLACK_FRACTION = 0.25;
 // Fewer echo cells than this in the correlation core and the field has no
 // texture to match — motion stays unknown.
 const MIN_ECHO_CELLS = 150;
+// Far core: when the central core is empty but the grid is not (a band
+// 70–120 km out — Pikesville 2026-09-27 21:11 local: 1 echo cell in the
+// core, 1070 in the grid, the nearest 74 km away), the correlation is
+// re-run on a smaller core centred on the echo's centroid so the band's
+// motion is measured instead of declared "unclear". The core is clamped so
+// the shortest baseline's full search window still fits inside the grid.
+const FAR_CORE_HALF_KM = 40;
+const FAR_MIN_ECHO_CELLS = 100;
 // Correlations below this are noise: the shortest baseline must clear it
 // or the motion is "unknown"; a longer one that does not is simply not
 // used to refine.
@@ -458,7 +466,7 @@ function intensity(grid) {
  * @param {Float32Array} b intensity of the newer grid
  * @param {Number} maxShift half-width of the search window, cells
  * @param {{dj: Number, di: Number}} [centre] window centre (default no shift)
- * @param {{ci: Number, cj: Number, h: Number}} [core] core centre row/col and half-size, cells
+ * @param {{ci: Number, cj: Number, h: Number, minEcho: Number=}} [core] core centre row/col and half-size, cells (and its own echo floor)
  * @returns {{dj: Number, di: Number, ncc: Number, echoCells: Number, atEdge: Boolean}|null}
  *   null when the core holds too little echo; `atEdge` when the peak sits on
  *   the window boundary, which means the true peak may lie outside it
@@ -468,7 +476,7 @@ function correlate(a, b, maxShift, centre = { dj: 0, di: 0 }, core = null) {
   const ci = core ? core.ci : c;
   const cj = core ? core.cj : c;
   const h = core ? core.h : CORR_HALF_KM / GRID_CELL_KM;
-  const minEcho = core ? LOCAL_MIN_ECHO_CELLS : MIN_ECHO_CELLS;
+  const minEcho = core ? (core.minEcho || LOCAL_MIN_ECHO_CELLS) : MIN_ECHO_CELLS;
   let echoCells = 0;
   let sumB2 = 0;
   for (let i = ci - h; i <= ci + h; i += 1) {
@@ -572,38 +580,71 @@ function fieldOf(f) {
 }
 
 /**
- * Motion vector from a sequence of scans, newest last.
+ * Echo cells (intensity > 0) inside a square core of a field.
  *
- * Coarse to fine: the SHORTEST baseline is searched in full (it cannot
- * alias onto a different rain band, but resolves speed only to
- * ~12 km/h per cell), then each longer baseline is searched in a small
- * window around the motion found so far and, when it correlates, takes
- * over — a 15-min baseline resolves the same cell to ~4 km/h. A peak on
- * a window edge is never accepted: the true match may lie outside.
- *
- * @param {Array<{grid: Float32Array, epoch: Number}>} frames oldest → newest
- * @returns {{vx: Number, vy: Number, speedKmh: Number, towardDeg: Number, ncc: Number, baselineMin: Number, echoCells: Number, shift: {dj: Number, di: Number}, dtMin: Number, frame: Object}|null}
- *   vx east / vy north in km per minute; null when no baseline correlates
+ * @param {Float32Array} f intensity field (from `intensity`)
+ * @param {Number} ci core centre row
+ * @param {Number} cj core centre column
+ * @param {Number} h half-size, cells
+ * @returns {Number}
  */
-function estimateMotion(frames) {
-  const newest = frames[frames.length - 1];
-  const b = fieldOf(newest);
-  const older = frames.slice(0, -1)
-    .map((f) => ({ frame: f, dtMin: (newest.epoch - f.epoch) / 60000 }))
-    .filter((f) => f.dtMin > 0.5)
-    .sort((p, q) => p.dtMin - q.dtMin);
+function echoInCore(f, ci, cj, h) {
+  let n = 0;
+  for (let i = ci - h; i <= ci + h; i += 1) {
+    for (let j = cj - h; j <= cj + h; j += 1) if (f[i * GRID_N + j] > 0) n += 1;
+  }
+  return n;
+}
+
+/**
+ * Intensity-weighted centroid of the echo over the whole grid, with the
+ * echo cell count.
+ *
+ * @param {Float32Array} f intensity field
+ * @returns {{ci: Number, cj: Number, cells: Number}}
+ */
+function echoCentroid(f) {
+  let si = 0;
+  let sj = 0;
+  let w = 0;
+  let cells = 0;
+  for (let i = 0; i < GRID_N; i += 1) {
+    for (let j = 0; j < GRID_N; j += 1) {
+      const v = f[i * GRID_N + j];
+      if (v > 0) {
+        si += i * v;
+        sj += j * v;
+        w += v;
+        cells += 1;
+      }
+    }
+  }
+  const c = (GRID_N - 1) / 2;
+  return { ci: w ? si / w : c, cj: w ? sj / w : c, cells };
+}
+
+/**
+ * Run the coarse-to-fine baseline loop over one core (null = the central
+ * core). See `motionSearch` for the strategy.
+ *
+ * @param {Array<Object>} older frames with `dtMin`, shortest baseline first
+ * @param {Float32Array} b newest intensity field
+ * @param {{ci: Number, cj: Number, h: Number, minEcho: Number}|null} core
+ * @returns {Object|null} motion, or null when the shortest baseline fails
+ */
+function searchBaselines(older, b, core) {
   let motion = null;
   for (const { frame, dtMin } of older) {
     const full = Math.ceil((MAX_SPEED_KM_PER_MIN * dtMin) / GRID_CELL_KM);
     let s;
     if (!motion) {
-      s = correlate(fieldOf(frame), b, full);
+      s = correlate(fieldOf(frame), b, full, { dj: 0, di: 0 }, core);
       if (!s) return null;
       if (s.ncc < MIN_NCC || s.atEdge) return null;
     } else {
       const centre = { dj: (motion.vx * dtMin) / GRID_CELL_KM, di: (-motion.vy * dtMin) / GRID_CELL_KM };
       const slack = Math.ceil(REFINE_SLACK_CELLS + REFINE_SLACK_FRACTION * Math.hypot(centre.dj, centre.di));
-      s = correlate(fieldOf(frame), b, Math.min(slack, full), centre);
+      s = correlate(fieldOf(frame), b, Math.min(slack, full), centre, core);
       if (!s || s.ncc < MIN_NCC || s.atEdge) continue;
     }
     motion = {
@@ -617,6 +658,82 @@ function estimateMotion(frames) {
     };
   }
   return motion;
+}
+
+/**
+ * The motion of the field, coarse to fine, with the reason when there is
+ * none.
+ *
+ * The shortest baseline is searched in full (up to MAX_SPEED); each longer
+ * one only within a few cells of the shift the shorter ones predict, so it
+ * refines the speed rather than re-guessing it. A peak on the edge of its
+ * window is never accepted: the true match may lie outside.
+ *
+ * Two cores. The CENTRAL core (±CORR_HALF_KM) is the normal case. When it
+ * holds too little echo but the grid does not, a FAR core of
+ * ±FAR_CORE_HALF_KM is centred on the echo's centroid — clamped so the
+ * shortest baseline's search window stays inside the grid — and the same
+ * loop runs there. The result carries `scope: "far"` so the summary knows
+ * it is a distant band's motion, not the pin's neighbourhood.
+ *
+ * Reasons: `"no-baseline"` (a single scan), `"no-echo"` (nothing ≥ 15 dBZ in the grid), `"no-echo-near"`
+ * (too little echo in the core and too little anywhere for the far core),
+ * `"low-correlation"` (echo in the core, but the scans do not match or the
+ * peak sat on the window edge), `"far-low-correlation"` (same, on the far
+ * core).
+ *
+ * @param {Array<{grid: Float32Array, epoch: Number}>} frames oldest → newest
+ * @returns {{motion: Object|null, reason: String|null, coreEchoCells: Number}}
+ *   `motion`: `{vx, vy, speedKmh, towardDeg, ncc, baselineMin, echoCells, shift, dtMin, frame, scope}`
+ */
+function motionSearch(frames) {
+  const newest = frames[frames.length - 1];
+  const b = fieldOf(newest);
+  const older = frames.slice(0, -1)
+    .map((f) => ({ frame: f, dtMin: (newest.epoch - f.epoch) / 60000 }))
+    .filter((f) => f.dtMin > 0.5)
+    .sort((p, q) => p.dtMin - q.dtMin);
+  const c = (GRID_N - 1) / 2;
+  const coreEchoCells = echoInCore(b, c, c, CORR_HALF_KM / GRID_CELL_KM);
+  // One scan only: nothing to compare yet (the bucket's newest hour has
+  // one key). Not "unclear" — there was no second scan to disagree.
+  if (!older.length) return { motion: null, reason: "no-baseline", coreEchoCells };
+
+  if (coreEchoCells >= MIN_ECHO_CELLS) {
+    const motion = searchBaselines(older, b, null);
+    return { motion: motion ? { ...motion, scope: "core" } : null, reason: motion ? null : "low-correlation", coreEchoCells };
+  }
+
+  const all = echoCentroid(b);
+  if (all.cells === 0) return { motion: null, reason: "no-echo", coreEchoCells };
+  if (all.cells < FAR_MIN_ECHO_CELLS) return { motion: null, reason: "no-echo-near", coreEchoCells };
+  // Clamp the far core so the shortest baseline's full window fits.
+  const h = FAR_CORE_HALF_KM / GRID_CELL_KM;
+  const margin = Math.ceil((MAX_SPEED_KM_PER_MIN * older[0].dtMin) / GRID_CELL_KM);
+  const lo = h + margin;
+  const hi = GRID_N - 1 - h - margin;
+  const core = {
+    ci: Math.round(Math.max(lo, Math.min(hi, all.ci))),
+    cj: Math.round(Math.max(lo, Math.min(hi, all.cj))),
+    h,
+    minEcho: FAR_MIN_ECHO_CELLS,
+  };
+  const motion = searchBaselines(older, b, core);
+  return {
+    motion: motion ? { ...motion, scope: "far", farCore: { xKm: (core.cj - c) * GRID_CELL_KM, yKm: (c - core.ci) * GRID_CELL_KM } } : null,
+    reason: motion ? null : "far-low-correlation",
+    coreEchoCells,
+  };
+}
+
+/**
+ * The motion of the field, or null. See `motionSearch`.
+ *
+ * @param {Array<{grid: Float32Array, epoch: Number}>} frames oldest → newest
+ * @returns {Object|null}
+ */
+function estimateMotion(frames) {
+  return motionSearch(frames).motion;
 }
 
 /**
@@ -1121,6 +1238,53 @@ function nearestEcho(grid, radiusKm = NEARBY_RADIUS_KM) {
 }
 
 /**
+ * The nearest rain (≥ RAIN_DBZ) anywhere in the grid: what the card names
+ * when the pin's neighbourhood is dry but the grid is not.
+ *
+ * @param {Float32Array} grid newest dBZ grid
+ * @returns {{distanceKm: Number, bearingDeg: Number, dbz: Number}|null}
+ */
+function nearestRain(grid) {
+  const c = (GRID_N - 1) / 2;
+  let best = null;
+  for (let i = 0; i < GRID_N; i += 1) {
+    for (let j = 0; j < GRID_N; j += 1) {
+      const v = grid[i * GRID_N + j];
+      if (!(v >= RAIN_DBZ)) continue;
+      const dx = (j - c) * GRID_CELL_KM;
+      const dy = (c - i) * GRID_CELL_KM;
+      const d = Math.hypot(dx, dy);
+      if (!best || d < best.distanceKm) {
+        let bearing = (Math.atan2(dx, dy) * 180) / Math.PI;
+        if (bearing < 0) bearing += 360;
+        best = { distanceKm: Math.round(d * 10) / 10, bearingDeg: Math.round(bearing), dbz: Math.round(v * 2) / 2 };
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * How long the nearest rain would take to reach the pin along the field's
+ * motion: its distance over the closing speed. Null when it is not closing
+ * (moving away or across) or there is no motion.
+ *
+ * @param {{distanceKm: Number, bearingDeg: Number}|null} rain from nearestRain
+ * @param {{vx: Number, vy: Number}|null} motion km/min east / north
+ * @returns {Number|null} minutes, rounded to 5
+ */
+function etaForRain(rain, motion) {
+  if (!rain || !motion) return null;
+  const b = (rain.bearingDeg * Math.PI) / 180;
+  const dx = rain.distanceKm * Math.sin(b);
+  const dy = rain.distanceKm * Math.cos(b);
+  // Closing speed: the motion's component along the line from rain to pin.
+  const closing = rain.distanceKm ? -(dx * motion.vx + dy * motion.vy) / rain.distanceKm : 0;
+  if (closing <= 0.05) return null; // < 3 km/h toward: not coming
+  return Math.round(rain.distanceKm / closing / 5) * 5;
+}
+
+/**
  * Turn the series into the sentences the card prints.
  *
  * @param {Array<Object>} series from advectSeries
@@ -1239,6 +1403,8 @@ function summarize(series) {
 function confidenceFor(motion, keyLeadMin, keyProb = null) {
   if (!motion) return "unknown";
   let level = motion.ncc >= 0.7 ? "high" : (motion.ncc >= 0.5 ? "medium" : "low");
+  // A far-core vector is a distant band's motion extrapolated to the pin.
+  if (motion.scope === "far" && level === "high") level = "medium";
   // Agreement: how far the ensemble is from a coin toss at the key lead.
   if (keyProb !== null && Math.abs(keyProb - 0.5) < 0.2 && level === "high") level = "medium";
   if (keyLeadMin !== null && keyLeadMin > 45 && level === "high") level = "medium";
@@ -1268,9 +1434,13 @@ function nowcastFromScans(scans, home, opts = {}) {
   const features = featureSet(opts.disable, opts.enable);
   const frames = scans.map((p) => ({ grid: projectToGrid(p, home), epoch: Date.parse(p.scanTime) }));
   const newest = frames[frames.length - 1];
-  const motion = frames.length > 1 ? estimateMotion(frames) : null;
-  const field = motion && features.local ? estimateLocalField(frames, motion) : null;
-  const trend = motion && features.trend ? estimateTrend(frames, motion) : null;
+  const search = motionSearch(frames);
+  const { motion } = search;
+  // The local field and the trend read the pin's neighbourhood; with a
+  // far-scope vector there is nothing there to read.
+  const near = motion && motion.scope !== "far";
+  const field = near && features.local ? estimateLocalField(frames, motion) : null;
+  const trend = near && features.trend ? estimateTrend(frames, motion) : null;
   const fieldMembers = motion ? ensembleMembers(motion, opts.previous || null, features, newest.epoch) : null;
   const onTrack = features.cells ? cellsOnTrack(opts.cells, home) : [];
   const members = withCellMembers(fieldMembers, onTrack);
@@ -1319,7 +1489,9 @@ function nowcastFromScans(scans, home, opts = {}) {
       vx: motion.vx,
       vy: motion.vy,
       localBlocks: field ? field.vectors.filter((v) => v.local).length : 0,
+      scope: motion.scope,
     } : null,
+    motionReason: search.reason,
     trend,
     ensemble: members ? { members: members.length, previousUsed: members.some((m) => m.previous), cellMembers: members.filter((m) => m.cell).length } : null,
     cells: onTrack.map(({ vx, vy, ...rest }) => rest),
@@ -1327,8 +1499,14 @@ function nowcastFromScans(scans, home, opts = {}) {
     classification: classGrid ? { product: CLASS_PRODUCT, scanTime: opts.classification.scanTime || null } : null,
     confidence: confidenceFor(motion, key ? key.leadMin : null, key ? key.prob : null),
     nearby: nearestEcho(newest.grid),
+    nearestRain: (() => {
+      const r = nearestRain(newest.grid);
+      return r ? { ...r, etaMin: etaForRain(r, motion) } : null;
+    })(),
     echoCellsInRange: echoCells,
+    coreEchoCells: search.coreEchoCells,
     gridKm: GRID_HALF_KM,
+    coreKm: CORR_HALF_KM,
     rainDbz: RAIN_DBZ,
     features,
     hindcast: HINDCAST,
@@ -1666,6 +1844,10 @@ module.exports = {
   projectClassGrid,
   projectMrmsGrid,
   estimateMotion,
+  motionSearch,
+  nearestRain,
+  etaForRain,
+  confidenceFor,
   estimateShift,
   estimateLocalField,
   estimateTrend,

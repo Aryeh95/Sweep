@@ -119,7 +119,7 @@
     "noRainDetail": "No rain echo within {{km}} km is heading this way",
     "horizonShort": "Beyond {{min}} min the rain would come from outside the radar's view",
     "motionUnknown": "Rain nearby, motion unclear",
-    "motionUnknownDetail": "Echo within {{km}} km, but the scans do not agree on how it is moving",
+    "motionUnknownDetail": "Rain within {{km}} km, but the scans do not agree on how it is moving",
     "peakAt": "{{intensity}} around {{time}}",
     "endsAround": "ending around {{time}}",
     "noEnd": "still raining at {{time}}",
@@ -170,7 +170,10 @@
       "graupel": "Brief graupel in {{range}} min"
     },
     "cellOnTrack": "Storm cell {{id}} on track · ≈{{min}} min",
-    "cellOverhead": "Storm cell {{id}} overhead"
+    "cellOverhead": "Storm cell {{id}} overhead",
+    "farRainClosing": "Rain {{km}} km to the {{dir}} is heading this way · about {{eta}} out",
+    "farRainAway": "Rain {{km}} km to the {{dir}} is not heading this way",
+    "farRainUntracked": "Rain {{km}} km to the {{dir}} · too little echo within {{core}} km to track it"
   },
   "conditions": {
     "title": "Conditions",

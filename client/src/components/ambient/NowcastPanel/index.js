@@ -25,6 +25,20 @@ const TICK_MS = 15 * 1000;
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
 /**
+ * A lead in minutes as "55 min" or "1 h 55 min".
+ *
+ * @param {Number} min minutes
+ * @returns {String}
+ */
+function leadLabel(min) {
+  const m = Math.max(1, Math.round(min));
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return rest ? `${h} h ${rest} min` : `${h} h`;
+}
+
+/**
  * Eight-point compass name for a bearing.
  *
  * @param {Number} deg bearing, degrees clockwise from north
@@ -145,7 +159,7 @@ const NowcastPanel = ({ compact = false }) => {
 
   // ---- The answer ---------------------------------------------------
   const {
-    now: scanNow, arrival, peak, end, series, motion, trend, confidence, horizonMin, scanTime, site, hindcast, liveSkill, mrms, nearby, cells,
+    now: scanNow, arrival, peak, end, series, motion, trend, confidence, horizonMin, scanTime, site, hindcast, liveSkill, mrms, nearby, nearestRain, cells,
   } = data;
   const at = (lead) => clockAt(scanTime, lead, clockTime, mapTimezone);
   const cat = (name) => t(`nowcast.intensity.${name}`);
@@ -192,9 +206,13 @@ const NowcastPanel = ({ compact = false }) => {
     parts.push(t("nowcast.chance", { pct: pct(arrival.prob) }));
     if (end) parts.push(t("nowcast.endsAround", { time: at(end.leadMin), min: fromNow(end.leadMin) }));
     detail = parts.join(" · ");
-  } else if (!motion && data.echoCellsInRange > 0) {
+  } else if (!motion && data.motionReason === "low-correlation") {
+    // Echo IN the pin's neighbourhood whose scans do not match. Echo that
+    // is only far out is a dry answer below, with the distant rain named:
+    // the first version said "motion unclear" over a band 74 km away that
+    // had never been compared at all (Pikesville, 2026-09-27).
     headline = t("nowcast.motionUnknown");
-    detail = t("nowcast.motionUnknownDetail", { km: data.gridKm });
+    detail = t("nowcast.motionUnknownDetail", { km: data.coreKm || data.gridKm });
   } else {
     headline = t("nowcast.noRain", { min: horizonMin });
     // The highest chance anywhere in the window, so "dry" never hides a
@@ -207,6 +225,19 @@ const NowcastPanel = ({ compact = false }) => {
       detail = t(nearby.maxDbz >= 15 ? "nowcast.nearbyEcho" : "nowcast.nearbyLightEcho", {
         km: nearby.distanceKm < 1 ? "<1" : Math.round(nearby.distanceKm), dir: compass(nearby.bearingDeg), dbz: Math.round(nearby.maxDbz),
       });
+    } else if (nearestRain) {
+      // Rain somewhere in the grid but not beside the pin. Three honest
+      // readings: it is closing but not inside the horizon ("~1 h 55 min
+      // out"), it is not heading this way, or nothing near enough was
+      // tracked so its motion is unknown.
+      const far = { km: Math.round(nearestRain.distanceKm), dir: compass(nearestRain.bearingDeg) };
+      if (motion && nearestRain.etaMin != null) {
+        detail = t("nowcast.farRainClosing", { ...far, eta: leadLabel(Math.max(1, nearestRain.etaMin - elapsed)) });
+      } else if (motion) {
+        detail = t("nowcast.farRainAway", far);
+      } else {
+        detail = t("nowcast.farRainUntracked", { ...far, core: data.coreKm || data.gridKm });
+      }
     } else detail = t("nowcast.noRainDetail", { km: data.gridKm });
   }
 
