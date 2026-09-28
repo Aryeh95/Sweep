@@ -383,13 +383,15 @@ branch; `error: true` with an `errorMessage` means the fetch itself failed
 (also logged in the server log).
 
 **Installs cloned before 2026-09-28** track the old `Aryeh95/pi-weather-station`
-URL, which no longer receives commits, so the checker will keep reporting
-"up to date" for ever. Repoint the remote once, on the kiosk:
+URL, which is archived and receives no commits, so the checker will keep
+reporting "up to date" for ever. Repoint the remote once, on the kiosk. The
+history was rewritten when it moved (commit authorship), so this is a reset,
+not a pull:
 
 ```bash
 cd ~/pi-weather-station        # or wherever the checkout lives
 git remote set-url origin https://github.com/Aryeh95/sweep.git
-git fetch origin && git pull --ff-only
+git fetch origin && git reset --hard origin/master
 ```
 
 The checkout directory can keep its old name; nothing in the service or
