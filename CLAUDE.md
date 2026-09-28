@@ -1421,6 +1421,27 @@ DIX 2026-09-27 14–20 Z showers and LWX 2026-09-22 03–06 Z band):
   Pinned by a synthetic far-blob test (`motionSearch` finds 90 km/h
   toward 225° from a blob centred 70 km NE, and the ensemble then
   forecasts a real arrival).
+- **Fourth kiosk report (Corson County SD from BIS, 2026-09-28 07:49
+  local): "Snowing now · light" under a thunderstorm at 60 °F.** The
+  `ptype` came straight from N0H at the upstream point, and N0H is the
+  0.5° beam's verdict — `beamHeightKm(150) ≈ 2.6` km, above the melting
+  layer. Same aloft-vs-surface trap the type PRODUCT already documents,
+  reached through a different door. Fix: `resolvePtype(aloft, surface,
+  beamKm)` — MRMS PrecipFlag projected on the home grid
+  (`projectMrmsFlagGrid`, groups via `mrmsFlagClassIndex`) is the surface
+  verdict and wins; without it a frozen radar verdict is believed only
+  while the beam is below `FROZEN_MAX_BEAM_KM` (1.2 km, ≈ 85 km range)
+  and otherwise prints as rain (`ptypeSource: "radar-demoted"`). MRMS has
+  no sleet flag, so radar `mix` under surface `rain` is kept only under a
+  low beam. The flag is fetched (`fetchMrmsFlag`, ~1 s CONUS decode,
+  shared per file) only when `classificationHasFrozen(N0H)` — a rain day
+  never pays for it. Replayed Corson County (BIS 12:45 Z): beam 2.3 km
+  at the pin; within 15 km the classified weather cells were 310 rain /
+  63 snow / 15 mix / 311 graupel / 10 hail — 56 % frozen aloft, under a
+  thunderstorm at 60 °F. MRMS PrecipFlag 12:46 Z said rain at every
+  candidate pin. The exact kiosk coordinates were not known, so the old
+  "snow" word itself was not reproduced; the mechanism was. Pinned by
+  `resolvePtype`, `advectSeries` and `classificationHasFrozen` tests.
 - The dock's Map group is now 16 buttons and did not fit a phone in
   portrait — the noise-filter, velocity, type and CC toggles were off the
   right edge, silently. The group wraps onto two rows now

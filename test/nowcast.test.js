@@ -433,3 +433,52 @@ test("motionSearch: a single scan is 'no-baseline', never 'unclear'", () => {
   assert.equal(r.reason, "no-baseline");
   assert.ok(r.coreEchoCells > 150);
 });
+
+test("precipitation type: a frozen verdict aloft needs surface support", () => {
+  // Corson County SD from BIS, 2026-09-28 07:49 local: "Snowing now" at
+  // 60 °F. The pin is ~150 km from the radar, where the 0.5° beam is
+  // ~2.6 km up — the classifier saw ice above the melting layer.
+  assert.ok(Math.abs(nc.beamHeightKm(150) - 2.6) < 0.15, `beam ${nc.beamHeightKm(150)}`);
+  assert.ok(nc.beamHeightKm(60) < nc.FROZEN_MAX_BEAM_KM, "60 km out the beam is still low");
+  assert.ok(nc.beamHeightKm(100) > nc.FROZEN_MAX_BEAM_KM, "100 km out it is not");
+
+  // No surface verdict: frozen aloft is believed only under a low beam.
+  assert.deepEqual(nc.resolvePtype("snow", null, 2.6), { ptype: "rain", source: "radar-demoted" });
+  assert.deepEqual(nc.resolvePtype("hail", null, 2.6), { ptype: "rain", source: "radar-demoted" });
+  assert.deepEqual(nc.resolvePtype("snow", null, 0.7), { ptype: "snow", source: "radar" });
+  assert.deepEqual(nc.resolvePtype("rain", null, 2.6), { ptype: "rain", source: "radar" });
+  assert.deepEqual(nc.resolvePtype("none", null, 2.6), { ptype: "rain", source: "radar" });
+  // A surface verdict wins, high beam or low.
+  assert.deepEqual(nc.resolvePtype("snow", "rain", 0.7), { ptype: "rain", source: "surface" });
+  assert.deepEqual(nc.resolvePtype("rain", "snow", 2.6), { ptype: "snow", source: "surface" });
+  // MRMS cannot say sleet: radar "mix" under surface "rain" survives only
+  // while the beam is low.
+  assert.deepEqual(nc.resolvePtype("mix", "rain", 0.7), { ptype: "mix", source: "radar" });
+  assert.deepEqual(nc.resolvePtype("mix", "rain", 2.6), { ptype: "rain", source: "surface" });
+  // Surface "none" (dry at the surface grid) falls back to the radar rule.
+  assert.deepEqual(nc.resolvePtype("snow", "none", 2.6), { ptype: "rain", source: "radar-demoted" });
+});
+
+test("advectSeries prints the resolved type: snow aloft over a high beam reads rain, over a low beam snow", () => {
+  const grid = blob(0, 0, 20, 30);
+  const classGrid = new Uint8Array(GRID_N * GRID_N).fill(2); // 2 = snow group everywhere
+  const high = nc.advectSeries(grid, { vx: 0, vy: 0 }, { classGrid, beamKmAt: () => 2.6 });
+  assert.equal(high[0].ptype, "rain");
+  assert.equal(high[0].ptypeSource, "radar-demoted");
+  const low = nc.advectSeries(grid, { vx: 0, vy: 0 }, { classGrid, beamKmAt: () => 0.5 });
+  assert.equal(low[0].ptype, "snow");
+  assert.equal(low[0].ptypeSource, "radar");
+  // A surface grid saying rain overrides even under a low beam.
+  const surfaceGrid = new Uint8Array(GRID_N * GRID_N).fill(1);
+  const surf = nc.advectSeries(grid, { vx: 0, vy: 0 }, { classGrid, surfaceGrid, beamKmAt: () => 0.5 });
+  assert.equal(surf[0].ptype, "rain");
+  assert.equal(surf[0].ptypeSource, "surface");
+});
+
+test("classificationHasFrozen gates the surface fetch on a frozen class being present", () => {
+  const rainOnly = { bins: Buffer.from(new Uint8Array([0, 60, 60, 70, 80])).toString("base64") }; // RA / HR / BD
+  const withSnow = { bins: Buffer.from(new Uint8Array([0, 60, 40, 80])).toString("base64") }; // 40 = dry snow
+  assert.equal(nc.classificationHasFrozen(rainOnly), false);
+  assert.equal(nc.classificationHasFrozen(withSnow), true);
+  assert.equal(nc.classificationHasFrozen(null), false);
+});

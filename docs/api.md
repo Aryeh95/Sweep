@@ -600,8 +600,17 @@ within 15 km of the pin inside the horizon — `id`, `speedKmh`,
 `towardDeg`, `arrivalMin`, `passKm`, `rangeKm` — which the ensemble carries
 with the cell's own motion (35–60 % of its weight by closest approach)
 because a discrete cell can move at right angles to the field. `ptype`
-is `rain` / `snow` / `mix` / `graupel` / `hail` from N0H at the upstream
-point. `category` is `none` / `light` (≥ 15 dBZ) / `moderate` (≥ 30) /
+is `rain` / `snow` / `mix` / `graupel` / `hail`, resolved per step from
+three inputs (`ptypeSource` says which won): the radar's N0H verdict at
+the upstream point, the MRMS PrecipFlag surface verdict projected on the
+same grid (`surface`; fetched only when the classification carries a
+frozen class anywhere, reported in `surfaceType`), and the 0.5° beam
+height at that point (`beamKmAtPin` for the pin itself). N0H is what the
+beam sees, ~2.6 km up at 150 km, so a frozen verdict there is ice above
+the melting layer; without a surface verdict it is believed only while
+the beam is below 1.2 km (`radar`), otherwise it prints as rain
+(`radar-demoted`). MRMS has no sleet flag, so a radar `mix` under a
+surface `rain` survives only under a low beam. `category` is `none` / `light` (≥ 15 dBZ) / `moderate` (≥ 30) /
 `heavy` (≥ 40) / `intense` (≥ 50). `confidence` is `high` / `medium` /
 `low` / `unknown` from the correlation quality, the ensemble's agreement
 at the key lead and the lead itself. The horizon shortens when most of the

@@ -46,6 +46,7 @@ const { increment } = require("./requestCounter");
 const { BoundedMap } = require("./boundedCache");
 const { listHourKeys } = require("./nexradBucket");
 const { fetchRadialByKey, keyForEpoch, CLASS_PRODUCT } = require("./radarRadialCtrl");
+const { PRODUCTS: MRMS_TYPE_PRODUCTS } = require("./mrmsPrecipTypeCtrl");
 const { resolveRadarSite, overrideSite } = require("./iemRadarCtrl");
 const { keyNearest, fetchGrid } = require("./mrmsHailCtrl");
 const { fetchTracks } = require("./stormTracksCtrl");
@@ -217,6 +218,17 @@ const CATEGORIES = [
 
 // Precipitation-type words the card can use, from precipType's groups.
 const PTYPE_OF_GROUP = ["none", "rain", "snow", "mix", "graupel", "hail"];
+// Frozen verdicts need SURFACE support. N0H is what the 0.5° beam sees,
+// and 150 km from the radar that is ~2.5 km up — above the freezing level
+// on a warm day, so the classifier honestly reports ice that melts long
+// before the ground (Corson County SD from BIS, 2026-09-28 07:49 local:
+// "Snowing now" at 60 °F under a thunderstorm). MRMS PrecipFlag folds in
+// model temperatures and is the surface answer; without it a frozen N0H
+// verdict is believed only while the beam is low.
+const FROZEN_PTYPES = new Set(["snow", "mix", "graupel", "hail"]);
+const FROZEN_MAX_BEAM_KM = 1.2;
+const BEAM_ELEVATION_DEG = 0.5;
+const EARTH_RADIUS_KM = 6371;
 
 // Skill measured by tools/nowcastHindcast.js against archived scans (see
 // CLAUDE.md, "Nowcast"). Two cases, 9 pins each, scored on the ≥ 50 %
@@ -427,6 +439,81 @@ function projectMrmsGrid(rate, home) {
     }
   }
   return out;
+}
+
+/**
+ * Height of the beam centre above the radar, km, at a range (4/3-Earth
+ * refraction model). 150 km at 0.5° ≈ 2.6 km; 60 km ≈ 0.7 km.
+ *
+ * @param {Number} rangeKm slant range
+ * @param {Number} [elevDeg] tilt (N0B / N0H are the 0.5° cut)
+ * @returns {Number} km above the antenna
+ */
+function beamHeightKm(rangeKm, elevDeg = BEAM_ELEVATION_DEG) {
+  const e = (elevDeg * Math.PI) / 180;
+  const ke = (4 / 3) * EARTH_RADIUS_KM;
+  return rangeKm * Math.sin(e) + (rangeKm * rangeKm) / (2 * ke);
+}
+
+/**
+ * Project a decoded MRMS PrecipFlag field onto the home grid as precipType
+ * GROUP ids (0 none, 1 rain, 2 snow, 5 hail — MRMS has no mix flag).
+ *
+ * @param {{g: Object, samples: Uint16Array}} flag from mrmsHailCtrl.fetchGrid
+ * @param {{lat: Number, lon: Number}} home
+ * @returns {Uint8Array} GRID_N × GRID_N group ids
+ */
+function projectMrmsFlagGrid(flag, home) {
+  const { g, samples } = flag;
+  const scale = (2 ** g.binScale) / (10 ** g.decScale);
+  const offset = g.ref / (10 ** g.decScale);
+  const out = new Uint8Array(GRID_N * GRID_N);
+  const { c, kmPerDegLon } = homeGeometry(home);
+  for (let i = 0; i < GRID_N; i += 1) {
+    const lat = home.lat + ((c - i) * GRID_CELL_KM) / KM_PER_DEG_LAT;
+    const row = Math.round((g.lat0 - lat) / g.dLat);
+    if (row < 0 || row >= g.nj) continue;
+    for (let j = 0; j < GRID_N; j += 1) {
+      let lon = home.lon + ((j - c) * GRID_CELL_KM) / kmPerDegLon;
+      if (lon < 0) lon += 360;
+      const col = Math.round((lon - g.lon0) / g.dLon);
+      if (col < 0 || col >= g.ni) continue;
+      const v = Math.round(offset + samples[row * g.ni + col] * scale);
+      const idx = precipType.mrmsFlagClassIndex(v);
+      out[i * GRID_N + j] = idx < 16 ? precipType.GROUP_OF_CLASS[idx] : 0;
+    }
+  }
+  return out;
+}
+
+/**
+ * The precipitation type to print, from the radar's verdict aloft, the
+ * surface verdict (MRMS PrecipFlag) where there is one, and the beam
+ * height at the sampled point.
+ *
+ *   - A surface verdict wins. The one thing it cannot say is sleet /
+ *     freezing rain (MRMS has no mix flag): a radar "mix" under a surface
+ *     "rain" is kept only while the beam is low enough to be near the
+ *     ground.
+ *   - Without one, a frozen radar verdict is believed only while the beam
+ *     is below FROZEN_MAX_BEAM_KM; higher, it is ice aloft and prints as
+ *     rain.
+ *   - Rain is rain either way; "none" (raining, but no weather class under
+ *     the footprint) prints as rain.
+ *
+ * @param {String} aloft radar group name ("rain" / "snow" / … / "none")
+ * @param {String|null} surface MRMS group name, or null when unavailable
+ * @param {Number} beamKm beam height at the sampled point
+ * @returns {{ptype: String, source: "surface"|"radar"|"radar-demoted"}}
+ */
+function resolvePtype(aloft, surface, beamKm) {
+  const radar = aloft === "none" ? "rain" : aloft;
+  if (surface && surface !== "none") {
+    if (surface === "rain" && radar === "mix" && beamKm <= FROZEN_MAX_BEAM_KM) return { ptype: "mix", source: "radar" };
+    return { ptype: surface, source: "surface" };
+  }
+  if (FROZEN_PTYPES.has(radar) && beamKm > FROZEN_MAX_BEAM_KM) return { ptype: "rain", source: "radar-demoted" };
+  return { ptype: radar, source: "radar" };
 }
 
 /**
@@ -1095,6 +1182,8 @@ function samplePtype(classGrid, xKm, yKm) {
  * @param {Object|null} [ctx.trend] estimateTrend result
  * @param {Float32Array|null} [ctx.rateGrid] MRMS rate on the home grid
  * @param {Uint8Array|null} [ctx.classGrid] N0H groups on the home grid
+ * @param {Uint8Array|null} [ctx.surfaceGrid] MRMS PrecipFlag groups on the home grid
+ * @param {Function} [ctx.beamKmAt] (xKm, yKm) → beam height at that point, km
  * @param {Object} [ctx.features]
  * @param {"veto"|"blend"} [ctx.mrmsMode] how the surface field enters (default MRMS_MODE)
  * @param {Number} [ctx.mrmsWet] surface wet threshold, mm/h (default MRMS_WET_MM_H)
@@ -1184,9 +1273,14 @@ function advectSeries(grid, motion, ctx = {}) {
     const raining = prob >= P_RAIN;
     const dbz = dbzW > 0 ? Math.round((dbzSum / dbzW) * 2) / 2 : null;
     let ptype = "none";
+    let ptypeSource = null;
     if (raining) {
-      ptype = ctx.classGrid && features.ptype && central ? samplePtype(ctx.classGrid, central.x, central.y) : "rain";
-      if (ptype === "none") ptype = "rain";
+      const aloft = ctx.classGrid && features.ptype && central ? samplePtype(ctx.classGrid, central.x, central.y) : "rain";
+      const surface = ctx.surfaceGrid && features.ptype && central ? samplePtype(ctx.surfaceGrid, central.x, central.y) : null;
+      const beamKm = ctx.beamKmAt && central ? ctx.beamKmAt(central.x, central.y) : 0;
+      const r = resolvePtype(aloft, surface, beamKm);
+      ptype = r.ptype;
+      ptypeSource = r.source;
     }
     series.push({
       leadMin: lead,
@@ -1198,6 +1292,7 @@ function advectSeries(grid, motion, ctx = {}) {
       category: raining ? categoryFor(Math.max(dbz ?? RAIN_DBZ, RAIN_DBZ)) : "none",
       rateMmh: raining ? rateForDbz(dbz ?? RAIN_DBZ) : 0,
       ptype,
+      ptypeSource,
     });
   }
   return series;
@@ -1420,6 +1515,7 @@ function confidenceFor(motion, keyLeadMin, keyProb = null) {
  * @param {{lat: Number, lon: Number}} home
  * @param {Object} [opts]
  * @param {Object|null} [opts.classification] decoded N0H payload for the newest scan
+ * @param {Object|null} [opts.precipFlag] decoded MRMS PrecipFlag near the newest scan (surface type)
  * @param {{g: Object, samples: Uint16Array, validTime: String}|null} [opts.mrms] decoded MRMS PrecipRate near the newest scan
  * @param {{vx: Number, vy: Number, epoch: Number}|null} [opts.previous] the previous nowcast's vector for this pin
  * @param {Array<Object>|null} [opts.cells] SCIT storm cells for the site (/api/storm-tracks `cells`)
@@ -1467,11 +1563,19 @@ function nowcastFromScans(scans, home, opts = {}) {
     }
   }
   const classGrid = features.ptype && opts.classification ? projectClassGrid(opts.classification, home) : null;
+  const surfaceGrid = features.ptype && opts.precipFlag ? projectMrmsFlagGrid(opts.precipFlag, home) : null;
+  // Beam height at a point of the home grid: range from the radar that
+  // produced the newest scan, at the 0.5° tilt N0B / N0H share.
+  const newestScan = scans[scans.length - 1];
+  const { kmPerDegLon } = homeGeometry(home);
+  const radarDx = newestScan.radar ? (home.lon - newestScan.radar.lon) * kmPerDegLon : 0;
+  const radarDy = newestScan.radar ? (home.lat - newestScan.radar.lat) * KM_PER_DEG_LAT : 0;
+  const beamKmAt = (x, y) => beamHeightKm(Math.hypot(radarDx + x, radarDy + y));
 
   // With no field motion but a cell on track, advect on the cells alone.
   const carrier = motion || (members && members.length ? { vx: 0, vy: 0 } : null);
   const series = advectSeries(newest.grid, carrier, {
-    members, field, trend, rateGrid, classGrid, features, mrmsMode: opts.mrmsMode, mrmsWet: opts.mrmsWet,
+    members, field, trend, rateGrid, classGrid, surfaceGrid, beamKmAt, features, mrmsMode: opts.mrmsMode, mrmsWet: opts.mrmsWet,
   });
   const summary = summarize(series);
   const key = summary.arrival || summary.end;
@@ -1497,6 +1601,8 @@ function nowcastFromScans(scans, home, opts = {}) {
     cells: onTrack.map(({ vx, vy, ...rest }) => rest),
     mrms: mrmsInfo,
     classification: classGrid ? { product: CLASS_PRODUCT, scanTime: opts.classification.scanTime || null } : null,
+    surfaceType: surfaceGrid ? { product: MRMS_TYPE_PRODUCTS.flag, validTime: opts.precipFlag.validTime || null } : null,
+    beamKmAtPin: Math.round(beamKmAt(0, 0) * 10) / 10,
     confidence: confidenceFor(motion, key ? key.leadMin : null, key ? key.prob : null),
     nearby: nearestEcho(newest.grid),
     nearestRain: (() => {
@@ -1724,6 +1830,58 @@ async function fetchMrmsRate(epoch) {
   }
 }
 
+let flagLatest = null;
+let flagInflight = null;
+
+/**
+ * The MRMS PrecipFlag field nearest a time (surface precipitation type),
+ * decoded and shared like the rate. Null when none is fresh or on error.
+ *
+ * @param {Number} epoch scan time
+ * @returns {Promise<Object|null>} mrmsHailCtrl.fetchGrid result
+ */
+async function fetchMrmsFlag(epoch) {
+  try {
+    const key = await keyNearest(MRMS_TYPE_PRODUCTS.flag, epoch, MRMS_MAX_SKEW_MS);
+    increment("mrms", "nowcast-flag-list");
+    if (!key) return null;
+    if (flagLatest && flagLatest.key === key) return flagLatest;
+    if (flagInflight && flagInflight.key === key) return flagInflight.promise;
+    const promise = fetchGrid(key, "nowcast-flag").then((r) => {
+      flagLatest = r;
+      return r;
+    }).finally(() => {
+      if (flagInflight && flagInflight.key === key) flagInflight = null;
+    });
+    flagInflight = { key, promise };
+    return await promise;
+  } catch (err) {
+    recordServiceCall("MRMS (precip type)", err?.response?.status || 500, `nowcast flag unavailable: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Does a decoded N0H payload carry any frozen class (snow / mix / graupel
+ * / hail) at all? Cheap gate for fetching the surface verdict: a plain
+ * rain classification needs none.
+ *
+ * @param {Object|null} cls decoded N0H payload
+ * @returns {Boolean}
+ */
+function classificationHasFrozen(cls) {
+  if (!cls || !cls.bins) return false;
+  const bins = Buffer.from(cls.bins, "base64");
+  const frozen = new Uint8Array(256);
+  for (let code = 0; code < 256; code += 1) {
+    const idx = precipType.hcaClassIndex(code);
+    const g = idx < 16 ? precipType.GROUP_OF_CLASS[idx] : 0;
+    frozen[code] = FROZEN_PTYPES.has(PTYPE_OF_GROUP[g]) ? 1 : 0;
+  }
+  for (let k = 0; k < bins.length; k += 1) if (frozen[bins[k]]) return true;
+  return false;
+}
+
 /**
  * Cached nowcast for a site and home point.
  *
@@ -1759,10 +1917,13 @@ async function fetchNowcast(site, home) {
     // never fatal (a radar with no cells has no product, which is fine).
     features.cells ? fetchTracks(site).catch(() => null) : null,
   ]);
+  // The surface verdict is fetched only when the radar's says frozen
+  // somewhere in the disc — the one case it can change the wording.
+  const precipFlag = features.ptype && classificationHasFrozen(classification) ? await fetchMrmsFlag(scanEpoch) : null;
   const t0 = Date.now();
   const previous = previousMotion.get(pinKey) || null;
   const core = nowcastFromScans(scans, home, {
-    classification, mrms, previous, cells: tracks && Array.isArray(tracks.cells) ? tracks.cells : null,
+    classification, mrms, precipFlag, previous, cells: tracks && Array.isArray(tracks.cells) ? tracks.cells : null,
   });
   if (core.motion) previousMotion.set(pinKey, { vx: core.motion.vx, vy: core.motion.vy, epoch: scanEpoch });
   const liveSkill = verifyAndRecord(pinKey, scanEpoch, projectToGrid(newest, home), core.series);
@@ -1842,6 +2003,11 @@ module.exports = {
   nowcastFromScans,
   projectToGrid,
   projectClassGrid,
+  projectMrmsFlagGrid,
+  beamHeightKm,
+  resolvePtype,
+  classificationHasFrozen,
+  FROZEN_MAX_BEAM_KM,
   projectMrmsGrid,
   estimateMotion,
   motionSearch,
