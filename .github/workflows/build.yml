@@ -106,6 +106,7 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: |
+            package-lock.json
             client/package-lock.json
             app/package-lock.json
       - uses: actions/setup-java@v4
@@ -115,8 +116,12 @@ jobs:
           java-version: '21'
       - name: Build the app web bundle
         if: steps.secrets.outputs.present == 'true'
-        working-directory: client
+        # The app runs the server controllers in-process (standalone/api.js
+        # imports ../server/*), so webpack resolves their dependencies —
+        # nexrad-level-3-data, h5wasm, axios — from the ROOT node_modules.
         run: |
+          npm ci
+          cd client
           npm ci
           npm run app:build
       - name: Sync into the Android project
