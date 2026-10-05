@@ -171,6 +171,34 @@ Resolves the NEXRAD site covering a coordinate.
 A location with no NEXRAD coverage returns HTTP 200 with
 `{"available": false}` — the client stays on the mosaic layer.
 
+### `GET /api/radar/status`
+
+Operating state of every WSR-88D, for the site picker's red "offline" chips.
+
+- **Access:** 🌐 Public — rate limited
+- **Source:** `api.weather.gov/radar/stations?stationType=WSR-88D`
+- **Cached:** 5 min; on upstream failure the last good answer is served with
+  `stale: true` (retried after 60 s)
+
+```json
+{
+  "available": true,
+  "fetchedAt": "2026-10-05T13:46:00.000Z",
+  "offlineAfterMin": 15,
+  "stale": false,
+  "sites": {
+    "LWX": { "state": "online", "reason": null, "lastDataTime": "2026-10-05T13:45:31+00:00", "ageMin": 0, "status": "Operate", "operability": "RDA - Maintenance Action Mandatory" },
+    "EOX": { "state": "offline", "reason": "no-data", "lastDataTime": "2026-10-03T05:47:00+00:00", "ageMin": 3359, "status": "Operate", "operability": "RDA - On-line" }
+  }
+}
+```
+
+Keys are 3-letter ids (`KLWX` → `LWX`). `state` is `online`, `offline` or
+`unknown` (no latency block in the feed). `reason` is `no-data` (no Level II
+for more than `offlineAfterMin`) or `inoperable` (RDA inoperable, or status
+Start-Up / Standby / Offline). Always HTTP 200; with no answer ever fetched
+it returns `{"available": false, "reason": "upstream-unavailable", "sites": {}}`.
+
 ### `GET /api/radar/frames`
 
 The frame-list poller. Returns the actual volume-scan timestamps that build

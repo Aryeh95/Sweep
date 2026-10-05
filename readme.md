@@ -70,7 +70,9 @@ a storm anywhere and the radar **follows the map view**, but only once the
 view has left the home radar's reach (200 km), so looking across a bay
 never switches sites. A **radar site picker** (dock toggle) draws a
 RadarScope-style chip on every WSR-88D: tap one to pin the layer to that
-radar, tap it again to go back to automatic. The same pin is editable as
+radar, tap it again to go back to automatic. Radars that have stopped
+transmitting are drawn **red**, like RadarScope's, with how long they have
+been silent in the chip's tooltip. The same pin is editable as
 "Radar site" in Settings.
 
 **Raw radial rendering at high zoom.** The latest scan is decoded from the
@@ -204,7 +206,7 @@ RadarScope. ECCC (Canada) alerts are also polled for locations in Canada.
 | [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/) GOES layers | GOES-East infrared and visible satellite tiles + per-channel valid time | none |
 | `noaa-goes19` (public S3 bucket) | GLM lightning flashes | none |
 | `noaa-mrms-pds` (public S3 bucket) | MRMS MESH hail size at each storm cell; MRMS precipitation type + rate for the low-zoom mosaic; MRMS radar-only 1 h / 3 h accumulation for the rainfall mosaic | none |
-| [api.weather.gov](https://www.weather.gov/documentation/services-web-api) | Active alerts, zone geometry, radar-site fallback, the WSR-88D station list the site picker ships | none (User-Agent required) |
+| [api.weather.gov](https://www.weather.gov/documentation/services-web-api) | Active alerts, zone geometry, radar-site fallback, the WSR-88D station list the site picker ships, which radars are offline | none (User-Agent required) |
 | [Environment Canada](https://api.weather.gc.ca/) | Alerts for Canadian locations | none |
 | [Mapbox](https://www.mapbox.com/) | Basemap raster tiles | **required** |
 | [LocationIQ](https://locationiq.com/) | Reverse geocoding for the place name | optional |

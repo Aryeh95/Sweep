@@ -1553,6 +1553,18 @@
   font-size: 0.7em;
   vertical-align: middle;
 }
+/* Offline (RadarScope's red chip): no Level II for 15 min, or the radar
+ * reports itself inoperable. Declared after the active rule so a pinned or
+ * auto-selected radar that is down still reads red — the blue ring keeps
+ * "this is the one you are on" visible without hiding the outage. */
+.radar-site-chip-offline {
+  color: #fff;
+  background: #c62828;
+  border-color: #ff8a80;
+}
+.radar-site-chip-active.radar-site-chip-offline {
+  box-shadow: 0 0 0 2px #6fa8ff;
+}
 
 /* GOES-East satellite tile containers. Channel 13 arrives with IEM's
  * colour-enhanced ramp (green / purple cold tops) — desaturated here so

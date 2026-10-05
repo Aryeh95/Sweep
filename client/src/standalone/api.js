@@ -31,6 +31,7 @@
 // that captures status and body instead of writing to a socket.
 
 import { getRadarSite, getRadarFrames } from "../../../server/iemRadarCtrl";
+import { getRadarStatus } from "../../../server/radarStatusCtrl";
 import { getRadarRadial } from "../../../server/radarRadialCtrl";
 import { getPrecipMosaic } from "../../../server/mrmsPrecipTypeCtrl";
 import { getQpeMosaic } from "../../../server/mrmsQpeCtrl";
@@ -87,6 +88,7 @@ function makeRes() {
 // Keyed by "METHOD path" because `/settings` is both a read and a write.
 const ROUTES = {
   "GET /api/radar/site": getRadarSite,
+  "GET /api/radar/status": getRadarStatus,
   "GET /api/radar/frames": getRadarFrames,
   "GET /api/radar/radial": getRadarRadial,
   "GET /api/radar/precip-mosaic": getPrecipMosaic,

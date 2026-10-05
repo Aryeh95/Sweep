@@ -179,6 +179,27 @@ server's settings.json read — the Android app runs the controller
 in-process with no file to read, so the query is how the pin reaches it
 there.
 
+**Offline radars (2026-10-05).** Red chips like RadarScope's, from
+`server/radarStatusCtrl.js` → `GET /api/radar/status` (NWS
+`/radar/stations?stationType=WSR-88D`, ~410 KB, 159 stations, cached 5 min,
+stale fallback). The rule is **data age**, `latency.levelTwoLastReceivedTime`
+older than 15 min, plus `operabilityStatus` matching /inoperable/ or a
+`status` of Start-Up / Standby / Offline. Measured live — keep these:
+- Working radars: Level II 0.5–0.7 min old. Dead ones: 56 h to 6 days.
+  Nothing in between, so the 15-min threshold has huge margin.
+- A radar whose link is down **keeps its last-known RDA status**: EOX, EVX,
+  MOB and TLH read `Operate` / `RDA - On-line` / "No Alarms" while silent
+  for two days. Status words alone miss most outages.
+- "Maintenance Action Mandatory" was on 41 healthy radars (LWX, DIX) — a
+  maintenance flag, NOT an outage. Never key "offline" on it.
+- RODN (Okinawa) has no latency block → `unknown`, drawn as a normal chip.
+- Level II and the Level III bucket travel separate paths after the radar;
+  this answers "is it transmitting", the frame-age chip answers "is what I
+  see late".
+`useRadarStatus` polls only while `showRadarSites` is on. Offline chips
+stay tappable/pinnable. Not built (idea): have automatic site selection
+skip an offline nearest radar.
+
 ### Satellite overlay — GOES-East via IEM (2026-09-25)
 
 Cloud deck under the radar, dock button cycling off → infrared → visible

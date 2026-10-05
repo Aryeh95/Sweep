@@ -74,6 +74,7 @@ import RadarTimeline from "./RadarTimeline";
 import RadarFrameAge from "./RadarFrameAge";
 import useIemRadarFrames from "./useIemRadarFrames";
 import useStormTracks from "./useStormTracks";
+import useRadarStatus from "./useRadarStatus";
 import useLightning from "./useLightning";
 import LightningOverlay from "./LightningOverlay";
 import useRadarRadial from "./useRadarRadial";
@@ -1254,6 +1255,10 @@ const WeatherMap = ({ zoom, dark }) => {
   const siteLayerDrawn = mountedSiteFrames.length > 0 || radialShown || currentLoopRadial;
   const iemOpacity = layerOpacities(currentMapZoom, iemBaseOpacity, siteLayerDrawn);
 
+  // Which radars are offline, for the red chips in the site picker. Polled
+  // only while the picker is shown.
+  const { sites: radarStatus } = useRadarStatus({ enabled: Boolean(showRadarSites), paused: pollingPaused });
+
   // Storm tracks reuse the NEXRAD site the frame poller already resolved,
   // so enabling the overlay costs no extra site lookup.
   const {
@@ -1984,6 +1989,7 @@ const WeatherMap = ({ zoom, dark }) => {
           <RadarSitePicker
             activeSite={iemSite || null}
             pinnedSite={radarSite || ""}
+            status={radarStatus}
             interactive={Boolean(isLocal)}
             onPick={pickRadarSite}
           />

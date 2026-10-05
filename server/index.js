@@ -73,6 +73,7 @@ function registerKnownServices() {
     "NEXRAD L3 (nowcast)",
     "GOES GLM (lightning)",
     "NWS (severe weather alerts)",
+    "NWS (radar status)",
     // Environment Canada is still wired into the nearby-alerts chain for a
     // point near the border, and registers itself the first time it is
     // actually called; pre-registering it left a permanent "not yet called"
@@ -726,7 +727,10 @@ app.get("/api/nearby-alerts",       apiLimiter, nearbyAlertsConcurrencyGuard, ge
 // solve. Tiles themselves are fetched direct from IEM by Leaflet (keyless and
 // public, same as the RainViewer / ECCC layers), so there is no tile route.
 const { getRadarSite, getRadarFrames } = require("./iemRadarCtrl");
+const { getRadarStatus } = require("./radarStatusCtrl");
 app.get("/api/radar/site",          apiLimiter, getRadarSite);
+// Which radars are offline, for the site picker (NWS station feed, 5-min cache).
+app.get("/api/radar/status",        apiLimiter, getRadarStatus);
 app.get("/api/radar/frames",        apiLimiter, getRadarFrames);
 
 // NEXRAD Level III storm tracks (STI / product 58). NWS runs the cell
