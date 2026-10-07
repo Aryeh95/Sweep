@@ -70,6 +70,7 @@ function registerKnownServices() {
     "MRMS (precip type)",
     "MRMS (hail)",
     "MRMS (rainfall)",
+    "MRMS (reflectivity mosaic)",
     "NEXRAD L3 (nowcast)",
     "GOES GLM (lightning)",
     "NWS (severe weather alerts)",
@@ -764,6 +765,12 @@ app.get("/api/radar/precip-mosaic", apiLimiter, getPrecipMosaic);
 // `/api/radar/radial?product=DAA|DU3|DTA` above.
 const { getQpeMosaic } = require("./mrmsQpeCtrl");
 app.get("/api/radar/qpe-mosaic",    apiLimiter, getQpeMosaic);
+
+// MRMS reflectivity at lowest altitude — the low-zoom radar mosaic (IEM's
+// N0Q tiles remain the client's fallback when this is missing or stale).
+const { getReflMosaic, getReflFrames } = require("./mrmsReflCtrl");
+app.get("/api/radar/refl-mosaic/frames", apiLimiter, getReflFrames);
+app.get("/api/radar/refl-mosaic",   apiLimiter, getReflMosaic);
 
 // Point nowcast for the home pin — rain arrival / intensity / end over the
 // next 90 min by extrapolating the last few scans' motion (Lagrangian

@@ -85,6 +85,8 @@ import { satelliteTileUrl, satelliteChannel, SATELLITE_LAYERS } from "~/ui/satel
 import ColorIrLayer from "./ColorIrLayer";
 import useGoesIrImage from "./useGoesIrImage";
 import useSatelliteLoop from "./useSatelliteLoop";
+import useReflMosaic, { decodeReflPayload } from "./useReflMosaic";
+import useReflMosaicLoop from "./useReflMosaicLoop";
 import { pickScan } from "~/ui/satelliteLoop";
 import { inflate } from "pako";
 import StormTracks from "./StormTracks";
@@ -438,6 +440,7 @@ const SATELLITE_OPACITY = 0.7;
 const SATELLITE_COLOR_OPACITY = 0.9;
 const SATELLITE_ATTRIBUTION = 'Satellite: <a href="https://mesonet.agron.iastate.edu/">IEM</a> / NOAA GOES-East';
 const SATELLITE_IR_ATTRIBUTION = 'Satellite: NOAA GOES-East';
+const MRMS_ATTRIBUTION = 'Radar mosaic: NOAA MRMS';
 
 const MapViewTracker = ({ onChange }) => {
   const lastRef = useRef(null);
@@ -1064,6 +1067,23 @@ const WeatherMap = ({ zoom, dark }) => {
     [iemSiteFrames, iemMosaicValidEpoch]  // eslint-disable-line react-hooks/exhaustive-deps -- iemSiteFrames is the intentional 60s recompute heartbeat
   );
 
+  // Low-zoom mosaic SOURCE (server/mrmsReflCtrl.js, ui/mosaicSource.js):
+  // MRMS reflectivity at lowest altitude while it is current, IEM's N0Q
+  // tiles as the fallback. On 2026-10-07 the Level III feed stalled and
+  // IEM's composite drained to blank under a "now" timestamp while MRMS
+  // (built from Level II) stayed ~2 min old. The precipitation-type and
+  // accumulation modes draw their own MRMS layers instead, so the
+  // reflectivity mosaic is not wanted there.
+  const mrmsMosaic = useReflMosaic({
+    enabled: showRadar && !radarPrecipType && !radarAccumulation,
+    liveEnabled: layerVisibility(currentMapZoom).mosaic,
+    paused: pollingPaused,
+  });
+  const mosaicFromMrms = mrmsMosaic.usable && mrmsMosaic.frames.length > 0;
+  // The frames the mosaic layer, the timeline and the age chip follow —
+  // real MRMS file times, or IEM's 5-minute offsets on fallback.
+  const mosaicFrames = mosaicFromMrms ? mrmsMosaic.frames : iemMosaicFrames;
+
   // Playhead for the IEM layers, kept separate from the RainViewer
   // `radarFrameIdx` above: the two sources have different frame counts
   // and cadences, so sharing one index would land on a wrong or
@@ -1086,7 +1106,7 @@ const WeatherMap = ({ zoom, dark }) => {
     if (back > list.length - 1) return null;
     return list[list.length - 1 - back];
   };
-  const currentMosaicFrame = pickFromEnd(iemMosaicFrames, iemFromEnd);
+  const currentMosaicFrame = pickFromEnd(mosaicFrames, iemFromEnd);
   const currentSiteFrame = pickFromEnd(iemSiteFrames, iemFromEnd);
 
   // Per-layer opacity for the zoom crossfade, scaled by the user's
@@ -1180,9 +1200,9 @@ const WeatherMap = ({ zoom, dark }) => {
   // The frame list that drives the timeline (see the scrubber section
   // below for why it depends on the zoom band).
   const iemTimelineSourceFrames =
-    (iemVisible.site && iemSiteAvailable && iemSiteFrames.length > iemMosaicFrames.length)
+    (iemVisible.site && iemSiteAvailable && iemSiteFrames.length > mosaicFrames.length)
       ? iemSiteFrames
-      : iemMosaicFrames;
+      : mosaicFrames;
 
   // Satellite loop (both infrared modes): history scans follow the radar
   // playhead — the newest loaded scan at or before the playhead's time,
@@ -1281,9 +1301,32 @@ const WeatherMap = ({ zoom, dark }) => {
   // A null current frame (playhead out past a layer's span) keeps the
   // stack mounted with every layer at opacity 0 — unmounting would
   // refetch the whole stack when the playhead comes back into range.
-  const mountedMosaicFrames = (showRadar && !radarPrecipType && !radarAccumulation && iemVisible.mosaic && iemMosaicFrames.length)
+  // IEM's tiles only on fallback — with MRMS current (or its first frame
+  // list still in flight) they are not mounted at all (no tile requests).
+  const mountedMosaicFrames = (showRadar && !mosaicFromMrms && !mrmsMosaic.pending && !radarPrecipType && !radarAccumulation && iemVisible.mosaic && iemMosaicFrames.length)
     ? (loopActive ? iemMosaicFrames : (currentMosaicFrame ? [currentMosaicFrame] : []))
     : [];
+
+  // MRMS mosaic history: the loop keeps every frame's payload deflated and
+  // the one under the playhead is inflated on demand; "latest" is the live
+  // field. Keyed on the joined stamps so a list refresh that changes
+  // nothing does not restart the fetch pump.
+  const reflLoopKey = (mosaicFromMrms && iemVisible.mosaic && radarTimelineVisible)
+    ? (loopActive
+      ? mosaicFrames.slice(0, -1).map((f) => f.stamp).reverse().join(",")
+      : ((currentMosaicFrame && iemFromEnd > 0) ? currentMosaicFrame.stamp : ""))
+    : "";
+  const reflLoopStamps = useMemo(() => (reflLoopKey ? reflLoopKey.split(",") : []), [reflLoopKey]);
+  const reflLoop = useReflMosaicLoop({
+    stamps: reflLoopStamps,
+    enabled: mosaicFromMrms && iemVisible.mosaic && radarTimelineVisible,
+    paused: pollingPaused,
+  });
+  const reflLoopEntry = (mosaicFromMrms && iemFromEnd > 0 && currentMosaicFrame)
+    ? reflLoop.byStamp[currentMosaicFrame.stamp] || null
+    : null;
+  const reflLoopField = useMemo(() => (reflLoopEntry ? decodeReflPayload(reflLoopEntry) : null), [reflLoopEntry]);
+  const reflDisplayField = iemFromEnd === 0 ? mrmsMosaic.field : reflLoopField;
   //
   // VELOCITY MODE mounts no site tiles at all: IEM's tiles are
   // reflectivity, and showing them under (or instead of) a velocity
@@ -1338,9 +1381,9 @@ const WeatherMap = ({ zoom, dark }) => {
   const stampOf = (epoch) => new Date(epoch).toISOString().slice(0, 16).replace(/[-:T]/g, "");
   const wantedPrecipStamps = useMemo(() => {
     if (!radarPrecipType || !iemVisible.mosaic || !radarTimelineVisible) return [];
-    if (loopActive) return iemMosaicFrames.slice(0, -1).map((f) => stampOf(f.epoch)).reverse();
+    if (loopActive) return mosaicFrames.slice(0, -1).map((f) => stampOf(f.epoch)).reverse();
     return (currentMosaicFrame && iemFromEnd > 0) ? [stampOf(currentMosaicFrame.epoch)] : [];
-  }, [radarPrecipType, iemVisible.mosaic, radarTimelineVisible, loopActive, iemMosaicFrames, currentMosaicFrame, iemFromEnd]);
+  }, [radarPrecipType, iemVisible.mosaic, radarTimelineVisible, loopActive, mosaicFrames, currentMosaicFrame, iemFromEnd]);
   useEffect(() => {
     setPrecipLoopStamps((prev) => (prev.join(",") === wantedPrecipStamps.join(",") ? prev : wantedPrecipStamps));
   }, [wantedPrecipStamps]);
@@ -1363,6 +1406,7 @@ const WeatherMap = ({ zoom, dark }) => {
   let mosaicRowShown;
   if (radarPrecipType) mosaicRowShown = precipMosaicShown;
   else if (radarAccumulation) mosaicRowShown = qpeMosaicShown;
+  else if (mosaicFromMrms) mosaicRowShown = showRadar && iemVisible.mosaic && Boolean(reflDisplayField);
   else mosaicRowShown = showRadar && iemVisible.mosaic && Boolean(currentMosaicFrame);
   const stormScanEpoch = stormScanTime ? Date.parse(stormScanTime) : NaN;
   const ageRows = [];
@@ -1404,10 +1448,21 @@ const WeatherMap = ({ zoom, dark }) => {
       approximate: false,
       sourceStale: qpeMosaic.stale,
     });
-  } else if (mosaicRowShown) {
+  } else if (mosaicRowShown && mosaicFromMrms) {
+    // The time of the MRMS file actually drawn.
     ageRows.push({
       key: "mosaic",
       label: t("radar.ageMosaic"),
+      epoch: Date.parse(reflDisplayField.validTime),
+      approximate: false,
+      sourceStale: iemFromEnd === 0 && mrmsMosaic.stale,
+    });
+  } else if (mosaicRowShown) {
+    // IEM fallback, labelled so: its stamp is the composite's schedule,
+    // which keeps advancing even while its inputs age out.
+    ageRows.push({
+      key: "mosaic",
+      label: t("radar.ageMosaicIem"),
       epoch: currentMosaicFrame.epoch,
       approximate: Boolean(currentMosaicFrame.approximate),
       sourceStale: iemStale,
@@ -1545,9 +1600,9 @@ const WeatherMap = ({ zoom, dark }) => {
   // change. The single-site list is preferred when present because its
   // timestamps are real scan times; the mosaic's are schedule-derived.
   useEffect(() => {
-    const [newest] = (iemSiteFrames.length ? iemSiteFrames : iemMosaicFrames).slice(-1);
+    const [newest] = (iemSiteFrames.length ? iemSiteFrames : mosaicFrames).slice(-1);
     setRadarFrameTs(newest ? newest.epoch : null);
-  }, [iemSiteFrames, iemMosaicFrames, setRadarFrameTs]);
+  }, [iemSiteFrames, mosaicFrames, setRadarFrameTs]);
 
 
   const getMapApiKeyCallback = useCallback(() => getMapApiKey(), [
@@ -1896,6 +1951,19 @@ const WeatherMap = ({ zoom, dark }) => {
           * (250): above the basemap, below the site layer, which paints
           * over it through the crossfade exactly as the tiles would. */}
         <Pane name="precipMosaicPane" style={{ zIndex: 240 }}>
+          {/* Reflectivity mosaic — MRMS at the lowest beam, the primary
+            * low-zoom radar layer (IEM's tiles above are its fallback), in
+            * the user's palette with the same dBZ noise floor as the tiles. */}
+          {showRadar && mosaicFromMrms && !radarPrecipType && !radarAccumulation && iemVisible.mosaic ? (
+            <PrecipMosaicLayer
+              field={reflDisplayField}
+              opacity={iemOpacity.mosaic}
+              kind="refl"
+              palette={radarPalette}
+              minDbz={tileMinDbz}
+              attribution={MRMS_ATTRIBUTION}
+            />
+          ) : null}
           {showRadar && radarPrecipType && iemVisible.mosaic ? (
             <PrecipMosaicLayer
               field={precipDisplayField}
@@ -2177,7 +2245,7 @@ const WeatherMap = ({ zoom, dark }) => {
           dark={dark}
           compact={isSmallScreen || isNarrow}
           sourceStale={iemStale}
-          sourceName="NEXRAD"
+          sourceName={mosaicFromMrms && iemTimelineSourceFrames === mosaicFrames ? "MRMS" : "NEXRAD"}
         />
       )}
     </div>

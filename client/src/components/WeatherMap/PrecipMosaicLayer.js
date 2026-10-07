@@ -1,4 +1,5 @@
-// Viewport-fitted renderer for the MRMS precipitation-type mosaic.
+// Viewport-fitted renderer for the MRMS mosaics (precipitation type,
+// rainfall accumulation, and the reflectivity mosaic of the radar layer).
 //
 // The field is a CONUS-wide 2 km grid (see usePrecipMosaic). Rendering all
 // of it at a useful resolution would be a ~12 M pixel canvas (≈ 46 MB
@@ -19,6 +20,25 @@ import PropTypes from "prop-types";
 import { ImageOverlay, useMap, useMapEvents } from "react-leaflet";
 import { buildPrecipLut } from "../../../../server/precipType";
 import { buildAccumLut } from "../../../../server/accumulation";
+import { buildLevelLut } from "./radialRender";
+
+// The MRMS reflectivity mosaic's byte scale (server/mrmsReflCtrl.js): the
+// N0Q encoding, so the radial layer's palette LUT paints it unchanged.
+const REFL_SCALING = { min: -32.5, increment: 0.5 };
+
+/**
+ * The colour table for a field kind.
+ *
+ * @param {String} kind "ptype", "accum" or "refl"
+ * @param {Number} [minDbz] noise-filter floor
+ * @param {String} [palette] reflectivity palette id (refl only)
+ * @returns {Uint8ClampedArray} 256 × RGBA
+ */
+function lutFor(kind, minDbz, palette) {
+  if (kind === "accum") return buildAccumLut();
+  if (kind === "refl") return buildLevelLut(REFL_SCALING, minDbz ?? -Infinity, "reflectivity", palette || "nws");
+  return buildPrecipLut(minDbz);
+}
 
 // Margin around the view, as a fraction of the view size, on each side.
 export const PAD = 0.5;
@@ -46,12 +66,13 @@ const fromMerc = (ym) => (Math.atan(Math.sinh(ym)) * 180) / Math.PI;
  * @param {Number} width canvas width, px
  * @param {Number} height canvas height, px
  * @param {Number} [minDbz] noise-filter floor (tiers below it are not drawn)
- * @param {String} [kind] "ptype" (class × tier bytes, default) or "accum" (accumulation tiers)
+ * @param {String} [kind] "ptype" (class × tier bytes, default), "accum" (accumulation tiers) or "refl" (N0Q-scale dBZ)
+ * @param {String} [palette] reflectivity palette id (refl only)
  * @returns {HTMLCanvasElement} the painted canvas
  */
-export function renderPrecipCanvas(field, bounds, width, height, minDbz, kind = "ptype") {
+export function renderPrecipCanvas(field, bounds, width, height, minDbz, kind = "ptype", palette = "nws") {
   const { grid, cells } = field;
-  const lut32 = new Uint32Array((kind === "accum" ? buildAccumLut() : buildPrecipLut(minDbz)).buffer);
+  const lut32 = new Uint32Array(lutFor(kind, minDbz, palette).buffer);
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -104,16 +125,19 @@ export function renderCovers(rendered, view, zoom) {
 }
 
 /**
- * The MRMS precipitation-type mosaic as a viewport-fitted ImageOverlay.
+ * An MRMS mosaic (precipitation type, rainfall accumulation or
+ * reflectivity) as a viewport-fitted ImageOverlay.
  *
  * @param {Object} props
  * @param {Object|null} props.field decoded field from usePrecipMosaic, or null to draw nothing (the layer stays mounted so its render cache survives a loop frame that has not arrived yet)
  * @param {Number} props.opacity overlay opacity (0 hides without unmounting)
  * @param {Number} [props.minDbz] noise-filter floor
- * @param {String} [props.kind] "ptype" (default) or "accum" — which byte encoding / LUT the cells use
+ * @param {String} [props.kind] "ptype" (default), "accum" or "refl" — which byte encoding / LUT the cells use
+ * @param {String} [props.palette] reflectivity palette id ("refl" only)
+ * @param {String} [props.attribution] map credit while the overlay is shown
  * @returns {JSX.Element|null} the overlay once rendered
  */
-const PrecipMosaicLayer = ({ field, opacity, minDbz, kind = "ptype" }) => {
+const PrecipMosaicLayer = ({ field, opacity, minDbz, kind = "ptype", palette = "nws", attribution }) => {
   const map = useMap();
   const [img, setImg] = useState(null);
   // The view the cache was rendered for; a move outside it empties the cache.
@@ -134,7 +158,7 @@ const PrecipMosaicLayer = ({ field, opacity, minDbz, kind = "ptype" }) => {
     }
     const size = map.getSize();
     if (size.x < 1 || size.y < 1) return;
-    const cacheKey = `${field.key}|${kind}|${minDbz ?? "none"}`;
+    const cacheKey = `${field.key}|${kind}|${minDbz ?? "none"}|${palette}`;
     const view = map.getBounds();
     const zoom = map.getZoom();
     // Same view as the cache was built for, and this frame already drawn?
@@ -161,7 +185,7 @@ const PrecipMosaicLayer = ({ field, opacity, minDbz, kind = "ptype" }) => {
       };
     }
     const { bounds, width, height } = renderedRef.current;
-    const canvas = renderPrecipCanvas(field, bounds, width, height, minDbz, kind);
+    const canvas = renderPrecipCanvas(field, bounds, width, height, minDbz, kind, palette);
     canvas.toBlob((blob) => {
       if (!blob || !aliveRef.current) return;
       // The view may have moved while encoding; a stale render must not
@@ -177,7 +201,7 @@ const PrecipMosaicLayer = ({ field, opacity, minDbz, kind = "ptype" }) => {
       }
       setImg({ url, bounds: leaflet });
     }, "image/png");
-  }, [map, field, minDbz, kind, clearCache]);
+  }, [map, field, minDbz, kind, palette, clearCache]);
 
   // New field (a loop frame, a new scan) or filter state: paint it — from
   // the cache when this view has seen it before.
@@ -201,7 +225,7 @@ const PrecipMosaicLayer = ({ field, opacity, minDbz, kind = "ptype" }) => {
   if (!img) return null;
   // Keyed on the URL so a repaint swaps the bitmap atomically rather than
   // leaving the old one up while the new decodes.
-  return <ImageOverlay key={img.url} url={img.url} bounds={img.bounds} opacity={opacity} />;
+  return <ImageOverlay key={img.url} url={img.url} bounds={img.bounds} opacity={opacity} attribution={attribution} />;
 };
 
 PrecipMosaicLayer.propTypes = {
@@ -212,7 +236,9 @@ PrecipMosaicLayer.propTypes = {
   }),
   opacity: PropTypes.number.isRequired,
   minDbz: PropTypes.number,
-  kind: PropTypes.oneOf(["ptype", "accum"]),
+  kind: PropTypes.oneOf(["ptype", "accum", "refl"]),
+  palette: PropTypes.string,
+  attribution: PropTypes.string,
 };
 
 export default PrecipMosaicLayer;

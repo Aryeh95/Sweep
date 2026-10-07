@@ -456,6 +456,7 @@
     "legendToward": "vers le radar",
     "legendAway": "s'éloigne",
     "stormArrival": "≈ {{minutes}} min",
+    "ageMosaicIem": "Mosaïque · IEM",
     "ageMosaic": "Mosaïque",
     "ageSatelliteIr": "Satellite IR",
     "ageSatelliteVis": "Satellite VIS",

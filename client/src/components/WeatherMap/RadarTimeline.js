@@ -215,8 +215,11 @@ const RadarTimeline = ({
   // cadence stays measured from the actual frame spacing so an upstream
   // schedule change never leaves a stale hardcode. Shortened on the 7"
   // kiosk and narrow (mobile) layouts.
+  // Average spacing across the whole track: MRMS frames are real files
+  // picked nearest each 5-minute step, so neighbours sit 4–6 min apart and
+  // the first gap alone would label the track "4 min" or "6 min".
   const cadenceMin = frames.length > 1
-    ? Math.max(1, Math.round((frames[1].time - frames[0].time) / 60))
+    ? Math.max(1, Math.round((frames[frames.length - 1].time - frames[0].time) / (frames.length - 1) / 60))
     : null;
   const sourceLabel = compact || cadenceMin == null
     ? sourceName

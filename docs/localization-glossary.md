@@ -16,7 +16,7 @@ Replace `☐` with `☑` when a native speaker has confirmed the FR and ES wordi
 
 | Source | Rows | Notes |
 |---|---|---|
-| `client/src/i18n/locales/{en,fr,es}.json` | 585 translated + 28 identical | Every kiosk-visible surface. 613 leaf keys total. |
+| `client/src/i18n/locales/{en,fr,es}.json` | 586 translated + 28 identical | Every kiosk-visible surface. 614 leaf keys total. |
 | `client/src/components/ambient/SettingsPanel/index.js` | 106 (+4 non-literal, not listed) | Settings overlay — the user-facing configuration surface. |
 | `client/src/components/ambient/DebugPanel/index.js` | 70 | Debug overlay — localhost-only, reached from a desktop browser or an SSH tunnel. |
 
@@ -518,6 +518,7 @@ reported here as a gap table, so an empty check means the three files are aligne
 | ☐ | {{count}} min ago | il y a {{count}} min | hace {{count}} min | `radar.ageMinutes_one` |
 | ☐ | {{count}} min ago | il y a {{count}} min | hace {{count}} min | `radar.ageMinutes_other` |
 | ☐ | Mosaic | Mosaïque | Mosaico | `radar.ageMosaic` |
+| ☐ | Mosaic · IEM | Mosaïque · IEM | Mosaico · IEM | `radar.ageMosaicIem` |
 | ☐ | Type mosaic | Mosaïque de type | Mosaico de tipo | `radar.ageMosaicPrecip` |
 | ☐ | now | maintenant | ahora | `radar.ageNow` |
 | ☐ | TYPE | TYPE | TIPO | `radar.agePrecipType` |

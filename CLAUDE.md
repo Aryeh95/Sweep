@@ -69,6 +69,10 @@ age* so staleness is visible rather than suspected.
 
 ### Layer 1 — mosaic (low zoom)
 
+> **Superseded 2026-10-07: MRMS is the primary mosaic, IEM the fallback** —
+> see "MRMS reflectivity mosaic" below. The IEM notes here still describe
+> the fallback path exactly.
+
 Iowa Environmental Mesonet XYZ tiles (drop-in for existing `L.tileLayer`):
 
 ```
@@ -260,6 +264,41 @@ Findings — keep these:
 - Headless Chromium in the cloud container cannot reach IEM (no proxy;
   pointing it at the agent proxy breaks localhost). Test with
   `ctx.route(/mesonet/)` fulfilled by curl.
+
+**MRMS reflectivity mosaic (2026-10-07).** The low-zoom radar layer is
+MRMS `CONUS/ReflectivityAtLowestAltitude_00.50` (`server/mrmsReflCtrl.js`
+→ `/api/radar/refl-mosaic[?stamp=YYYYMMDDHHMMSS]` and `/refl-mosaic/frames`),
+drawn by `PrecipMosaicLayer kind="refl"` in the user's palette. IEM's N0Q
+tiles are the FALLBACK (`ui/mosaicSource.js`: list failed, newest file
+> 10 min old, or 2 consecutive frame failures). Why, and what to keep:
+- 2026-10-07 13:36 Z the Level III feed stalled nationwide (Unidata L3
+  bucket and IEM's ridge frames both stopped at 13:36; TBW/HGX/LWX alike).
+  IEM kept stamping a new N0Q composite every 5 min and dropped radars as
+  they aged out — tile size for one z5 tile: 17.7 KB (−30 min) → 2.9 KB
+  (−10) → 334 B blank (now), while `n0q_0.json` still said quorum 142/147.
+  The app showed an empty map under a green "Mosaic · now". MRMS (built
+  from Level II) stayed 1–3 min old throughout.
+- Product choice: RALA (lowest beam) ≈ base reflectivity, matches N0Q/N0B
+  at the crossfade. NOT `MergedReflectivityQCComposite` (column max: paints
+  rain aloft, bigger/stronger than the site layer).
+- Decode: hail controller's GRIB2 PNG path unchanged; values (ref −9990,
+  decScale 1) → dBZ; −99 no echo, −999 no coverage (both → byte 0).
+  Re-encoded on the N0Q byte scale (dBZ = level/2 − 32.5) so
+  `buildLevelLut` paints it. 7000 × 3500 at 0.01°, kept at 1 km (2 km
+  looked blocky at z7–8). zlib LEVEL 1: 24 ms / ~450 KB vs level 6
+  71 ms / 360 KB — the app runs the controller in the phone's WebView.
+  Cold frame ≈ 0.7 s (fetch + decode) + ~0.1 s; ~600 KB base64.
+- Timeline: `pickMrmsFrames` = newest file + the file nearest each 5-min
+  step back (±150 s); a step without one is OMITTED, never filled — every
+  frame time is a real file time. Loop payloads kept deflated
+  (`useReflMosaicLoop`), the frame under the playhead inflated on demand.
+- `useReflMosaic` reports `pending` until its first list answer; without
+  it a cold start mounted IEM's tiles for a second (30 wasted requests).
+- The timeline cadence label now averages the whole track (MRMS picks sit
+  4–6 min apart; the first gap alone read "MRMS · 6 min").
+- Single-site (high zoom) data has NO alternative: Level II would be the
+  only other source (see the Level II section). During a Level III outage
+  the site layer and storm tracks simply age, visibly.
 
 **Live infrared is NOAA, not IEM (2026-10-07).** IEM's `GOES-19_C13.png`
 was published with rows 512–1499 all count 162 (IEM's no-data value, also

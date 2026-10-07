@@ -36,6 +36,7 @@ import { getIrFrames, getIrFrame } from "../../../server/goesIrCtrl";
 import { getRadarRadial } from "../../../server/radarRadialCtrl";
 import { getPrecipMosaic } from "../../../server/mrmsPrecipTypeCtrl";
 import { getQpeMosaic } from "../../../server/mrmsQpeCtrl";
+import { getReflMosaic, getReflFrames } from "../../../server/mrmsReflCtrl";
 import { getStormTracks } from "../../../server/stormTracksCtrl";
 import { getNowcast, getNowcastSkill } from "../../../server/nowcastCtrl";
 import { getLightning } from "../../../server/glmLightningCtrl";
@@ -96,6 +97,8 @@ const ROUTES = {
   "GET /api/radar/radial": getRadarRadial,
   "GET /api/radar/precip-mosaic": getPrecipMosaic,
   "GET /api/radar/qpe-mosaic": getQpeMosaic,
+  "GET /api/radar/refl-mosaic": getReflMosaic,
+  "GET /api/radar/refl-mosaic/frames": getReflFrames,
   "GET /api/storm-tracks": getStormTracks,
   "GET /api/radar/nowcast": getNowcast,
   "GET /api/radar/nowcast/skill": getNowcastSkill,

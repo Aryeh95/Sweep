@@ -55,9 +55,12 @@ repository's **Actions** tab.
 
 **Two radar layers, blended by zoom level**
 
-- **Composite mosaic** (Iowa Environmental Mesonet N0Q) at zoom ≤ 7 for
-  wide-area situational awareness. Animated over IEM's fixed 5-minute offsets
-  (11 frames, ~50 min), anchored on the composite time IEM publishes.
+- **Composite mosaic** at zoom ≤ 7 for wide-area situational awareness:
+  NOAA's **MRMS** reflectivity at the lowest beam (1 km, a new frame every
+  ~2 min, drawn in your radar palette), with the Iowa Environmental Mesonet
+  N0Q mosaic as an automatic fallback when MRMS is missing or stale (the age
+  chip then reads "Mosaic · IEM"). Animated over 11 frames ~5 minutes apart
+  (~50 min), each a real MRMS file time.
 - **Single-site super-resolution** base reflectivity (N0B, 0.5° × 0.25 km, the
   product RadarScope shows by default) at zoom ≥ 9.
 - Zoom 8 crossfades between them so there is no hard cutover.
@@ -206,11 +209,11 @@ RadarScope. ECCC (Canada) alerts are also polled for locations in Canada.
 
 | Source | Used for | Key |
 |---|---|---|
-| [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/) | N0Q mosaic tiles + composite time, N0B single-site tiles, frame-list JSON API, radar list for nearest-site resolution, N0Q colour table | none |
+| [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/) | N0Q mosaic tiles + composite time (fallback mosaic), N0B single-site tiles, frame-list JSON API, radar list for nearest-site resolution, N0Q colour table | none |
 | `unidata-nexrad-level3` (public S3 bucket) | Raw N0B reflectivity, N0G velocity, N0H hydrometeor class and N0C correlation-coefficient radials; DAA / DU3 / DTA rainfall accumulation; STI storm tracks; NMD mesocyclones; the nowcast's input scans | none |
 | [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/) GOES layers | GOES-East visible satellite tiles + per-channel valid time | none |
 | `noaa-goes19` (public S3 bucket) | GLM lightning flashes; channel-13 CMIP scans for the infrared satellite (live and loop) | none |
-| `noaa-mrms-pds` (public S3 bucket) | MRMS MESH hail size at each storm cell; MRMS precipitation type + rate for the low-zoom mosaic; MRMS radar-only 1 h / 3 h accumulation for the rainfall mosaic | none |
+| `noaa-mrms-pds` (public S3 bucket) | MRMS reflectivity at lowest altitude for the low-zoom radar mosaic; MRMS MESH hail size at each storm cell; MRMS precipitation type + rate for the low-zoom mosaic; MRMS radar-only 1 h / 3 h accumulation for the rainfall mosaic | none |
 | [api.weather.gov](https://www.weather.gov/documentation/services-web-api) | Active alerts, zone geometry, radar-site fallback, the WSR-88D station list the site picker ships, which radars are offline | none (User-Agent required) |
 | [Environment Canada](https://api.weather.gc.ca/) | Alerts for Canadian locations | none |
 | [Mapbox](https://www.mapbox.com/) | Basemap raster tiles | **required** |

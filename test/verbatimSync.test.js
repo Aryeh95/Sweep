@@ -74,7 +74,8 @@ const TOP_LEVEL_DECL_RE = /^(?:export\s+)?(?:async\s+)?(?:function\s+(\w+)\s*\(|
 //
 // +15 (2026-10-07): the colour-enhanced infrared helpers (irEnhancement).
 // +5 (2026-10-07): the satellite loop's frame choice (satelliteLoop).
-const EXPECTED_CHECK_COUNT = 75;
+// +6 (2026-10-07): the low-zoom mosaic source rules (mosaicSource).
+const EXPECTED_CHECK_COUNT = 81;
 
 /**
  * The four copy-carrying test files and how to find their copies.
@@ -124,6 +125,11 @@ const PAIRS = [
     // sticky home-radar rule). The copy's `sites` is the same JSON the
     // source imports, loaded with require.
     testFile: "test/radarSites.test.js",
+  },
+  {
+    // Marker-delimited copy of the low-zoom mosaic source rules (MRMS
+    // frame choice, staleness).
+    testFile: "test/mosaicSource.test.js",
   },
   {
     // Marker-delimited copy of the satellite loop's frame choice.

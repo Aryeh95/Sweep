@@ -438,6 +438,40 @@ history works as for N0B (same file naming). The 16-level `OHA` and the
 rate product `DPR` (generic packet 28) are not decodable with the current
 parser and are not offered.
 
+### `GET /api/radar/refl-mosaic[?stamp=YYYYMMDDHHMMSS]`
+
+The low-zoom radar mosaic: MRMS reflectivity at the lowest radar beam over
+CONUS (`ReflectivityAtLowestAltitude_00.50`, 0.01° ≈ 1 km, a file every
+~2 min). Without `stamp`, the newest file; with it, the file within ±60 s.
+
+- **Access:** 🌐 Public — rate limited
+- **Source:** `noaa-mrms-pds` bucket, GRIB2 PNG-packed, decoded server-side
+- **Cached:** the last 16 built payloads (a file never changes)
+
+```json
+{
+  "available": true, "source": "MRMS", "product": "ReflectivityAtLowestAltitude",
+  "validTime": "2026-10-07T14:10:36.000Z", "stamp": "20261007141036",
+  "key": "MRMS_ReflectivityAtLowestAltitude_00.50_20261007-141036.grib2.gz",
+  "grid": { "ni": 7000, "nj": 3500, "lat0": 54.995, "lon0": -129.995, "dLat": 0.01, "dLon": 0.01 },
+  "encoding": "deflate8", "scaling": { "min": -32.5, "increment": 0.5 },
+  "drawn": 357920, "maxDbz": 57,
+  "data": "<base64 of zlib-deflated ni×nj bytes, ~600 KB>"
+}
+```
+
+Each byte is a level on IEM's N0Q scale (dBZ = level × 0.5 − 32.5); 0 = no
+echo or no coverage. `grid.lat0`/`lon0` are the first cell's CENTRE, rows
+running south. A missing frame answers `{"available": false, "reason": …}`
+(HTTP 200); an upstream failure, 503.
+
+### `GET /api/radar/refl-mosaic/frames?minutes=60`
+
+Every MRMS reflectivity file in the window, oldest first:
+`{"available": true, "frames": [{"stamp": "20261007141036", "epoch": 1791382236000}]}`.
+The client builds its timeline from these and falls back to IEM's N0Q tiles
+when the list fails or the newest file is more than 10 minutes old.
+
 ### `GET /api/radar/qpe-mosaic?period=60|180[&stamp=YYYYMMDDHHMM]`
 
 MRMS radar-only rainfall accumulation over CONUS — the low-zoom half of the
