@@ -437,6 +437,7 @@ const SATELLITE_OPACITY = 0.7;
 // copies.
 const SATELLITE_COLOR_OPACITY = 0.9;
 const SATELLITE_ATTRIBUTION = 'Satellite: <a href="https://mesonet.agron.iastate.edu/">IEM</a> / NOAA GOES-East';
+const SATELLITE_IR_ATTRIBUTION = 'Satellite: NOAA GOES-East';
 
 const MapViewTracker = ({ onChange }) => {
   const lastRef = useRef(null);
@@ -1033,13 +1034,11 @@ const WeatherMap = ({ zoom, dark }) => {
     siteOverride: radarSite,
   });
 
-  // Infrared (plain and colour-enhanced): IEM's raw scan, re-fetched when
-  // the frames poller reports a newer channel-13 valid time.
+  // Infrared (plain and colour-enhanced): the newest NOAA scan, decoded
+  // to brightness counts by the server (see useGoesIrImage for why not
+  // IEM's live image).
   const satelliteIr = satelliteMode === "ir" || satelliteMode === "irc";
-  const colorIrGrid = useGoesIrImage({
-    enabled: satelliteIr,
-    validEpoch: iemSatelliteMeta && iemSatelliteMeta.ir ? iemSatelliteMeta.ir.epoch : null,
-  });
+  const colorIrGrid = useGoesIrImage({ enabled: satelliteIr, paused: pollingPaused });
 
   // Which single-site product the raw-radial pipeline renders. The
   // frame LIST always comes from N0B (IEM's tile product); velocity
@@ -1815,7 +1814,7 @@ const WeatherMap = ({ zoom, dark }) => {
           <ColorIrLayer
             key="satellite-ir"
             className={styles.satelliteVis}
-            attribution={SATELLITE_ATTRIBUTION}
+            attribution={SATELLITE_IR_ATTRIBUTION}
             grid={satelliteGrid}
             palette={satelliteMode === "irc" ? "color" : "gray"}
             opacity={satelliteMode === "irc" ? SATELLITE_COLOR_OPACITY : SATELLITE_OPACITY}

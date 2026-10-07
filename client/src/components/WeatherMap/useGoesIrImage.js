@@ -1,74 +1,79 @@
-// Fetch and decode IEM's raw GOES-East channel-13 scan for the colour-
-// enhanced infrared layer (ColorIrLayer).
+// The newest GOES-East channel-13 scan for the infrared layers
+// (ColorIrLayer), from NOAA's CMIP files via /api/satellite/ir/frames and
+// /api/satellite/ir/frame — the same source and decode as the loop
+// history (useSatelliteLoop).
 //
-// One ~1.9 MB paletted PNG per 5-minute scan, fetched straight from IEM
-// like every satellite and radar tile (CORS is `*`), keyed on the scan's
-// valid time from /api/radar/frames so a new download happens only when
-// IEM has published a new scan. Decoding (inflate + PNG unfilter) is
-// ~130 ms in Node for the 2500 × 1500 grid; the result is 3.75 MB of
-// counts, released as soon as the mode is turned off.
+// WHY NOT IEM'S LIVE IMAGE: this used to fetch IEM's `GOES-19_C13.png`.
+// On 2026-10-07 that image was published with rows 512–1499 (two-thirds
+// of the sector) filled with count 162 — IEM's no-data value, which is
+// also a real temperature (−24 °C) — and then not replaced for 18 min, so
+// the map showed a flat cloud deck below a wavy scan-row edge. NOAA's file
+// for the same scan was complete, marks missing data as fill (count 0,
+// transparent), and is published ~1 min after the scan instead of 5–8.
+//
+// Polls the scan list every minute and downloads a scan only when a newer
+// one appears (~3.8 MB from NOAA per 5-minute scan on the server side).
+// A failed fetch keeps the last scan on screen; the age chip shows it
+// getting old.
 
 import { useEffect, useState } from "react";
+import axios from "axios";
 import { inflate } from "pako";
-import { decodeIndexedPng, parseWorldFile } from "~/ui/irEnhancement";
-import { IR_IMAGE_BASE, IR_IMAGE_LON0 } from "~/ui/satellite";
+import { decodeBins } from "./radialRender";
 
-const LATEST_DELAY_MS = 5000;
+const LIST_REFRESH_MS = 60 * 1000;
 
 /**
  * @param {object} params
  * @param {Boolean} params.enabled false releases the decoded scan
- * @param {Number|null} params.validEpoch the newest scan's valid time (ms), from the frames poller
+ * @param {Boolean} [params.paused] stops polling but keeps the scan
  * @returns {object|null} {width, height, data, x0, y0, dx, dy, lon0, epoch} or null until the first scan decodes
  */
-export default function useGoesIrImage({ enabled, validEpoch }) {
+export default function useGoesIrImage({ enabled, paused = false }) {
   const [grid, setGrid] = useState(null);
-  // Without metadata, fetch once ("latest") rather than never — but only
-  // after giving the frames poller a moment, or turning the mode on before
-  // its first answer downloads the 1.9 MB scan twice.
-  const key = Number.isFinite(validEpoch) ? validEpoch : "latest";
+  const [newest, setNewest] = useState(null);
 
   useEffect(() => {
     if (!enabled) {
       setGrid(null);
-      return undefined;
+      setNewest(null);
     }
+  }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled || paused) return undefined;
     let cancelled = false;
     const load = () => {
-      const bust = `?v=${key === "latest" ? Math.floor(Date.now() / 300000) : key}`;
-      Promise.all([
-        fetch(`${IR_IMAGE_BASE}.png${bust}`).then((r) => {
-          if (!r.ok) throw new Error(`satellite image HTTP ${r.status}`);
-          return r.arrayBuffer();
-        }),
-        fetch(`${IR_IMAGE_BASE}.wld${bust}`).then((r) => {
-          if (!r.ok) throw new Error(`satellite world file HTTP ${r.status}`);
-          return r.text();
-        }),
-      ])
-        .then(([png, wld]) => {
-          if (cancelled) return;
-          const world = parseWorldFile(wld);
-          if (!world) throw new Error("satellite world file malformed");
-          const img = decodeIndexedPng(new Uint8Array(png), (z) => inflate(z));
-          setGrid({
-            ...img,
-            ...world,
-            lon0: IR_IMAGE_LON0,
-            epoch: Number.isFinite(key) ? key : null,
-          });
+      axios.get("/api/satellite/ir/frames", { params: { minutes: 30 } })
+        .then((res) => {
+          const frames = (res.data && res.data.available && res.data.frames) || [];
+          if (!cancelled && frames.length) setNewest(frames[frames.length - 1].stamp);
         })
-        .catch((err) => {
-          // Keep the last scan on screen; the age chip shows it getting old.
-          if (!cancelled) console.warn("[satellite] colour IR scan unavailable:", err.message);
-        });
+        .catch(() => { /* keep the last scan */ });
     };
-    const timer = setTimeout(load, key === "latest" ? LATEST_DELAY_MS : 0);
+    load();
+    const id = setInterval(load, LIST_REFRESH_MS);
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      clearInterval(id);
     };
-  }, [enabled, key]);
+  }, [enabled, paused]);
+
+  useEffect(() => {
+    if (!enabled || !newest) return undefined;
+    let cancelled = false;
+    axios.get("/api/satellite/ir/frame", { params: { stamp: newest } })
+      .then((res) => {
+        const d = res.data || {};
+        if (cancelled || !d.counts) return;
+        const { counts, ...geometry } = d;
+        setGrid({ ...geometry, data: inflate(decodeBins(counts)) });
+      })
+      .catch((err) => {
+        if (!cancelled) console.warn("[satellite] infrared scan unavailable:", err.message);
+      });
+    return () => { cancelled = true; };
+  }, [enabled, newest]);
 
   return enabled ? grid : null;
 }

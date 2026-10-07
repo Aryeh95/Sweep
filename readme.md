@@ -131,8 +131,8 @@ sites use (cyan from −20 °C through green, yellow and red to black at
 −70 °C, pink below −80 °C), with a matching °F / °C bar in the legend.
 Both infrared modes **animate with the radar timeline** — each radar frame
 shows the satellite scan from the same moment, from NOAA's 5-minute
-GOES-East scans. Imagery is 5-minute scans, typically 5–8 minutes old on
-arrival, and the image time gets its own row in the frame-age chip. A separate **radar
+GOES-East scans. Infrared arrives about 5 minutes after each scan
+(visible, from IEM, 5–8 minutes), and the image time gets its own row in the frame-age chip. A separate **radar
 toggle** (eye button) hides every radar layer so the cloud deck, storm
 tracks, lightning and alerts can be read on their own.
 
@@ -208,8 +208,8 @@ RadarScope. ECCC (Canada) alerts are also polled for locations in Canada.
 |---|---|---|
 | [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/) | N0Q mosaic tiles + composite time, N0B single-site tiles, frame-list JSON API, radar list for nearest-site resolution, N0Q colour table | none |
 | `unidata-nexrad-level3` (public S3 bucket) | Raw N0B reflectivity, N0G velocity, N0H hydrometeor class and N0C correlation-coefficient radials; DAA / DU3 / DTA rainfall accumulation; STI storm tracks; NMD mesocyclones; the nowcast's input scans | none |
-| [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/) GOES layers | GOES-East visible satellite tiles, the live channel-13 scan the infrared modes are drawn from, per-channel valid time | none |
-| `noaa-goes19` (public S3 bucket) | GLM lightning flashes | none |
+| [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/) GOES layers | GOES-East visible satellite tiles + per-channel valid time | none |
+| `noaa-goes19` (public S3 bucket) | GLM lightning flashes; channel-13 CMIP scans for the infrared satellite (live and loop) | none |
 | `noaa-mrms-pds` (public S3 bucket) | MRMS MESH hail size at each storm cell; MRMS precipitation type + rate for the low-zoom mosaic; MRMS radar-only 1 h / 3 h accumulation for the rainfall mosaic | none |
 | [api.weather.gov](https://www.weather.gov/documentation/services-web-api) | Active alerts, zone geometry, radar-site fallback, the WSR-88D station list the site picker ships, which radars are offline | none (User-Agent required) |
 | [Environment Canada](https://api.weather.gc.ca/) | Alerts for Canadian locations | none |

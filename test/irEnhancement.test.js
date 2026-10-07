@@ -1,7 +1,6 @@
 // Colour-enhanced infrared (client/src/ui/irEnhancement.js): the brightness
-// count decoding, the Tropical Tidbits-style colour scale, the GOES-R fixed-
-// grid projection and the paletted-PNG decoder the layer reads IEM's raw
-// channel-13 scan with.
+// count decoding, the Tropical Tidbits-style colour scale and the GOES-R
+// fixed-grid projection.
 //
 // The copy below is kept identical to the source by test/verbatimSync.test.js.
 //
@@ -9,7 +8,6 @@
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const zlib = require("node:zlib");
 
 // ---------- start of verbatim copy from client/src/ui/irEnhancement.js ----------
 // Scale stops, warmest first: [°C, r, g, b], linear between stops.
@@ -145,93 +143,6 @@ function geosProject(latTerms, cosDl, sinDl) {
   const y = Math.atan(sz / sx);
   return [x * PERSPECTIVE_H, y * PERSPECTIVE_H];
 }
-
-/**
- * Parse an ESRI world file (six lines: dx, rot, rot, −dy, x, y of the
- * upper-left pixel CENTRE).
- *
- * @param {String} text world file contents
- * @returns {{dx: Number, dy: Number, x0: Number, y0: Number}|null} null when malformed
- */
-function parseWorldFile(text) {
-  const v = String(text || "").trim().split(/\s+/).map(Number);
-  if (v.length < 6 || v.some((n) => !Number.isFinite(n)) || v[0] <= 0 || v[3] >= 0) return null;
-  return { dx: v[0], dy: -v[3], x0: v[4], y0: v[5] };
-}
-
-/**
- * Decode an 8-bit paletted (colour type 3) or 8-bit grayscale PNG to its
- * raw sample values — the palette is ignored on purpose: the index IS the
- * data.
- *
- * @param {Uint8Array} bytes PNG file
- * @param {(z: Uint8Array) => Uint8Array} inflate zlib inflate
- * @returns {{width: Number, height: Number, data: Uint8Array}} the samples, row-major
- */
-function decodeIndexedPng(bytes, inflate) {
-  const u32 = (o) => ((bytes[o] << 24) | (bytes[o + 1] << 16) | (bytes[o + 2] << 8) | bytes[o + 3]) >>> 0;
-  const SIG = [137, 80, 78, 71, 13, 10, 26, 10];
-  if (bytes.length < 33 || SIG.some((b, i) => bytes[i] !== b)) throw new Error("not a PNG");
-  let off = 8;
-  let width = 0;
-  let height = 0;
-  const idat = [];
-  let idatLen = 0;
-  while (off + 8 <= bytes.length) {
-    const len = u32(off);
-    const type = String.fromCharCode(bytes[off + 4], bytes[off + 5], bytes[off + 6], bytes[off + 7]);
-    const body = off + 8;
-    if (type === "IHDR") {
-      width = u32(body);
-      height = u32(body + 4);
-      const depth = bytes[body + 8];
-      const colorType = bytes[body + 9];
-      const interlace = bytes[body + 12];
-      if (depth !== 8 || (colorType !== 3 && colorType !== 0) || interlace !== 0) {
-        throw new Error(`unsupported PNG: depth ${depth}, colour type ${colorType}, interlace ${interlace}`);
-      }
-    } else if (type === "IDAT") {
-      idat.push(bytes.subarray(body, body + len));
-      idatLen += len;
-    } else if (type === "IEND") {
-      break;
-    }
-    off = body + len + 4;
-  }
-  if (!width || !height || !idat.length) throw new Error("PNG has no image data");
-  const z = new Uint8Array(idatLen);
-  let p = 0;
-  for (const part of idat) {
-    z.set(part, p);
-    p += part.length;
-  }
-  const raw = inflate(z);
-  const stride = width;
-  if (raw.length < (stride + 1) * height) throw new Error("PNG image data truncated");
-  const out = new Uint8Array(width * height);
-  for (let y = 0; y < height; y += 1) {
-    const filter = raw[y * (stride + 1)];
-    const src = y * (stride + 1) + 1;
-    const dst = y * stride;
-    for (let x = 0; x < stride; x += 1) {
-      const a = x > 0 ? out[dst + x - 1] : 0;
-      const b = y > 0 ? out[dst - stride + x] : 0;
-      const c = x > 0 && y > 0 ? out[dst - stride + x - 1] : 0;
-      let v = raw[src + x];
-      if (filter === 1) v += a;
-      else if (filter === 2) v += b;
-      else if (filter === 3) v += (a + b) >> 1;
-      else if (filter === 4) {
-        const pa = Math.abs(b - c);
-        const pb = Math.abs(a - c);
-        const pc = Math.abs(a + b - 2 * c);
-        v += pa <= pb && pa <= pc ? a : (pb <= pc ? b : c);
-      } else if (filter !== 0) throw new Error(`bad PNG filter ${filter}`);
-      out[dst + x] = v & 255;
-    }
-  }
-  return { width, height, data: out };
-}
 // ---------- end of verbatim copy ----------
 
 test("brightness counts: 0.5 K steps down to 242 K, 1 K steps colder (McIDAS)", () => {
@@ -296,86 +207,4 @@ test("fixed-grid projection: sub-satellite point is the origin, the far side is 
   assert.ok(Math.abs(x) < 1e-6 && Math.abs(y) < 1e-6);
   const far = 105 * DEG; // 180° from −75°
   assert.equal(geosProject(geosLatTerms(0), Math.cos(far), Math.sin(far)), null);
-});
-
-test("world file: IEM's channel-13 file parses; malformed is null", () => {
-  const wf = parseWorldFile("2004.017288\n0\n0\n-2004.017288\n-3626269.2826360003\n4588197.580875999\n");
-  assert.deepEqual(wf, { dx: 2004.017288, dy: 2004.017288, x0: -3626269.2826360003, y0: 4588197.580875999 });
-  assert.equal(parseWorldFile("1\n0\n0"), null);
-  assert.equal(parseWorldFile("abc\n0\n0\n-1\n0\n0"), null);
-  assert.equal(parseWorldFile(""), null);
-});
-
-/**
- * Build an 8-bit PNG of the given colour type from rows, each row written
- * with the filter type named in `filters` (encoded here, so the decoder's
- * unfiltering is checked against an independent implementation).
- */
-function makePng(width, rows, filters, colorType = 3) {
-  const chunk = (type, data) => {
-    const len = Buffer.alloc(4);
-    len.writeUInt32BE(data.length);
-    const crc = Buffer.alloc(4);
-    crc.writeUInt32BE(zlib.crc32(Buffer.concat([Buffer.from(type), data])) >>> 0);
-    return Buffer.concat([len, Buffer.from(type), data, crc]);
-  };
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0);
-  ihdr.writeUInt32BE(rows.length, 4);
-  ihdr[8] = 8;
-  ihdr[9] = colorType;
-  const raw = [];
-  rows.forEach((row, y) => {
-    const prev = y > 0 ? rows[y - 1] : new Array(width).fill(0);
-    const f = filters[y];
-    raw.push(f);
-    row.forEach((v, x) => {
-      const a = x > 0 ? row[x - 1] : 0;
-      const b = prev[x];
-      const c = x > 0 ? prev[x - 1] : 0;
-      let p = 0;
-      if (f === 1) p = a;
-      else if (f === 2) p = b;
-      else if (f === 3) p = (a + b) >> 1;
-      else if (f === 4) {
-        const pa = Math.abs(b - c);
-        const pb = Math.abs(a - c);
-        const pc = Math.abs(a + b - 2 * c);
-        p = pa <= pb && pa <= pc ? a : (pb <= pc ? b : c);
-      }
-      raw.push((v - p) & 255);
-    });
-  });
-  const z = zlib.deflateSync(Buffer.from(raw));
-  // Split IDAT in two to exercise multi-chunk assembly.
-  const half = z.length >> 1;
-  return new Uint8Array(Buffer.concat([
-    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-    chunk("IHDR", ihdr),
-    chunk("PLTE", Buffer.alloc(768)),
-    chunk("IDAT", z.subarray(0, half)),
-    chunk("IDAT", z.subarray(half)),
-    chunk("IEND", Buffer.alloc(0)),
-  ]));
-}
-
-test("PNG decoder returns the raw indices through all five filter types", () => {
-  const rows = [
-    [10, 200, 30, 255, 0, 77],
-    [11, 190, 35, 250, 3, 70],
-    [59, 233, 176, 177, 120, 140],
-    [1, 2, 3, 4, 5, 6],
-    [254, 128, 64, 32, 16, 8],
-  ];
-  const png = makePng(6, rows, [0, 1, 2, 3, 4]);
-  const out = decodeIndexedPng(png, (z) => zlib.inflateSync(z));
-  assert.equal(out.width, 6);
-  assert.equal(out.height, 5);
-  assert.deepEqual([...out.data], rows.flat());
-});
-
-test("PNG decoder refuses what it cannot read rather than misdecoding it", () => {
-  assert.throws(() => decodeIndexedPng(new Uint8Array(40), zlib.inflateSync), /not a PNG/);
-  const rgb = makePng(2, [[1, 2]], [0], 2);
-  assert.throws(() => decodeIndexedPng(rgb, (z) => zlib.inflateSync(z)), /unsupported PNG/);
 });

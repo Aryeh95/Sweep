@@ -6,15 +6,14 @@
  *   ir   channel 13 (clean longwave infrared, 2 km) — clouds by their
  *        top temperature, so it works day AND night; the default
  *   irc  the same channel colour-enhanced by cloud-top temperature
- *        (cyan from −20 °C to pink below −80 °C), drawn client-side by
- *        ColorIrLayer from IEM's raw scan — see ui/irEnhancement.js
+ *        (cyan from −20 °C to pink below −80 °C) — see ui/irEnhancement.js
  *   vis  channel 02 (red visible, 0.5 km) — the sharpest cloud picture
  *        while the sun is up, black after dark
  *
  * Visible is IEM's `goes_east_conus_ch02` tile layer (same host and the
  * same keyless XYZ scheme as the radar). Both infrared modes are drawn
- * from brightness counts — IEM's raw scan live, NOAA's CMIP files for the
- * timeline loop — so they animate; visible shows the current scan only.
+ * client-side from brightness counts decoded from NOAA's CMIP files (live
+ * and loop alike), so they animate; visible shows the current scan only.
  * Valid times come from IEM's per-channel JSON sidecar, relayed by
  * /api/radar/frames as `satellite`.
  */
@@ -34,13 +33,6 @@ export const SATELLITE_LAYERS = {
   irc: { layer: null, maxNativeZoom: 9, channel: "ir" },
   vis: { layer: "goes_east_conus_ch02", maxNativeZoom: 11, channel: "vis" },
 };
-
-// IEM's raw channel-13 scan for the colour-enhanced mode: paletted PNG of
-// brightness counts plus its world file, on the GOES-East fixed grid
-// (sub-satellite longitude IR_IMAGE_LON0). Same GOES-19 filename caveat as
-// SATELLITE_META_URLS in server/iemRadarCtrl.js — move both together.
-export const IR_IMAGE_BASE = "https://mesonet.agron.iastate.edu/data/gis/images/GOES/conus/channel13/GOES-19_C13";
-export const IR_IMAGE_LON0 = -75;
 
 /**
  * Leaflet URL template for a satellite mode.

@@ -7,14 +7,12 @@
  * WHY NOT RECOLOUR IEM'S TILES: the `goes_east_conus_ch13` tiles are
  * already colour-enhanced, but their table reuses gray levels — the
  * coldest tops (≤ −76 °C) are drawn in a gray ramp that repeats the warm-
- * ground grays exactly (gray 30 is both 295 K and 196 K), so colour → temperature is
- * ambiguous for precisely the pixels that matter most. The layer instead
- * decodes IEM's source image, `GOES-19_C13.png`: an 8-bit paletted PNG
- * whose INDEX is the McIDAS brightness count, on the same 2500 × 1500
- * fixed grid as NOAA's CMIP product. Verified 2026-10-07 against the
- * matching `OR_ABI-L2-CMIPC-M6C13` file over 1.23 M pixels: every index is
- * within one count of the McIDAS count of the true brightness temperature
- * (IEM truncates), i.e. ±0.5 K warm of 242 K and ±1 K colder.
+ * ground grays exactly (gray 30 is both 295 K and 196 K), so colour →
+ * temperature is ambiguous for precisely the pixels that matter most. The
+ * layer instead draws 8-bit McIDAS brightness counts on the 2500 × 1500
+ * GOES-R fixed grid, decoded by server/goesIrCtrl.js from NOAA's CMIP
+ * files (the representation IEM's own source image uses: verified
+ * 2026-10-07 over 1.23 M pixels, every pixel equal or one count apart).
  */
 
 // Scale stops, warmest first: [°C, r, g, b], linear between stops.
@@ -149,91 +147,4 @@ export function geosProject(latTerms, cosDl, sinDl) {
   const x = Math.asin(-sy / Math.sqrt(sx * sx + sy * sy + sz * sz));
   const y = Math.atan(sz / sx);
   return [x * PERSPECTIVE_H, y * PERSPECTIVE_H];
-}
-
-/**
- * Parse an ESRI world file (six lines: dx, rot, rot, −dy, x, y of the
- * upper-left pixel CENTRE).
- *
- * @param {String} text world file contents
- * @returns {{dx: Number, dy: Number, x0: Number, y0: Number}|null} null when malformed
- */
-export function parseWorldFile(text) {
-  const v = String(text || "").trim().split(/\s+/).map(Number);
-  if (v.length < 6 || v.some((n) => !Number.isFinite(n)) || v[0] <= 0 || v[3] >= 0) return null;
-  return { dx: v[0], dy: -v[3], x0: v[4], y0: v[5] };
-}
-
-/**
- * Decode an 8-bit paletted (colour type 3) or 8-bit grayscale PNG to its
- * raw sample values — the palette is ignored on purpose: the index IS the
- * data.
- *
- * @param {Uint8Array} bytes PNG file
- * @param {(z: Uint8Array) => Uint8Array} inflate zlib inflate
- * @returns {{width: Number, height: Number, data: Uint8Array}} the samples, row-major
- */
-export function decodeIndexedPng(bytes, inflate) {
-  const u32 = (o) => ((bytes[o] << 24) | (bytes[o + 1] << 16) | (bytes[o + 2] << 8) | bytes[o + 3]) >>> 0;
-  const SIG = [137, 80, 78, 71, 13, 10, 26, 10];
-  if (bytes.length < 33 || SIG.some((b, i) => bytes[i] !== b)) throw new Error("not a PNG");
-  let off = 8;
-  let width = 0;
-  let height = 0;
-  const idat = [];
-  let idatLen = 0;
-  while (off + 8 <= bytes.length) {
-    const len = u32(off);
-    const type = String.fromCharCode(bytes[off + 4], bytes[off + 5], bytes[off + 6], bytes[off + 7]);
-    const body = off + 8;
-    if (type === "IHDR") {
-      width = u32(body);
-      height = u32(body + 4);
-      const depth = bytes[body + 8];
-      const colorType = bytes[body + 9];
-      const interlace = bytes[body + 12];
-      if (depth !== 8 || (colorType !== 3 && colorType !== 0) || interlace !== 0) {
-        throw new Error(`unsupported PNG: depth ${depth}, colour type ${colorType}, interlace ${interlace}`);
-      }
-    } else if (type === "IDAT") {
-      idat.push(bytes.subarray(body, body + len));
-      idatLen += len;
-    } else if (type === "IEND") {
-      break;
-    }
-    off = body + len + 4;
-  }
-  if (!width || !height || !idat.length) throw new Error("PNG has no image data");
-  const z = new Uint8Array(idatLen);
-  let p = 0;
-  for (const part of idat) {
-    z.set(part, p);
-    p += part.length;
-  }
-  const raw = inflate(z);
-  const stride = width;
-  if (raw.length < (stride + 1) * height) throw new Error("PNG image data truncated");
-  const out = new Uint8Array(width * height);
-  for (let y = 0; y < height; y += 1) {
-    const filter = raw[y * (stride + 1)];
-    const src = y * (stride + 1) + 1;
-    const dst = y * stride;
-    for (let x = 0; x < stride; x += 1) {
-      const a = x > 0 ? out[dst + x - 1] : 0;
-      const b = y > 0 ? out[dst - stride + x] : 0;
-      const c = x > 0 && y > 0 ? out[dst - stride + x - 1] : 0;
-      let v = raw[src + x];
-      if (filter === 1) v += a;
-      else if (filter === 2) v += b;
-      else if (filter === 3) v += (a + b) >> 1;
-      else if (filter === 4) {
-        const pa = Math.abs(b - c);
-        const pb = Math.abs(a - c);
-        const pc = Math.abs(a + b - 2 * c);
-        v += pa <= pb && pa <= pc ? a : (pb <= pc ? b : c);
-      } else if (filter !== 0) throw new Error(`bad PNG filter ${filter}`);
-      out[dst + x] = v & 255;
-    }
-  }
-  return { width, height, data: out };
 }

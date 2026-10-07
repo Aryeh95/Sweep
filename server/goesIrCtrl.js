@@ -1,16 +1,19 @@
-// GOES-East infrared history for the satellite loop.
+// GOES-East infrared for the satellite layers — the live scan AND the
+// timeline loop's history.
 //
-// The live satellite frame comes straight from IEM (its `GOES-19_C13.png`
-// holds only the newest scan, and IEM's WMS and tile layers have no time
-// dimension; its archive keeps only 4 km / 15-minute GeoTIFFs). History
-// therefore comes from NOAA's own bucket, the source IEM's image is made
-// from: `noaa-goes19/ABI-L2-CMIPC/YYYY/DDD/HH/OR_ABI-L2-CMIPC-M6C13_G19_s…nc`,
-// one ~3.8 MB NetCDF-4 per 5-minute CONUS scan, keyless, CORS `*`.
+// Source: NOAA's own bucket, `noaa-goes19/ABI-L2-CMIPC/YYYY/DDD/HH/
+// OR_ABI-L2-CMIPC-M6C13_G19_s…nc`, one ~3.8 MB NetCDF-4 per 5-minute CONUS
+// scan, keyless, CORS `*`, published ~1 min after the scan. IEM was the
+// first choice and is not usable: its `GOES-19_C13.png` holds only the
+// newest scan (its WMS and tile layers have no time dimension; its archive
+// keeps only 4 km / 15-minute GeoTIFFs), and on 2026-10-07 it published a
+// scan with two-thirds of the rows filled with its no-data count (162,
+// which is also a real −24 °C) and then did not update for 18 minutes.
 //
 // Each frame is decoded with h5wasm (as the GLM lightning files are) and
-// reduced to the SAME representation the client already draws the live
-// frame from: 8-bit McIDAS brightness counts on the 2500 × 1500 fixed grid
-// (T ≥ 242 K: B = 660 − 2T; colder: B = 418 − T). Verified 2026-10-07
+// reduced to the representation IEM's image uses: 8-bit McIDAS brightness
+// counts on the 2500 × 1500 fixed grid (T ≥ 242 K: B = 660 − 2T; colder:
+// B = 418 − T). Verified 2026-10-07
 // against IEM's image of the same scan: every pixel equal or one count
 // apart (IEM truncates, this rounds), and the grid origin identical to
 // IEM's world file to the millimetre. Fill (−1) is space beyond the limb
@@ -30,8 +33,8 @@ const SERVICE_NAME = "NOAA GOES-East (satellite loop)";
 const BUCKET_BASE = "https://noaa-goes19.s3.amazonaws.com";
 const PREFIX = "ABI-L2-CMIPC";
 // Any scan mode (M6 normally, M3/M4 in special operations), channel 13,
-// GOES-19. When GOES-East changes satellite, this and IR_IMAGE_BASE in
-// client/src/ui/satellite.js move together.
+// GOES-19. When GOES-East changes satellite, this and BUCKET_BASE move
+// together (and SATELLITE_META_URLS in iemRadarCtrl.js for visible).
 const KEY_RE = /OR_ABI-L2-CMIPC-M\dC13_G19_s(\d{4})(\d{3})(\d{2})(\d{2})(\d{2})\d/;
 const API_TIMEOUT_MS = 30000;
 const LIST_TTL_MS = 60 * 1000;

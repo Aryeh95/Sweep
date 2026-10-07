@@ -72,9 +72,9 @@ const TOP_LEVEL_DECL_RE = /^(?:export\s+)?(?:async\s+)?(?:function\s+(\w+)\s*\(|
 // belonged to the forecast UI), and trimmed alertLogic to the government-alert
 // helpers.
 //
-// +17 (2026-10-07): the colour-enhanced infrared helpers (irEnhancement).
+// +15 (2026-10-07): the colour-enhanced infrared helpers (irEnhancement).
 // +5 (2026-10-07): the satellite loop's frame choice (satelliteLoop).
-const EXPECTED_CHECK_COUNT = 77;
+const EXPECTED_CHECK_COUNT = 75;
 
 /**
  * The four copy-carrying test files and how to find their copies.
@@ -131,7 +131,7 @@ const PAIRS = [
   },
   {
     // Marker-delimited copy of the colour-enhanced infrared helpers (count
-    // decoding, colour scale, fixed-grid projection, PNG decoder).
+    // decoding, colour scale, fixed-grid projection).
     testFile: "test/irEnhancement.test.js",
   },
   {

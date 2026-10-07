@@ -173,7 +173,8 @@ A location with no NEXRAD coverage returns HTTP 200 with
 
 ### `GET /api/satellite/ir/frames?minutes=60`
 
-GOES-East channel-13 scans for the satellite loop, oldest first.
+GOES-East channel-13 scans for the infrared satellite layers (the newest
+is the live frame; older ones feed the timeline loop), oldest first.
 
 - **Access:** 🌐 Public — rate limited
 - **Source:** `noaa-goes19` bucket, `ABI-L2-CMIPC/YYYY/DDD/HH/` listing

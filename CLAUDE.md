@@ -237,7 +237,8 @@ night, which is why IR is the first state. Opacity 0.7. (Superseded
 
 **Color-enhanced infrared (2026-10-07).** Fourth satellite state `irc`
 (off → ir → irc → vis), drawn client-side by `WeatherMap/ColorIrLayer.js`
-from IEM's raw scan (live) / NOAA's CMIP files (loop), not from tiles.
+from brightness counts (first from IEM's raw scan, now NOAA's CMIP files —
+see "Live infrared is NOAA" below), not from tiles.
 Findings — keep these:
 - IEM's ch13 tile colours are NOT invertible: its table draws the coldest
   tops (counts 221+, ≤ −76 °C) in a gray ramp that repeats warm-ground
@@ -259,6 +260,17 @@ Findings — keep these:
 - Headless Chromium in the cloud container cannot reach IEM (no proxy;
   pointing it at the agent proxy breaks localhost). Test with
   `ctx.route(/mesonet/)` fulfilled by curl.
+
+**Live infrared is NOAA, not IEM (2026-10-07).** IEM's `GOES-19_C13.png`
+was published with rows 512–1499 all count 162 (IEM's no-data value, also
+a real −24 °C) and then not replaced for 18 min — gray/cyan slab below a
+wavy scan-row edge on the phone. `useGoesIrImage` now takes the newest
+scan from `/api/satellite/ir/frames` + `/frame` (NOAA CMIP, real fill →
+count 0 → transparent, ~5 min old on arrival). The IEM PNG decoder and
+`IR_IMAGE_BASE` are gone; IEM still serves visible tiles and the
+`satellite.{ir,vis}` valid times in `/api/radar/frames`. Lesson: a value
+that is both "no data" and a legal reading must never be trusted from a
+source you cannot see the fill flag of.
 
 **Satellite loop (2026-10-07).** Both infrared modes (`ir` is now the same
 client-drawn layer with a gray LUT, no longer IEM tiles) follow the radar

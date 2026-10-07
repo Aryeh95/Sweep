@@ -2,9 +2,9 @@
 // colour-enhanced mode, live and looped.
 //
 // Every tile is painted pixel by pixel from brightness counts on the
-// satellite's fixed grid (IEM's raw scan for the live frame, NOAA's CMIP
-// files via /api/satellite/ir/frame for history — see ui/irEnhancement.js
-// for why IEM's pre-coloured tiles cannot be used): tile pixel → lat/lon →
+// satellite's fixed grid (NOAA's CMIP files via /api/satellite/ir/frame,
+// live and history — see ui/irEnhancement.js for why IEM's pre-coloured
+// tiles cannot be used): tile pixel → lat/lon →
 // fixed-grid metres → nearest source pixel → count → colour.
 //
 // The projection is the expensive part (~8 ms per 256 px tile) and it
