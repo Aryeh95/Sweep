@@ -152,6 +152,8 @@
       "graupel": "Graupel in {{range}} min"
     },
     "chance": "{{pct}}% chance",
+    "delayed": "Radar data delayed",
+    "delayedDetail": "No new {{site}} scan for {{min}} min — the nowcast resumes when scans arrive again.",
     "someChance": "Up to a {{pct}}% chance around {{time}}",
     "trend": {
       "growing": "building",

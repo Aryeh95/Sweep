@@ -16,7 +16,7 @@ Replace `☐` with `☑` when a native speaker has confirmed the FR and ES wordi
 
 | Source | Rows | Notes |
 |---|---|---|
-| `client/src/i18n/locales/{en,fr,es}.json` | 586 translated + 28 identical | Every kiosk-visible surface. 614 leaf keys total. |
+| `client/src/i18n/locales/{en,fr,es}.json` | 588 translated + 28 identical | Every kiosk-visible surface. 616 leaf keys total. |
 | `client/src/components/ambient/SettingsPanel/index.js` | 106 (+4 non-literal, not listed) | Settings overlay — the user-facing configuration surface. |
 | `client/src/components/ambient/DebugPanel/index.js` | 70 | Debug overlay — localhost-only, reached from a desktop browser or an SSH tunnel. |
 
@@ -462,6 +462,8 @@ reported here as a gap table, so an empty check means the three files are aligne
 | ☐ | low confidence | confiance faible | confianza baja | `nowcast.confidence.low` |
 | ☐ | medium confidence | confiance moyenne | confianza media | `nowcast.confidence.medium` |
 | ☐ | motion unknown | mouvement inconnu | movimiento desconocido | `nowcast.confidence.unknown` |
+| ☐ | Radar data delayed | Données radar en retard | Datos de radar retrasados | `nowcast.delayed` |
+| ☐ | No new {{site}} scan for {{min}} min — the nowcast resumes when scans arrive again. | Aucun nouveau balayage de {{site}} depuis {{min}} min — la prévision reprendra à leur arrivée. | Sin escaneos nuevos de {{site}} desde hace {{min}} min — el pronóstico se reanudará cuando lleguen. | `nowcast.delayedDetail` |
 | ☐ | ending around {{time}} | fin vers {{time}} | termina hacia las {{time}} | `nowcast.endsAround` |
 | ☐ | Rain {{dist}} to the {{dir}} is not heading this way | La pluie à {{dist}} au {{dir}} ne se dirige pas vers ici | La lluvia a {{dist}} al {{dir}} no viene hacia aquí | `nowcast.farRainAway` |
 | ☐ | Rain {{dist}} to the {{dir}} is heading this way · about {{eta}} out | La pluie à {{dist}} au {{dir}} se dirige vers ici · à environ {{eta}} | Lluvia a {{dist}} al {{dir}} viene hacia aquí · a unos {{eta}} | `nowcast.farRainClosing` |

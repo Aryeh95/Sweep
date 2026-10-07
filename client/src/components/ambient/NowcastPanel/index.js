@@ -20,6 +20,11 @@ import { frameAge } from "~/components/WeatherMap/iemRadar";
 import useNowcast from "./useNowcast";
 import styles from "./styles.css";
 
+// Oldest scan the card will forecast from. The strip spans 90 min from the
+// scan; beyond ~20 min the arrival times and "now" are mostly guesses
+// about weather the next scans would already show.
+const NOWCAST_MAX_SCAN_AGE_MIN = 20;
+
 // The age line re-counts between polls, like the frame-age chip.
 const TICK_MS = 15 * 1000;
 const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -198,6 +203,28 @@ const NowcastPanel = ({ compact = false }) => {
   // Leads are measured from the scan; the card is read later. Shift so
   // "in N min" is from now, never negative.
   const elapsed = Math.max(0, Math.round((now - Date.parse(scanTime)) / 60000));
+
+  // Past NOWCAST_MAX_SCAN_AGE_MIN the forecast is about a sky that has
+  // moved on: on 2026-10-07 the Level III feed stopped and the card read
+  // "No rain expected in the next 90 min · Up to a 100% chance around
+  // 9:36 AM" at 10:28, from a 9:36 scan, under a map full of rain. Say
+  // the data is late instead of forecasting from it.
+  if (elapsed > NOWCAST_MAX_SCAN_AGE_MIN) {
+    return (
+      <section className={`${cardClass} ${styles["tone-dry"] || ""}`} aria-label={t("nowcast.aria", { headline: t("nowcast.delayed") })} aria-live="polite">
+        <header className={styles.head}>
+          <span className={styles.title}>{t("nowcast.title")}</span>
+          <span className={`${styles.age} ${styles["age-stale"] || ""}`}>
+            <span className={styles.site}>{site}</span>
+            <span className={styles.ageDot} aria-hidden="true" />
+            {t("radar.ageMinutes", { count: ageMinutes })}
+          </span>
+        </header>
+        <div className={styles.headline}>{t("nowcast.delayed")}</div>
+        <div className={styles.detail}>{t("nowcast.delayedDetail", { site, min: ageMinutes })}</div>
+      </section>
+    );
+  }
   const fromNow = (lead) => Math.max(1, lead - elapsed);
   // "Now" is judged at the scan's current age: a scan is 0–6 min old when
   // read, and a shower 3 km upstream at scan time is over the pin by then.
@@ -248,7 +275,9 @@ const NowcastPanel = ({ compact = false }) => {
     // The highest chance anywhere in the window, so "dry" never hides a
     // 40 % step; failing that, the strongest echo near the pin, so "dry"
     // never contradicts a shower the map is plainly showing.
-    const maxStep = series.reduce((b, x) => (x.prob > (b ? b.prob : 0) ? x : b), null);
+    // Steps still ahead of the reader only: a scan a few minutes old
+    // must not report a chance "around" a time already past.
+    const maxStep = series.filter((x) => x.leadMin >= elapsed).reduce((b, x) => (x.prob > (b ? b.prob : 0) ? x : b), null);
     if (horizonMin < 90) detail = t("nowcast.horizonShort", { min: horizonMin });
     else if (maxStep && maxStep.prob >= 0.2) detail = t("nowcast.someChance", { pct: pct(maxStep.prob), time: at(maxStep.leadMin) });
     else if (nearby) {

@@ -152,6 +152,8 @@
       "graupel": "Neige roulée dans {{range}} min"
     },
     "chance": "{{pct}} % de chances",
+    "delayed": "Données radar en retard",
+    "delayedDetail": "Aucun nouveau balayage de {{site}} depuis {{min}} min — la prévision reprendra à leur arrivée.",
     "someChance": "Jusqu'à {{pct}} % de chances vers {{time}}",
     "trend": {
       "growing": "en renforcement",

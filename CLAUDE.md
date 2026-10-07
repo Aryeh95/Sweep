@@ -296,6 +296,10 @@ tiles are the FALLBACK (`ui/mosaicSource.js`: list failed, newest file
   it a cold start mounted IEM's tiles for a second (30 wasted requests).
 - The timeline cadence label now averages the whole track (MRMS picks sit
   4–6 min apart; the first gap alone read "MRMS · 6 min").
+- The nowcast card refuses scans older than 20 min (`NOWCAST_MAX_SCAN_AGE_MIN`
+  in `NowcastPanel`) and says the data is delayed: during the outage it
+  forecast "no rain" from a 51-min-old scan under a map full of rain, with
+  a "chance around 9:36 AM" already in the past.
 - Single-site (high zoom) data has NO alternative: Level II would be the
   only other source (see the Level II section). During a Level III outage
   the site layer and storm tracks simply age, visibly.

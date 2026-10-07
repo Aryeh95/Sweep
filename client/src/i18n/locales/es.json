@@ -152,6 +152,8 @@
       "graupel": "Nieve granulada en {{range}} min"
     },
     "chance": "{{pct}}% de probabilidad",
+    "delayed": "Datos de radar retrasados",
+    "delayedDetail": "Sin escaneos nuevos de {{site}} desde hace {{min}} min — el pronóstico se reanudará cuando lleguen.",
     "someChance": "Hasta un {{pct}}% de probabilidad hacia las {{time}}",
     "trend": {
       "growing": "intensificándose",
