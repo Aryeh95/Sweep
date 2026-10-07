@@ -9,6 +9,7 @@ import styles from "./styles.css";
 import { colorForDbz, colorForVelocity, colorForCorrelation } from "./radialRender";
 import { GROUPS as PTYPE_GROUPS, colorForGate, encodeGate } from "../../../../server/precipType";
 import { colorForDepthIn, formatDepth, MM_PER_IN } from "../../../../server/accumulation";
+import { colorForIrCelsius } from "~/ui/irEnhancement";
 
 // Tiers sampled for each precipitation-type ramp in the legend: 7.5 to
 // 62.5 dBZ mid-points, light → heavy, from the same table the map uses.
@@ -131,6 +132,26 @@ const AccumulationScale = () => (
   </span>
 );
 
+// Cloud-top temperatures the colour-IR bar samples (°C, one per degree)
+// and the evenly spaced ones it labels.
+const IR_SCALE_C = Array.from({ length: 91 }, (_, i) => -i);
+const IR_LABELS_C = [0, -30, -60, -90];
+
+/**
+ * Colour-enhanced infrared bar (IR_STOPS_C in ui/irEnhancement.js),
+ * 0 °C on the left to −90 °C on the right.
+ *
+ * @returns {JSX.Element} Scale bar
+ */
+const IrScale = () => (
+  <span className={styles.precipScale} aria-hidden="true">
+    {IR_SCALE_C.map((c) => {
+      const [r, g, b] = colorForIrCelsius(c);
+      return <span key={c} style={{ backgroundColor: `rgb(${r}, ${g}, ${b})` }} />;
+    })}
+  </span>
+);
+
 /**
  * Correlation-coefficient colour bar (CC_STOPS in radialRender.js).
  *
@@ -168,6 +189,7 @@ const CorrelationScale = () => (
  * @param {number|null} [props.lightningCount] GLM flash count for the lightning section (null hides it)
  * @param {boolean} [props.velocity] Show the base-velocity colour bar (velocity mode on, site layer in view)
  * @param {boolean} [props.correlation] Show the correlation-coefficient bar (CC mode on, site layer in view)
+ * @param {boolean} [props.satelliteColor] Show the cloud-top temperature bar (colour-enhanced infrared satellite on)
  * @param {object} [props.accumulation] Rainfall-accumulation mode: product, what is in view, the value at the pin and the scan's window
  * @param {boolean} [props.correlationUnavailable] CC mode on but this radar publishes no N0C
  * @param {boolean|null} [props.cleanApplied] Dual-pol clean: true applied, false the scan had no classification, null not asked for
@@ -179,6 +201,7 @@ const RadarLegend = ({
   dark, chipMode, lightningCount = null, velocity = false,
   correlation = false, correlationUnavailable = false,
   cleanApplied = null, holdingClean = false, precip = null, accumulation = null,
+  satelliteColor = false,
 }) => {
   const { t } = useTranslation();
   const {
@@ -355,6 +378,20 @@ const RadarLegend = ({
           </div>
         </div>
       ) : null}
+      {satelliteColor ? (
+        <div className={styles.legendSection}>
+          <div className={styles.legendTitle}>{t("radar.legendCloudTop")}</div>
+          <IrScale />
+          <div className={styles.scaleLabels}>
+            {IR_LABELS_C.map((c, i) => (
+              <span key={c}>
+                {lengthUnit === "in" ? Math.round(c * 1.8 + 32) : c}
+                {i === IR_LABELS_C.length - 1 ? (lengthUnit === "in" ? " °F" : " °C") : ""}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {lightningCount != null ? (
         <div className={styles.legendSection}>
           <div className={styles.legendTitle}>{t("radar.legendLightning")}</div>
@@ -475,6 +512,7 @@ RadarLegend.propTypes = {
   velocity: PropTypes.bool,
   correlation: PropTypes.bool,
   correlationUnavailable: PropTypes.bool,
+  satelliteColor: PropTypes.bool,
   accumulation: PropTypes.shape({
     product: PropTypes.string.isRequired,
     siteInView: PropTypes.bool,

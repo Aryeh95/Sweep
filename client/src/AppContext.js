@@ -614,7 +614,8 @@ export function AppContextProvider({ children }) {
     });
   }, []);
 
-  // GOES-East satellite overlay under the radar: off → infrared → visible.
+  // GOES-East satellite overlay under the radar: off → infrared → colour
+  // infrared → visible.
   // Per-device display pref, OFF by default (radar is the product; the
   // satellite is context you turn on to see the cloud deck).
   const [satelliteMode, setSatelliteMode] = useState(() => {

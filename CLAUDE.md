@@ -202,7 +202,8 @@ skip an offline nearest radar.
 
 ### Satellite overlay — GOES-East via IEM (2026-09-25)
 
-Cloud deck under the radar, dock button cycling off → infrared → visible
+Cloud deck under the radar, dock button cycling off → infrared → color
+infrared → visible
 (`satelliteMode`, per-device, off by default; vocabulary in
 `client/src/ui/satellite.js`). Source choice, measured the same day:
 
@@ -232,6 +233,32 @@ enhanced ramp (green/purple cold tops) that fights the reflectivity
 palette, so the IR container gets `filter: grayscale(1)` via Leaflet's
 `className` option; visible is grayscale already and goes black at
 night, which is why IR is the first state. Opacity 0.7.
+
+**Color-enhanced infrared (2026-10-07).** Fourth satellite state `irc`
+(off → ir → irc → vis), drawn client-side by `WeatherMap/ColorIrLayer.js`
+from IEM's raw scan, not from tiles. Findings — keep these:
+- IEM's ch13 tile colours are NOT invertible: its table draws the coldest
+  tops (counts 221+, ≤ −76 °C) in a gray ramp that repeats warm-ground
+  grays exactly (gray 30 = count 70 = 295 K AND count 222 = 196 K).
+  Recolouring tiles would paint hot ground pink.
+- `data/gis/images/GOES/conus/channel13/GOES-19_C13.png` (+ `.wld`) is an
+  8-bit PALETTED PNG whose INDEX is the McIDAS brightness count:
+  T = (660 − B)/2 for B ≤ 176, T = 418 − B colder. Verified against
+  `OR_ABI-L2-CMIPC-M6C13_G19` over 1.23 M pixels: same 2500 × 1500 grid,
+  index within −1..0 of the exact count (IEM truncates). Counts seen
+  57–233; no fill value inside the sector.
+- World file = proj4 `geos` metres of the upper-left pixel CENTRE;
+  fixed-grid x/y radians × 35 786 023 m. Projection pinned to the PUG
+  worked example in `test/irEnhancement.test.js`.
+- Must decode the INDICES (pako + PNG unfilter in `irEnhancement.js`):
+  drawing the PNG to a canvas gives palette colours and loses the data.
+- Palette `IR_STOPS_C` was sampled from the Tropical Tidbits colour bar
+  the user picked (piecewise scale: 20 °C/tick above −20, 10 °C below).
+- Headless Chromium in the cloud container cannot reach IEM (no proxy;
+  pointing it at the agent proxy breaks localhost). Test with
+  `ctx.route(/mesonet/)` fulfilled by curl.
+- The timeline does NOT animate satellite — every satellite mode is the
+  current scan only.
 
 ### Radar visibility toggle (2026-09-25)
 

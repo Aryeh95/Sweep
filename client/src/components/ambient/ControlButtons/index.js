@@ -754,12 +754,13 @@ const ControlButtons = ({ labelled = false }) => {
   const noiseFilterLabel = radarOverlaysDisabled
     ? t("controls.radarOverlaysNeedMaximize")
     : t(noiseNext.label);
-  // GOES-East satellite: off → infrared → visible. Like the noise filter,
-  // two of the three states are "on", so the label names the NEXT step
-  // and the pressed styling only says "something is drawn".
+  // GOES-East satellite: off → infrared → colour infrared → visible. Like
+  // the noise filter, most states are "on", so the label names the NEXT
+  // step and the pressed styling only says "something is drawn".
   const satNext = {
     off: { toast: "toasts.satelliteIr", label: "controls.satelliteToIr" },
-    ir: { toast: "toasts.satelliteVis", label: "controls.satelliteToVis" },
+    ir: { toast: "toasts.satelliteIrColor", label: "controls.satelliteToIrColor" },
+    irc: { toast: "toasts.satelliteVis", label: "controls.satelliteToVis" },
     vis: { toast: "toasts.satelliteOff", label: "controls.satelliteToOff" },
   }[satelliteMode] || { toast: "toasts.satelliteIr", label: "controls.satelliteToIr" };
   const satelliteLabel = radarOverlaysDisabled

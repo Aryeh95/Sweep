@@ -81,7 +81,9 @@ import useRadarRadial from "./useRadarRadial";
 import useRadarRadialLoop from "./useRadarRadialLoop";
 import RadarSitePicker from "./RadarSitePicker";
 import { homeSiteCoversView } from "./radarSites";
-import { satelliteTileUrl, SATELLITE_LAYERS } from "~/ui/satellite";
+import { satelliteTileUrl, satelliteChannel, SATELLITE_LAYERS } from "~/ui/satellite";
+import ColorIrLayer from "./ColorIrLayer";
+import useGoesIrImage from "./useGoesIrImage";
 import StormTracks from "./StormTracks";
 import FilteredTileLayer from "./FilteredTileLayer";
 import usePrecipMosaic from "./usePrecipMosaic";
@@ -427,6 +429,10 @@ const RADAR_TILE_Z = 3;
 // Satellite opacity: enough to read the cloud deck, not so much that the
 // basemap's roads and labels vanish under overcast.
 const SATELLITE_OPACITY = 0.7;
+// The colour-enhanced infrared is read by its colours, which a see-through
+// layer would mix with the basemap's; nearly opaque, like the products it
+// copies.
+const SATELLITE_COLOR_OPACITY = 0.9;
 const SATELLITE_ATTRIBUTION = 'Satellite: <a href="https://mesonet.agron.iastate.edu/">IEM</a> / NOAA GOES-East';
 
 const MapViewTracker = ({ onChange }) => {
@@ -1024,6 +1030,13 @@ const WeatherMap = ({ zoom, dark }) => {
     siteOverride: radarSite,
   });
 
+  // Colour-enhanced infrared: IEM's raw scan, re-fetched when the frames
+  // poller reports a newer channel-13 valid time.
+  const colorIrGrid = useGoesIrImage({
+    enabled: satelliteMode === "irc",
+    validEpoch: iemSatelliteMeta && iemSatelliteMeta.ir ? iemSatelliteMeta.ir.epoch : null,
+  });
+
   // Which single-site product the raw-radial pipeline renders. The
   // frame LIST always comes from N0B (IEM's tile product); velocity
   // scans share the same volume-scan timestamps, so the same stamps
@@ -1366,10 +1379,15 @@ const WeatherMap = ({ zoom, dark }) => {
     });
   }
   // Satellite: the valid time of the channel being drawn, from IEM's
-  // sidecar. Missing metadata hides the row rather than guessing.
-  const satelliteEpoch = satelliteMode !== "off" && iemSatelliteMeta && iemSatelliteMeta[satelliteMode]
-    ? iemSatelliteMeta[satelliteMode].epoch
+  // sidecar. Missing metadata hides the row rather than guessing. The
+  // colour-enhanced layer reports the scan it actually decoded, which
+  // trails the sidecar until the download finishes.
+  const satelliteMetaEpoch = satelliteChannel(satelliteMode) && iemSatelliteMeta && iemSatelliteMeta[satelliteChannel(satelliteMode)]
+    ? iemSatelliteMeta[satelliteChannel(satelliteMode)].epoch
     : null;
+  const satelliteEpoch = satelliteMode === "irc"
+    ? (colorIrGrid ? (colorIrGrid.epoch ?? satelliteMetaEpoch) : null)
+    : satelliteMetaEpoch;
   if (Number.isFinite(satelliteEpoch)) {
     ageRows.push({
       key: "satellite",
@@ -1760,7 +1778,22 @@ const WeatherMap = ({ zoom, dark }) => {
           * purple cold tops) that fights the reflectivity palette, so the
           * infrared layer is desaturated by CSS on its own container —
           * clouds read as brightness, the way RadarScope draws them.
-          * Visible is grayscale already. */}
+          * Visible is grayscale already. The colour-enhanced mode
+          * ("irc") is its own client-drawn layer, in the same slot. */}
+        {satelliteMode === "irc" ? (
+          <ColorIrLayer
+            key="satellite-irc"
+            className={styles.satelliteVis}
+            attribution={SATELLITE_ATTRIBUTION}
+            grid={colorIrGrid}
+            opacity={SATELLITE_COLOR_OPACITY}
+            zIndex={SATELLITE_TILE_Z}
+            maxNativeZoom={SATELLITE_LAYERS.irc.maxNativeZoom}
+            maxZoom={18}
+            updateWhenIdle={true}
+            keepBuffer={2}
+          />
+        ) : null}
         {satelliteMode !== "off" && satelliteTileUrl(satelliteMode) ? (
           <TileLayer
             key={`satellite-${satelliteMode}`}
@@ -2081,6 +2114,7 @@ const WeatherMap = ({ zoom, dark }) => {
           lightningCount={showLightning ? lightning.count : null}
           velocity={radarVelocity && iemVisible.site}
           correlation={radarCorrelation && iemVisible.site}
+          satelliteColor={satelliteMode === "irc"}
           correlationUnavailable={radarCorrelation && iemVisible.site && !radial.url && Boolean(radial.unavailable)}
           cleanApplied={radial.cleanApplied}
           holdingClean={radial.holdingClean}

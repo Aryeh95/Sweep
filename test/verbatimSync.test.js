@@ -71,7 +71,9 @@ const TOP_LEVEL_DECL_RE = /^(?:export\s+)?(?:async\s+)?(?:function\s+(\w+)\s*\(|
 // geometry, the temperature/speed conversions, and the astronomy helpers all
 // belonged to the forecast UI), and trimmed alertLogic to the government-alert
 // helpers.
-const EXPECTED_CHECK_COUNT = 55;
+//
+// +16 (2026-10-07): the colour-enhanced infrared helpers (irEnhancement).
+const EXPECTED_CHECK_COUNT = 71;
 
 /**
  * The four copy-carrying test files and how to find their copies.
@@ -121,6 +123,11 @@ const PAIRS = [
     // sticky home-radar rule). The copy's `sites` is the same JSON the
     // source imports, loaded with require.
     testFile: "test/radarSites.test.js",
+  },
+  {
+    // Marker-delimited copy of the colour-enhanced infrared helpers (count
+    // decoding, colour scale, fixed-grid projection, PNG decoder).
+    testFile: "test/irEnhancement.test.js",
   },
   {
     // Marker-delimited copy of the raw-radial renderer's pure helpers
