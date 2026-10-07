@@ -75,7 +75,9 @@ const TOP_LEVEL_DECL_RE = /^(?:export\s+)?(?:async\s+)?(?:function\s+(\w+)\s*\(|
 // +15 (2026-10-07): the colour-enhanced infrared helpers (irEnhancement).
 // +5 (2026-10-07): the satellite loop's frame choice (satelliteLoop).
 // +6 (2026-10-07): the low-zoom mosaic source rules (mosaicSource).
-const EXPECTED_CHECK_COUNT = 81;
+// +3 (2026-10-07): iemRadar's tile URL / frame builders (versioned URLs).
+// +3 (2026-10-07): the reflectivity mosaic's max pyramid (mosaicPyramid).
+const EXPECTED_CHECK_COUNT = 87;
 
 /**
  * The four copy-carrying test files and how to find their copies.
@@ -125,6 +127,10 @@ const PAIRS = [
     // sticky home-radar rule). The copy's `sites` is the same JSON the
     // source imports, loaded with require.
     testFile: "test/radarSites.test.js",
+  },
+  {
+    // Marker-delimited copy of the reflectivity mosaic's max-downsampling.
+    testFile: "test/mosaicPyramid.test.js",
   },
   {
     // Marker-delimited copy of the low-zoom mosaic source rules (MRMS

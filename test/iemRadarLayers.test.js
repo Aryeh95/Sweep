@@ -38,6 +38,33 @@ function mosaicLayerName(minutesAgo) {
   return `nexrad-n0q-900913-m${String(minutesAgo).padStart(2, "0")}m`;
 }
 
+const IEM_TILE_BASE = "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0";
+
+function mosaicTileUrl(minutesAgo) {
+  return `${IEM_TILE_BASE}/${mosaicLayerName(minutesAgo)}/{z}/{x}/{y}.png`;
+}
+
+function buildMosaicFrames(now = Date.now(), validEpoch = null) {
+  const exact = Number.isFinite(validEpoch);
+  const anchor = exact
+    ? validEpoch
+    : Math.floor(now / (5 * 60 * 1000)) * (5 * 60 * 1000);
+  // The `-mNNm` layer names are RELATIVE ("current", "5 min ago"), so the
+  // same URL serves a new picture every 5 minutes. Without a version the
+  // map never refetched a frame it had loaded (setUrl only fires on a URL
+  // change) and the WebView's 5-minute HTTP cache handed back tiles saved
+  // during the 2026-10-07 Level III outage — blank at the zooms loaded
+  // then, while the age chip, computed from the metadata, read "3 min
+  // ago". Versioning on the composite time refetches every frame when IEM
+  // publishes a new one, and only then.
+  return MOSAIC_OFFSET_MINUTES.map((minutesAgo) => ({
+    stamp: `m${minutesAgo}`,
+    epoch: anchor - minutesAgo * 60 * 1000,
+    url: `${mosaicTileUrl(minutesAgo)}?v=${anchor}`,
+    approximate: !exact,
+  }));
+}
+
 const BAND_LOW_ZOOM = 7;
 const BAND_HIGH_ZOOM = 9;
 
@@ -233,4 +260,20 @@ test("frame age reports unknown rather than guessing", () => {
   for (const bad of [null, undefined, NaN, "202608112158"]) {
     assert.equal(frameAge(bad).level, "unknown");
   }
+});
+
+test("mosaic tile URLs carry the composite time, so a new composite is refetched", () => {
+  // The -mNNm names are relative: the same URL is a new picture every
+  // 5 min. Unversioned, a loaded frame was never refetched and the
+  // WebView's HTTP cache served outage-era blanks (2026-10-07).
+  const a = buildMosaicFrames(0, Date.UTC(2026, 9, 7, 14, 40));
+  const b = buildMosaicFrames(0, Date.UTC(2026, 9, 7, 14, 45));
+  assert.equal(a.length, MOSAIC_OFFSET_MINUTES.length);
+  for (let i = 0; i < a.length; i += 1) {
+    assert.equal(a[i].stamp, b[i].stamp, "layer identity (React key) is stable");
+    assert.notEqual(a[i].url, b[i].url, "the URL changes with the composite");
+    assert.match(a[i].url, /\/\{z\}\/\{x\}\/\{y\}\.png\?v=\d+$/);
+  }
+  assert.match(a[a.length - 1].url, /nexrad-n0q-900913\//);
+  assert.match(a[0].url, /nexrad-n0q-900913-m50m\//);
 });

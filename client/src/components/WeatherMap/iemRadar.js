@@ -90,10 +90,18 @@ export function buildMosaicFrames(now = Date.now(), validEpoch = null) {
   const anchor = exact
     ? validEpoch
     : Math.floor(now / (5 * 60 * 1000)) * (5 * 60 * 1000);
+  // The `-mNNm` layer names are RELATIVE ("current", "5 min ago"), so the
+  // same URL serves a new picture every 5 minutes. Without a version the
+  // map never refetched a frame it had loaded (setUrl only fires on a URL
+  // change) and the WebView's 5-minute HTTP cache handed back tiles saved
+  // during the 2026-10-07 Level III outage — blank at the zooms loaded
+  // then, while the age chip, computed from the metadata, read "3 min
+  // ago". Versioning on the composite time refetches every frame when IEM
+  // publishes a new one, and only then.
   return MOSAIC_OFFSET_MINUTES.map((minutesAgo) => ({
     stamp: `m${minutesAgo}`,
     epoch: anchor - minutesAgo * 60 * 1000,
-    url: mosaicTileUrl(minutesAgo),
+    url: `${mosaicTileUrl(minutesAgo)}?v=${anchor}`,
     approximate: !exact,
   }));
 }

@@ -296,6 +296,23 @@ tiles are the FALLBACK (`ui/mosaicSource.js`: list failed, newest file
   it a cold start mounted IEM's tiles for a second (30 wasted requests).
 - The timeline cadence label now averages the whole track (MRMS picks sit
   4–6 min apart; the first gap alone read "MRMS · 6 min").
+- **MRMS went down too, the same day**: every product on `noaa-mrms-pds`
+  stopped at 14:26 Z, ~50 min after Level III recovered. The 10-min stale
+  rule switched the phone to IEM by itself — the fallback earned its keep
+  within hours. Two sources failing at different times is the norm, not
+  the exception; keep both paths working.
+- **IEM mosaic URLs are versioned** (`?v=<composite epoch>` in
+  `buildMosaicFrames`): `-mNNm` names are relative, so an unversioned URL
+  is a new picture every 5 min that Leaflet never refetches (setUrl fires
+  only on a URL change) and the WebView's `max-age=300` cache can replay
+  outage-era blank tiles. tile.py ignores the query string.
+- **Zoomed-out MRMS uses the block MAX** (`maxPyramidLevel` in
+  PrecipMosaicLayer, levels 1–4 = 2–16 cells per sample, chosen from
+  source-cells-per-pixel ≥ 2). Nearest-neighbour at z4 thinned widespread
+  light rain to specks. Reflectivity only — the byte is monotonic in dBZ;
+  the precip-type byte (class × tier) is not.
+- Never `pkill -f` a pattern that also appears in the running command:
+  it matches the shell itself (lost a command chain that way).
 - The nowcast card refuses scans older than 20 min (`NOWCAST_MAX_SCAN_AGE_MIN`
   in `NowcastPanel`) and says the data is delayed: during the outage it
   forecast "no rain" from a 51-min-old scan under a map full of rain, with
