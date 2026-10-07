@@ -72,8 +72,9 @@ const TOP_LEVEL_DECL_RE = /^(?:export\s+)?(?:async\s+)?(?:function\s+(\w+)\s*\(|
 // belonged to the forecast UI), and trimmed alertLogic to the government-alert
 // helpers.
 //
-// +16 (2026-10-07): the colour-enhanced infrared helpers (irEnhancement).
-const EXPECTED_CHECK_COUNT = 71;
+// +17 (2026-10-07): the colour-enhanced infrared helpers (irEnhancement).
+// +5 (2026-10-07): the satellite loop's frame choice (satelliteLoop).
+const EXPECTED_CHECK_COUNT = 77;
 
 /**
  * The four copy-carrying test files and how to find their copies.
@@ -123,6 +124,10 @@ const PAIRS = [
     // sticky home-radar rule). The copy's `sites` is the same JSON the
     // source imports, loaded with require.
     testFile: "test/radarSites.test.js",
+  },
+  {
+    // Marker-delimited copy of the satellite loop's frame choice.
+    testFile: "test/satelliteLoop.test.js",
   },
   {
     // Marker-delimited copy of the colour-enhanced infrared helpers (count

@@ -232,11 +232,13 @@ radar tile layers), not a Pane. IEM's channel-13 tiles carry a colour-
 enhanced ramp (green/purple cold tops) that fights the reflectivity
 palette, so the IR container gets `filter: grayscale(1)` via Leaflet's
 `className` option; visible is grayscale already and goes black at
-night, which is why IR is the first state. Opacity 0.7.
+night, which is why IR is the first state. Opacity 0.7. (Superseded
+2026-10-07: both infrared modes are now client-drawn — see below.)
 
 **Color-enhanced infrared (2026-10-07).** Fourth satellite state `irc`
 (off → ir → irc → vis), drawn client-side by `WeatherMap/ColorIrLayer.js`
-from IEM's raw scan, not from tiles. Findings — keep these:
+from IEM's raw scan (live) / NOAA's CMIP files (loop), not from tiles.
+Findings — keep these:
 - IEM's ch13 tile colours are NOT invertible: its table draws the coldest
   tops (counts 221+, ≤ −76 °C) in a gray ramp that repeats warm-ground
   grays exactly (gray 30 = count 70 = 295 K AND count 222 = 196 K).
@@ -257,8 +259,34 @@ from IEM's raw scan, not from tiles. Findings — keep these:
 - Headless Chromium in the cloud container cannot reach IEM (no proxy;
   pointing it at the agent proxy breaks localhost). Test with
   `ctx.route(/mesonet/)` fulfilled by curl.
-- The timeline does NOT animate satellite — every satellite mode is the
-  current scan only.
+
+**Satellite loop (2026-10-07).** Both infrared modes (`ir` is now the same
+client-drawn layer with a gray LUT, no longer IEM tiles) follow the radar
+playhead. Findings — keep these:
+- IEM has NO satellite history at 2 km: `GOES-19_C13.png` is latest-only,
+  the GOES WMS (`cgi-bin/wms/goes_east.cgi`) has no time dimension, and
+  `archive/data/YYYY/MM/DD/GIS/sat/` holds only `conus_goes_ir4km_HHMM.tif`
+  (4 km, 15 min). History therefore comes from NOAA:
+  `noaa-goes19/ABI-L2-CMIPC/YYYY/DDD/HH/OR_ABI-L2-CMIPC-M6C13_G19_s…nc`
+  (~3.8 MB, one per 5 min; key time = scan START, which is IEM's `valid`).
+- `server/goesIrCtrl.js` decodes CMI (int16, scale/offset, fill −1) to the
+  same McIDAS counts as IEM's PNG — verified identical grid origin and
+  0/+1 count differences. Fill = 47 162 pixels, ALL off the Earth's disk
+  (NW corner); IEM writes count 162 there, which never matters because no
+  map point projects off-disk. ~0.9 s cold per frame (list + download +
+  decode + deflate), 1 ms cached.
+- Frames are ~2.6 MB base64 JSON; the client keeps them DEFLATED and
+  inflates only the frame on screen (`satLoopGrid` useMemo).
+- `ColorIrLayer` caches each tile's pixel → source-index map keyed on grid
+  geometry — every scan shares it, so a loop step is a LUT lookup, not a
+  re-projection.
+- `useSatelliteLoop` must key the listing window on the track LENGTH and
+  restart its pump only when the stamp SET changes: a clock-derived window
+  plus array identities re-listed every render and re-downloaded the
+  frame in flight (caught in Playwright: 13:21 and 13:16 fetched twice).
+- Pressing play stalls headless Chromium for ~5 s with the satellite OFF
+  too (the radar loop mounting) — not a satellite cost.
+- Visible is not looped.
 
 ### Radar visibility toggle (2026-09-25)
 

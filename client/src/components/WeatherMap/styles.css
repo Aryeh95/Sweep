@@ -1566,13 +1566,9 @@
   box-shadow: 0 0 0 2px #6fa8ff;
 }
 
-/* GOES-East satellite tile containers. Channel 13 arrives with IEM's
- * colour-enhanced ramp (green / purple cold tops) — desaturated here so
- * clouds read as brightness under the reflectivity palette instead of
- * competing with it. Channel 02 is grayscale already. */
-.satellite-ir {
-  filter: grayscale(1);
-}
+/* GOES-East satellite containers. Visible (IEM tiles) is grayscale
+ * already and the infrared layers paint their own palette, so nothing is
+ * filtered; the class exists so no inherited filter can reach them. */
 .satellite-vis {
   filter: none;
 }

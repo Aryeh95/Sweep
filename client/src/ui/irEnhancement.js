@@ -43,6 +43,14 @@ export const IR_STOPS_C = [
   [-90, 126, 0, 124],
 ];
 
+// Plain infrared: warm surfaces dark, the coldest tops white, linear in
+// between — the conventional gray IR picture, drawn through the same
+// layer so both infrared modes animate.
+export const IR_GRAY_STOPS_C = [
+  [40, 20, 20, 20],
+  [-80, 255, 255, 255],
+];
+
 /**
  * McIDAS brightness count → brightness temperature.
  * Counts ≤ 176 step 0.5 K (T = (660 − B) / 2, i.e. ≥ 242 K); colder
@@ -56,17 +64,18 @@ export function irCountToKelvin(count) {
 }
 
 /**
- * Colour for a cloud-top temperature on the IR_STOPS_C scale.
+ * Colour for a cloud-top temperature on a stop scale.
  *
  * @param {Number} celsius temperature
+ * @param {Array<Array<Number>>} [stops] scale, warmest first (default IR_STOPS_C)
  * @returns {Array<Number>} [r, g, b]
  */
-export function colorForIrCelsius(celsius) {
-  if (celsius >= IR_STOPS_C[0][0]) return IR_STOPS_C[0].slice(1);
-  for (let i = 1; i < IR_STOPS_C.length; i += 1) {
-    const [t1, r1, g1, b1] = IR_STOPS_C[i];
+export function colorForIrCelsius(celsius, stops = IR_STOPS_C) {
+  if (celsius >= stops[0][0]) return stops[0].slice(1);
+  for (let i = 1; i < stops.length; i += 1) {
+    const [t1, r1, g1, b1] = stops[i];
     if (celsius >= t1) {
-      const [t0, r0, g0, b0] = IR_STOPS_C[i - 1];
+      const [t0, r0, g0, b0] = stops[i - 1];
       const f = (t0 - celsius) / (t0 - t1);
       return [
         Math.round(r0 + (r1 - r0) * f),
@@ -75,7 +84,7 @@ export function colorForIrCelsius(celsius) {
       ];
     }
   }
-  return IR_STOPS_C[IR_STOPS_C.length - 1].slice(1);
+  return stops[stops.length - 1].slice(1);
 }
 
 /**
@@ -83,12 +92,13 @@ export function colorForIrCelsius(celsius) {
  * transparent: IEM's CONUS sector never uses them (measured range 57–233),
  * so they can only mean "no data".
  *
+ * @param {Array<Array<Number>>} [stops] scale, warmest first (default IR_STOPS_C)
  * @returns {Uint8ClampedArray} 256 × 4 bytes
  */
-export function buildIrLut() {
+export function buildIrLut(stops = IR_STOPS_C) {
   const lut = new Uint8ClampedArray(256 * 4);
   for (let c = 1; c < 255; c += 1) {
-    const [r, g, b] = colorForIrCelsius(irCountToKelvin(c) - 273.15);
+    const [r, g, b] = colorForIrCelsius(irCountToKelvin(c) - 273.15, stops);
     lut[c * 4] = r;
     lut[c * 4 + 1] = g;
     lut[c * 4 + 2] = b;

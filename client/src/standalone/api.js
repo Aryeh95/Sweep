@@ -32,6 +32,7 @@
 
 import { getRadarSite, getRadarFrames } from "../../../server/iemRadarCtrl";
 import { getRadarStatus } from "../../../server/radarStatusCtrl";
+import { getIrFrames, getIrFrame } from "../../../server/goesIrCtrl";
 import { getRadarRadial } from "../../../server/radarRadialCtrl";
 import { getPrecipMosaic } from "../../../server/mrmsPrecipTypeCtrl";
 import { getQpeMosaic } from "../../../server/mrmsQpeCtrl";
@@ -89,6 +90,8 @@ function makeRes() {
 const ROUTES = {
   "GET /api/radar/site": getRadarSite,
   "GET /api/radar/status": getRadarStatus,
+  "GET /api/satellite/ir/frames": getIrFrames,
+  "GET /api/satellite/ir/frame": getIrFrame,
   "GET /api/radar/frames": getRadarFrames,
   "GET /api/radar/radial": getRadarRadial,
   "GET /api/radar/precip-mosaic": getPrecipMosaic,

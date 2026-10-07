@@ -38,6 +38,14 @@ const IR_STOPS_C = [
   [-90, 126, 0, 124],
 ];
 
+// Plain infrared: warm surfaces dark, the coldest tops white, linear in
+// between — the conventional gray IR picture, drawn through the same
+// layer so both infrared modes animate.
+const IR_GRAY_STOPS_C = [
+  [40, 20, 20, 20],
+  [-80, 255, 255, 255],
+];
+
 /**
  * McIDAS brightness count → brightness temperature.
  * Counts ≤ 176 step 0.5 K (T = (660 − B) / 2, i.e. ≥ 242 K); colder
@@ -51,17 +59,18 @@ function irCountToKelvin(count) {
 }
 
 /**
- * Colour for a cloud-top temperature on the IR_STOPS_C scale.
+ * Colour for a cloud-top temperature on a stop scale.
  *
  * @param {Number} celsius temperature
+ * @param {Array<Array<Number>>} [stops] scale, warmest first (default IR_STOPS_C)
  * @returns {Array<Number>} [r, g, b]
  */
-function colorForIrCelsius(celsius) {
-  if (celsius >= IR_STOPS_C[0][0]) return IR_STOPS_C[0].slice(1);
-  for (let i = 1; i < IR_STOPS_C.length; i += 1) {
-    const [t1, r1, g1, b1] = IR_STOPS_C[i];
+function colorForIrCelsius(celsius, stops = IR_STOPS_C) {
+  if (celsius >= stops[0][0]) return stops[0].slice(1);
+  for (let i = 1; i < stops.length; i += 1) {
+    const [t1, r1, g1, b1] = stops[i];
     if (celsius >= t1) {
-      const [t0, r0, g0, b0] = IR_STOPS_C[i - 1];
+      const [t0, r0, g0, b0] = stops[i - 1];
       const f = (t0 - celsius) / (t0 - t1);
       return [
         Math.round(r0 + (r1 - r0) * f),
@@ -70,7 +79,7 @@ function colorForIrCelsius(celsius) {
       ];
     }
   }
-  return IR_STOPS_C[IR_STOPS_C.length - 1].slice(1);
+  return stops[stops.length - 1].slice(1);
 }
 
 /**
@@ -78,12 +87,13 @@ function colorForIrCelsius(celsius) {
  * transparent: IEM's CONUS sector never uses them (measured range 57–233),
  * so they can only mean "no data".
  *
+ * @param {Array<Array<Number>>} [stops] scale, warmest first (default IR_STOPS_C)
  * @returns {Uint8ClampedArray} 256 × 4 bytes
  */
-function buildIrLut() {
+function buildIrLut(stops = IR_STOPS_C) {
   const lut = new Uint8ClampedArray(256 * 4);
   for (let c = 1; c < 255; c += 1) {
-    const [r, g, b] = colorForIrCelsius(irCountToKelvin(c) - 273.15);
+    const [r, g, b] = colorForIrCelsius(irCountToKelvin(c) - 273.15, stops);
     lut[c * 4] = r;
     lut[c * 4 + 1] = g;
     lut[c * 4 + 2] = b;
@@ -249,7 +259,19 @@ test("colour scale: gray above −20 °C, then the Tropical Tidbits bands", () =
 });
 
 test("colour scale stops run strictly warm to cold", () => {
-  for (let i = 1; i < IR_STOPS_C.length; i += 1) assert.ok(IR_STOPS_C[i][0] < IR_STOPS_C[i - 1][0]);
+  for (const stops of [IR_STOPS_C, IR_GRAY_STOPS_C]) {
+    for (let i = 1; i < stops.length; i += 1) assert.ok(stops[i][0] < stops[i - 1][0]);
+  }
+});
+
+test("gray scale: dark when warm, white when coldest, gray in between", () => {
+  assert.deepEqual(colorForIrCelsius(30, IR_GRAY_STOPS_C), [40, 40, 40]);
+  assert.deepEqual(colorForIrCelsius(-80, IR_GRAY_STOPS_C), [255, 255, 255]);
+  const [r, g, b] = colorForIrCelsius(-50, IR_GRAY_STOPS_C);
+  assert.ok(r === g && g === b && r > 40 && r < 255);
+  const lut = buildIrLut(IR_GRAY_STOPS_C);
+  assert.equal(lut[3], 0);
+  assert.deepEqual([...lut.subarray(233 * 4, 233 * 4 + 4)], [255, 255, 255, 255]);
 });
 
 test("LUT: counts 0 and 255 are transparent, every other count is opaque", () => {

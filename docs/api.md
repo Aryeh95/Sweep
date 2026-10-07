@@ -171,6 +171,46 @@ Resolves the NEXRAD site covering a coordinate.
 A location with no NEXRAD coverage returns HTTP 200 with
 `{"available": false}` — the client stays on the mosaic layer.
 
+### `GET /api/satellite/ir/frames?minutes=60`
+
+GOES-East channel-13 scans for the satellite loop, oldest first.
+
+- **Access:** 🌐 Public — rate limited
+- **Source:** `noaa-goes19` bucket, `ABI-L2-CMIPC/YYYY/DDD/HH/` listing
+- **Cached:** each hour's listing 60 s
+- `minutes`: 5–180, default 60
+
+```json
+{ "available": true, "frames": [ { "stamp": "202610071316", "epoch": 1791378977000 } ] }
+```
+
+`stamp` is the scan START time (UTC minute), the same instant IEM reports
+as the live scan's `valid`. An upstream failure answers HTTP 200 with
+`{"available": false, "reason": "upstream-unavailable", "frames": []}`.
+
+### `GET /api/satellite/ir/frame?stamp=YYYYMMDDHHMM`
+
+One scan as 8-bit McIDAS brightness counts on the GOES-R fixed grid (the
+same representation as IEM's live `GOES-19_C13.png` indices: T = (660 − B)/2
+for B ≤ 176, T = 418 − B colder; 0 = no data).
+
+- **Access:** 🌐 Public — rate limited
+- **Source:** the scan's `OR_ABI-L2-CMIPC-M6C13_G19_s…nc`, decoded with h5wasm
+- **Cached:** last 16 scans, in memory (a published scan never changes)
+
+```json
+{
+  "stamp": "202610071321", "epoch": 1791379277000,
+  "width": 2500, "height": 1500,
+  "x0": -3626269.33, "y0": 4588197.76, "dx": 2004.0173, "dy": 2004.0173, "lon0": -75,
+  "counts": "<base64 of zlib-deflated width×height bytes, ~2.6 MB>"
+}
+```
+
+`x0`/`y0` are proj4 `geos` metres of the upper-left pixel centre (what
+IEM's world file carries). 400 for a malformed stamp, 404 when no scan
+starts in that minute, 502 when the bucket fails.
+
 ### `GET /api/radar/status`
 
 Operating state of every WSR-88D, for the site picker's red "offline" chips.

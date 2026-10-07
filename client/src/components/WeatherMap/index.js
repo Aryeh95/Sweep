@@ -84,6 +84,9 @@ import { homeSiteCoversView } from "./radarSites";
 import { satelliteTileUrl, satelliteChannel, SATELLITE_LAYERS } from "~/ui/satellite";
 import ColorIrLayer from "./ColorIrLayer";
 import useGoesIrImage from "./useGoesIrImage";
+import useSatelliteLoop from "./useSatelliteLoop";
+import { pickScan } from "~/ui/satelliteLoop";
+import { inflate } from "pako";
 import StormTracks from "./StormTracks";
 import FilteredTileLayer from "./FilteredTileLayer";
 import usePrecipMosaic from "./usePrecipMosaic";
@@ -1030,10 +1033,11 @@ const WeatherMap = ({ zoom, dark }) => {
     siteOverride: radarSite,
   });
 
-  // Colour-enhanced infrared: IEM's raw scan, re-fetched when the frames
-  // poller reports a newer channel-13 valid time.
+  // Infrared (plain and colour-enhanced): IEM's raw scan, re-fetched when
+  // the frames poller reports a newer channel-13 valid time.
+  const satelliteIr = satelliteMode === "ir" || satelliteMode === "irc";
   const colorIrGrid = useGoesIrImage({
-    enabled: satelliteMode === "irc",
+    enabled: satelliteIr,
     validEpoch: iemSatelliteMeta && iemSatelliteMeta.ir ? iemSatelliteMeta.ir.epoch : null,
   });
 
@@ -1173,6 +1177,38 @@ const WeatherMap = ({ zoom, dark }) => {
   const scrubStamp = (!loopActive && radarTimelineVisible && currentSiteFrame && iemFromEnd > 0)
     ? currentSiteFrame.stamp
     : null;
+
+  // The frame list that drives the timeline (see the scrubber section
+  // below for why it depends on the zoom band).
+  const iemTimelineSourceFrames =
+    (iemVisible.site && iemSiteAvailable && iemSiteFrames.length > iemMosaicFrames.length)
+      ? iemSiteFrames
+      : iemMosaicFrames;
+
+  // Satellite loop (both infrared modes): history scans follow the radar
+  // playhead — the newest loaded scan at or before the playhead's time,
+  // thinned to ≤ 12 frames on the long site track. On history the
+  // satellite shows ITS frame or nothing (while it loads), never the live
+  // scan under a past playhead; on "latest" it is the live IEM scan.
+  // Visible is not looped (0.5 km CONUS frames are ~16× the data).
+  const playheadFrame = pickFromEnd(iemTimelineSourceFrames, iemFromEnd);
+  const playheadEpoch = playheadFrame ? playheadFrame.epoch : null;
+  const satLoop = useSatelliteLoop({
+    enabled: satelliteIr && radarTimelineVisible,
+    active: loopActive,
+    spanFrom: iemTimelineSourceFrames.length ? iemTimelineSourceFrames[0].epoch : null,
+    spanTo: iemTimelineSourceFrames.length > 1 ? iemTimelineSourceFrames[iemTimelineSourceFrames.length - 2].epoch : null,
+    scrubEpoch: !loopActive && radarTimelineVisible && iemFromEnd > 0 ? playheadEpoch : null,
+    paused: pollingPaused,
+  });
+  const satLoopScan = iemFromEnd > 0 ? pickScan(satLoop.scans, playheadEpoch) : null;
+  const satLoopEntry = satLoopScan ? satLoop.byStamp[satLoopScan.stamp] || null : null;
+  // Inflated on demand, one frame at a time (~3.75 MB), like the type mosaic.
+  const satLoopGrid = useMemo(
+    () => (satLoopEntry ? { ...satLoopEntry, data: inflate(satLoopEntry.z) } : null),
+    [satLoopEntry],
+  );
+  const satelliteGrid = iemFromEnd > 0 ? satLoopGrid : colorIrGrid;
 
   // Historical raw radials — every loop frame rendered through the same
   // pipeline as "latest", so playback stays as sharp as the live picture
@@ -1380,13 +1416,13 @@ const WeatherMap = ({ zoom, dark }) => {
   }
   // Satellite: the valid time of the channel being drawn, from IEM's
   // sidecar. Missing metadata hides the row rather than guessing. The
-  // colour-enhanced layer reports the scan it actually decoded, which
-  // trails the sidecar until the download finishes.
+  // infrared layers report the scan actually drawn — the live one trails
+  // the sidecar until its download finishes; on history it is the loop's.
   const satelliteMetaEpoch = satelliteChannel(satelliteMode) && iemSatelliteMeta && iemSatelliteMeta[satelliteChannel(satelliteMode)]
     ? iemSatelliteMeta[satelliteChannel(satelliteMode)].epoch
     : null;
-  const satelliteEpoch = satelliteMode === "irc"
-    ? (colorIrGrid ? (colorIrGrid.epoch ?? satelliteMetaEpoch) : null)
+  const satelliteEpoch = satelliteIr
+    ? (satelliteGrid ? (satelliteGrid.epoch ?? satelliteMetaEpoch) : null)
     : satelliteMetaEpoch;
   if (Number.isFinite(satelliteEpoch)) {
     ageRows.push({
@@ -1449,10 +1485,8 @@ const WeatherMap = ({ zoom, dark }) => {
   //
   // Every IEM frame is `kind: "past"` — NEXRAD products are observations,
   // and unlike RainViewer there is no nowcast to scrub forward into.
-  const iemTimelineSourceFrames =
-    (iemVisible.site && iemSiteAvailable && iemSiteFrames.length > iemMosaicFrames.length)
-      ? iemSiteFrames
-      : iemMosaicFrames;
+  // (`iemTimelineSourceFrames` is defined above, beside the satellite
+  // loop, which follows the same playhead.)
   const iemTimelineFrames = useMemo(
     () => iemTimelineSourceFrames.map((f) => ({ time: Math.round(f.epoch / 1000), kind: "past" })),
     [iemTimelineSourceFrames]
@@ -1774,19 +1808,17 @@ const WeatherMap = ({ zoom, dark }) => {
           * pane. A separate Leaflet pane could not slot between two
           * layers that share the tile pane.
           *
-          * IEM's channel-13 tiles carry a colour-enhanced ramp (green /
-          * purple cold tops) that fights the reflectivity palette, so the
-          * infrared layer is desaturated by CSS on its own container —
-          * clouds read as brightness, the way RadarScope draws them.
-          * Visible is grayscale already. The colour-enhanced mode
-          * ("irc") is its own client-drawn layer, in the same slot. */}
-        {satelliteMode === "irc" ? (
+          * Both infrared modes are drawn client-side by ColorIrLayer from
+          * brightness counts (gray or colour-enhanced palette), so they
+          * can follow the timeline; visible uses IEM's tiles. */}
+        {satelliteIr ? (
           <ColorIrLayer
-            key="satellite-irc"
+            key="satellite-ir"
             className={styles.satelliteVis}
             attribution={SATELLITE_ATTRIBUTION}
-            grid={colorIrGrid}
-            opacity={SATELLITE_COLOR_OPACITY}
+            grid={satelliteGrid}
+            palette={satelliteMode === "irc" ? "color" : "gray"}
+            opacity={satelliteMode === "irc" ? SATELLITE_COLOR_OPACITY : SATELLITE_OPACITY}
             zIndex={SATELLITE_TILE_Z}
             maxNativeZoom={SATELLITE_LAYERS.irc.maxNativeZoom}
             maxZoom={18}
@@ -1797,7 +1829,7 @@ const WeatherMap = ({ zoom, dark }) => {
         {satelliteMode !== "off" && satelliteTileUrl(satelliteMode) ? (
           <TileLayer
             key={`satellite-${satelliteMode}`}
-            className={satelliteMode === "ir" ? styles.satelliteIr : styles.satelliteVis}
+            className={styles.satelliteVis}
             attribution={SATELLITE_ATTRIBUTION}
             url={satelliteTileUrl(satelliteMode)}
             opacity={SATELLITE_OPACITY}

@@ -74,6 +74,7 @@ function registerKnownServices() {
     "GOES GLM (lightning)",
     "NWS (severe weather alerts)",
     "NWS (radar status)",
+    "NOAA GOES-East (satellite loop)",
     // Environment Canada is still wired into the nearby-alerts chain for a
     // point near the border, and registers itself the first time it is
     // actually called; pre-registering it left a permanent "not yet called"
@@ -732,6 +733,12 @@ app.get("/api/radar/site",          apiLimiter, getRadarSite);
 // Which radars are offline, for the site picker (NWS station feed, 5-min cache).
 app.get("/api/radar/status",        apiLimiter, getRadarStatus);
 app.get("/api/radar/frames",        apiLimiter, getRadarFrames);
+
+// GOES-East channel-13 history for the satellite loop (NOAA CMIP files,
+// decoded to brightness counts; the live frame comes from IEM directly).
+const { getIrFrames, getIrFrame } = require("./goesIrCtrl");
+app.get("/api/satellite/ir/frames", apiLimiter, getIrFrames);
+app.get("/api/satellite/ir/frame",  apiLimiter, getIrFrame);
 
 // NEXRAD Level III storm tracks (STI / product 58). NWS runs the cell
 // detection; this reads the published result — cell positions plus forecast
