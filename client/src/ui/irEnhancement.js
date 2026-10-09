@@ -148,3 +148,23 @@ export function geosProject(latTerms, cosDl, sinDl) {
   const y = Math.atan(sz / sx);
   return [x * PERSPECTIVE_H, y * PERSPECTIVE_H];
 }
+
+/**
+ * Brightness temperature of a decoded scan at a point — the hover readout.
+ *
+ * @param {{width: Number, height: Number, data: Uint8Array, x0: Number, y0: Number, dx: Number, dy: Number, lon0: Number}} grid decoded scan
+ * @param {Number} lat latitude
+ * @param {Number} lon longitude
+ * @returns {Number|null} kelvin, or null off the scan / on a no-data count
+ */
+export function irKelvinAt(grid, lat, lon) {
+  if (!grid || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const dl = (lon - grid.lon0) * DEG;
+  const p = geosProject(geosLatTerms(lat), Math.cos(dl), Math.sin(dl));
+  if (!p) return null;
+  const col = Math.round((p[0] - grid.x0) / grid.dx);
+  const row = Math.round((grid.y0 - p[1]) / grid.dy);
+  if (col < 0 || row < 0 || col >= grid.width || row >= grid.height) return null;
+  const count = grid.data[row * grid.width + col];
+  return count === 0 || count === 255 ? null : irCountToKelvin(count);
+}

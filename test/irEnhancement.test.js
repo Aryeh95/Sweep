@@ -143,6 +143,26 @@ function geosProject(latTerms, cosDl, sinDl) {
   const y = Math.atan(sz / sx);
   return [x * PERSPECTIVE_H, y * PERSPECTIVE_H];
 }
+
+/**
+ * Brightness temperature of a decoded scan at a point — the hover readout.
+ *
+ * @param {{width: Number, height: Number, data: Uint8Array, x0: Number, y0: Number, dx: Number, dy: Number, lon0: Number}} grid decoded scan
+ * @param {Number} lat latitude
+ * @param {Number} lon longitude
+ * @returns {Number|null} kelvin, or null off the scan / on a no-data count
+ */
+function irKelvinAt(grid, lat, lon) {
+  if (!grid || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const dl = (lon - grid.lon0) * DEG;
+  const p = geosProject(geosLatTerms(lat), Math.cos(dl), Math.sin(dl));
+  if (!p) return null;
+  const col = Math.round((p[0] - grid.x0) / grid.dx);
+  const row = Math.round((grid.y0 - p[1]) / grid.dy);
+  if (col < 0 || row < 0 || col >= grid.width || row >= grid.height) return null;
+  const count = grid.data[row * grid.width + col];
+  return count === 0 || count === 255 ? null : irCountToKelvin(count);
+}
 // ---------- end of verbatim copy ----------
 
 test("brightness counts: 0.5 K steps down to 242 K, 1 K steps colder (McIDAS)", () => {
@@ -207,4 +227,16 @@ test("fixed-grid projection: sub-satellite point is the origin, the far side is 
   assert.ok(Math.abs(x) < 1e-6 && Math.abs(y) < 1e-6);
   const far = 105 * DEG; // 180° from −75°
   assert.equal(geosProject(geosLatTerms(0), Math.cos(far), Math.sin(far)), null);
+});
+
+test("hover readout: the temperature under a point, null off the scan or on no data", () => {
+  // A 3 × 2 grid whose middle column of the top row sits on the fixed-grid
+  // origin (the sub-satellite point, 0 N 75 W); 2 km cells.
+  const grid = { width: 3, height: 2, x0: -2000, y0: 0, dx: 2000, dy: 2000, lon0: -75, data: Uint8Array.from([0, 176, 59, 233, 255, 200]) };
+  assert.equal(irKelvinAt(grid, 0, -75), 242); // count 176
+  assert.equal(irKelvinAt(grid, 0, -75.005), 242); // ~0.5 km west, same cell
+  assert.equal(irKelvinAt(grid, 0, -75.03), null); // column 0: count 0 = no data
+  assert.equal(irKelvinAt(grid, 40, -75), null); // far outside the grid
+  assert.equal(irKelvinAt(grid, 0, 105), null); // far side of the Earth
+  assert.equal(irKelvinAt(null, 0, -75), null);
 });

@@ -87,6 +87,9 @@ import useGoesIrImage from "./useGoesIrImage";
 import useSatelliteLoop from "./useSatelliteLoop";
 import useReflMosaic, { decodeReflPayload } from "./useReflMosaic";
 import useReflMosaicLoop from "./useReflMosaicLoop";
+import MapProbe from "./MapProbe";
+import { reflDbzAt } from "~/ui/mosaicSource";
+import { irKelvinAt } from "~/ui/irEnhancement";
 import { pickScan } from "~/ui/satelliteLoop";
 import { inflate } from "pako";
 import StormTracks from "./StormTracks";
@@ -914,9 +917,12 @@ const WeatherMap = ({ zoom, dark }) => {
         return;
       }
     }
+    // A tap anywhere else no longer moves the location pin (2026-10-09):
+    // on the touch kiosk it moved by accident, and the press-and-hold
+    // readout (MapProbe) owns the long press now. The location is chosen
+    // in Settings → Location (LocationPicker), or by Locate / saved places.
     setSurveyPopup(null);
-    setMapPosition({ latitude, longitude });
-  }, [showWeatherAlerts, nearbyAlerts, setMapPosition]);
+  }, [showWeatherAlerts, nearbyAlerts]);
 
   // "Re-center here" — move the location to the tapped point (guaranteed
   // inside the tapped polygon(s)) so the existing point-based banner +
@@ -1327,6 +1333,52 @@ const WeatherMap = ({ zoom, dark }) => {
     : null;
   const reflLoopField = useMemo(() => (reflLoopEntry ? decodeReflPayload(reflLoopEntry) : null), [reflLoopEntry]);
   const reflDisplayField = iemFromEnd === 0 ? mrmsMosaic.field : reflLoopField;
+
+  // Point readout (MapProbe): the value of every layer drawn under a
+  // point — the sharpest radar layer that has one (site radial first,
+  // then the MRMS mosaic), plus the satellite's cloud-top temperature.
+  // Only layers backed by decoded data can answer: IEM's pre-rendered
+  // tiles (the mosaic fallback, history frames whose radial has not
+  // rendered) and the precipitation-type product stay silent. A value the
+  // clear-air floor hides on the map is not reported either.
+  const probeFloor = noiseFloorOn(radarNoiseMode) ? NOISE_FILTER_MIN_DBZ : -Infinity;
+  const radialValueAt = radial.valueAt;
+  const probe = useCallback((lat, lon) => {
+    const items = [];
+    if (showRadar) {
+      if (radialShown && radialValueAt && radialProduct !== "PTYPE") {
+        const v = radialValueAt(lat, lon);
+        if (v != null) {
+          if (radialProduct === "N0B") {
+            if (v >= probeFloor) items.push({ kind: "dbz", value: v, source: iemSite });
+          } else if (radialProduct === "N0G") {
+            items.push({ kind: "velocity", value: v, source: iemSite });
+          } else if (radialProduct === "N0C") {
+            items.push({ kind: "cc", value: v, source: iemSite });
+          } else if (v >= 0.01) {
+            items.push({ kind: "accum", value: v, source: iemSite });
+          }
+        }
+      }
+      if (!items.length && mosaicFromMrms && iemVisible.mosaic && reflDisplayField && !radarPrecipType && !radarAccumulation) {
+        const dbz = reflDbzAt(reflDisplayField, lat, lon);
+        if (dbz != null && dbz >= probeFloor) items.push({ kind: "dbz", value: dbz, source: "MRMS" });
+      }
+    }
+    if (satelliteIr && satelliteGrid) {
+      const k = irKelvinAt(satelliteGrid, lat, lon);
+      if (k != null) items.push({ kind: "cloudTop", value: k, palette: satelliteMode === "irc" ? "color" : "gray" });
+    }
+    return items;
+  }, [showRadar, radialShown, radialValueAt, radialProduct, probeFloor, iemSite, mosaicFromMrms, iemVisible.mosaic,
+    reflDisplayField, radarPrecipType, radarAccumulation, satelliteIr, satelliteGrid, satelliteMode]);
+  // A press-and-hold probe (or the tap that dismisses one) must not also
+  // move the location pin: MapProbe stamps a short guard window.
+  const probeGuardRef = useRef(0);
+  const guardedMapClick = useCallback((e) => {
+    if (Date.now() < probeGuardRef.current) return;
+    mapClickHandler(e);
+  }, [mapClickHandler]);
   //
   // VELOCITY MODE mounts no site tiles at all: IEM's tiles are
   // reflectivity, and showing them under (or instead of) a velocity
@@ -1767,7 +1819,8 @@ const WeatherMap = ({ zoom, dark }) => {
             zoomOutTitle={t("radar.zoomOut", { defaultValue: "Zoom out" })}
           />
         )}
-        <MapClickHandler onClick={mapClickHandler} />
+        <MapClickHandler onClick={guardedMapClick} />
+        <MapProbe probe={probe} guardRef={probeGuardRef} radarPalette={radarPalette} />
         <PanHandler panToCoords={panToCoords} setPanToCoords={setPanToCoords} railOffset={railOffset} />
         <FollowReleaseOnDrag active={followLocation} onRelease={releaseFollow} />
         <InitialOffsetCentering railOffset={railOffset} markerPosition={markerPosition} />

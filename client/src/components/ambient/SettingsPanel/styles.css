@@ -1643,3 +1643,24 @@
     font-size: 8px;
   }
 }
+
+/* Location row (section 1): the current pin and the map picker button. */
+.locationRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.locationValue {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.95em;
+}
+
+.locationHelp {
+  margin-bottom: 14px;
+  font-size: 0.85em;
+  opacity: 0.7;
+}

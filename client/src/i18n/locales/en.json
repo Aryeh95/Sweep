@@ -704,5 +704,13 @@
   "map": {
     "locating": "Finding your location…",
     "locatingHint": "Allow location access to centre the radar"
+  },
+  "probe": {
+    "cloudTop": "Cloud top {{temp}}",
+    "infrared": "Infrared {{temp}}",
+    "toward": "{{speed}} toward radar",
+    "away": "{{speed}} away from radar",
+    "rain": "{{amount}} rain",
+    "nothing": "No echo here"
   }
 }

@@ -57,3 +57,23 @@ export function pickMrmsFrames(list, count = MOSAIC_FRAME_COUNT, stepMs = MOSAIC
 export function mrmsUsable(list, nowMs, staleMs = MRMS_STALE_MS) {
   return Boolean(list && list.length) && nowMs - list[list.length - 1].epoch <= staleMs;
 }
+
+/**
+ * Reflectivity of a decoded MRMS mosaic field at a point — the hover
+ * readout. The field is the N0Q byte scale (dBZ = level / 2 − 32.5,
+ * 0 = no echo) with cell-centre geometry, rows running south.
+ *
+ * @param {{grid: {ni: Number, nj: Number, lat0: Number, lon0: Number, dLat: Number, dLon: Number}, cells: Uint8Array}} field decoded field
+ * @param {Number} lat latitude
+ * @param {Number} lon longitude
+ * @returns {Number|null} dBZ, or null outside the grid / no echo
+ */
+export function reflDbzAt(field, lat, lon) {
+  if (!field || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const { grid, cells } = field;
+  const r = Math.round((grid.lat0 - lat) / grid.dLat);
+  const c = Math.round((lon - grid.lon0) / grid.dLon);
+  if (r < 0 || c < 0 || r >= grid.nj || c >= grid.ni) return null;
+  const level = cells[r * grid.ni + c];
+  return level ? level * 0.5 - 32.5 : null;
+}

@@ -17,6 +17,7 @@ import { isUsableMapboxToken } from "~/standalone/upstream";
 import { useTimeOfDay } from "~/ui/hybrid";
 import { resolvePanelFontSizeZoom } from "~/ui/fontSize";
 import styles from "./styles.css";
+import LocationPicker from "~/components/ambient/LocationPicker";
 
 /**
  * Three-locale text helper. Returns the FR / ES / EN form based on
@@ -253,7 +254,22 @@ const SectionLocalPrefs = ({ ctx, lang }) => {
     // {isLocal} to keep it (and the feature) invisible to them.
     isLocal,
     keepScreenAwake, saveKeepScreenAwake,
+    mapGeo,
   } = ctx;
+  // Map location picker: the way to set the location now that tapping the
+  // radar map no longer moves the pin. Local kiosk and the app only — a
+  // remote viewer cannot write the kiosk's settings.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const canPickLocation = __STANDALONE__ || Boolean(isLocal);
+  const pickerLabel = (key) => ({
+    title: lbl(lang, "Choose your location", "Choisir votre position", "Elegir su ubicación"),
+    hint: lbl(lang,
+      "Move the map until the pin is on your spot, or tap a spot to centre it.",
+      "Déplacez la carte jusqu'à ce que l'épingle soit sur votre lieu, ou touchez un endroit pour le centrer.",
+      "Mueva el mapa hasta que el marcador esté en su lugar, o toque un punto para centrarlo."),
+    cancel: lbl(lang, "Cancel", "Annuler", "Cancelar"),
+    set: lbl(lang, "Set location", "Définir la position", "Fijar ubicación"),
+  })[key];
 
   // The MouseHide / HideRadarLegend save helpers take a JSON-encoded
   // string ("true" / "false") so they're symmetrical with the v2
@@ -271,6 +287,27 @@ const SectionLocalPrefs = ({ ctx, lang }) => {
           "Stockées dans le navigateur. Pas de redémarrage requis.",
           "Almacenadas en el navegador. Sin reinicio.")}
       />
+
+      <div className={styles.subhead}>{lbl(lang, "Location", "Localisation", "Ubicación")}</div>
+      <div className={styles.locationRow}>
+        <div className={styles.locationValue}>
+          {mapGeo && Number.isFinite(mapGeo.latitude)
+            ? `${Math.abs(mapGeo.latitude).toFixed(4)}° ${mapGeo.latitude >= 0 ? "N" : "S"} · ${Math.abs(mapGeo.longitude).toFixed(4)}° ${mapGeo.longitude >= 0 ? "E" : "W"}`
+            : "—"}
+        </div>
+        {canPickLocation ? (
+          <button type="button" className={styles.saveButton} onClick={() => setPickerOpen(true)}>
+            {lbl(lang, "Choose on map", "Choisir sur la carte", "Elegir en el mapa")}
+          </button>
+        ) : null}
+      </div>
+      <div className={styles.locationHelp}>
+        {lbl(lang,
+          "Tapping the radar map does not move the pin — choose the location here. It becomes the default the map returns to.",
+          "Toucher la carte radar ne déplace pas l'épingle — choisissez la position ici. Elle devient la position par défaut.",
+          "Tocar el mapa de radar no mueve el marcador — elija la ubicación aquí. Se convierte en la ubicación predeterminada.")}
+      </div>
+      {pickerOpen ? <LocationPicker onClose={() => setPickerOpen(false)} label={pickerLabel} /> : null}
 
       <div className={styles.grid8}>
         <Seg

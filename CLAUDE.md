@@ -176,7 +176,8 @@ RadarScope: the site the frames poller is serving is highlighted, a
 pinned one adds a dot; tapping pins (`pickRadarSite` → `PATCH /setting
 radarSite`), tapping the pinned site clears the pin. Chips are real
 `divIcon` Markers with `bubblingMouseEvents: false` so a tap never
-reaches the map-click handler that moves the location pin; remote (non-
+reaches the map-click handler (it moved the location pin until 2026-10-09;
+it now opens alert popups); remote (non-
 local) clients see the chips but taps are inert. The override also rides
 along as the `site` QUERY on `/api/radar/frames`, not only through the
 server's settings.json read — the Android app runs the controller
@@ -359,6 +360,50 @@ playhead. Findings — keep these:
 - Pressing play stalls headless Chromium for ~5 s with the satellite OFF
   too (the radar loop mounting) — not a satellite cost.
 - Visible is not looped.
+
+**Map readout — hover / press-and-hold (2026-10-09).** `MapProbe`
+(`WeatherMap/MapProbe.js`) reports what is drawn under the pointer: the
+site radial first (N0B dBZ at or above the clear-air floor, N0G velocity
+as "toward / away from radar", N0C CC, accumulation), then the MRMS mosaic
+dBZ when the mosaic band is visible, then the satellite cloud-top
+temperature — all of them at once when radar and satellite are both on.
+Lookups: `useRadarRadial.valueAt`, `reflDbzAt` (mosaicSource.js) and
+`irKelvinAt` (irEnhancement.js, through `geosProject`). Interaction model:
+- **Mouse:** hover readout beside the cursor, flipped at the map edges;
+  nothing shown over nothing.
+- **Touch:** press-and-hold (450 ms, 10 px slop) shows a crosshair and a
+  box 72 px ABOVE the finger (the finger hides anything under it); slide
+  to move it (map dragging disabled while held); lift to pin it; the next
+  tap dismisses. A quick pan never creates a probe. "No echo here" when a
+  touch probe finds nothing, so the hold visibly did something.
+- **Hover is driven by container `pointermove` with `pointerType ===
+  "mouse"`, NOT Leaflet's `mousemove`.** A touch tap fires compatibility
+  mouse events, and through `mousemove` every tap left a stray hover
+  readout behind (caught in Playwright).
+- `probeGuardRef` swallows the click a probe gesture produces (700 ms), so
+  lifting a hold over an alert polygon does not open its popup.
+- Over clear warm ground the satellite line reads "Infrared 88 °F", not
+  "Cloud top" — above 0 °C it is the surface, not a cloud.
+- Not offered for PTYPE (categories, not values — the legend names them).
+
+**Map taps no longer move the location pin (2026-10-09).** User request:
+a tap meant to inspect or dismiss something kept relocating home (and
+re-resolving the radar, alerts, lightning and arrivals). `handleMapClick`
+now only opens / clears the alert survey popup. The location is set from
+Settings → Location → "Choose on map" (`ambient/LocationPicker`): a modal
+map that pans under a FIXED centre pin (tap also pans to the tapped point),
+live coordinates, Cancel / Set location. Set calls
+`AppContext.setHomeLocation(lat, lon)` — 4 dp, `setMapPosition`, PATCH
+`startingLat` / `startingLon`, `customLat` / `customLon` + `browserGeo` —
+the same writes the old tap made. The picker uses the main map's basemap
+(the app's Esri / Mapbox `mapTileUrl`, the kiosk's `/api/tiles/`), an
+OPAQUE card (`--c-bg`; `--c-surface` is translucent and the map showed
+through), and appears only where the location is editable
+(`__STANDALONE__ || isLocal`). The one-shot locate button and follow mode
+still move the pin. Older notes below that say a marker must not let a
+tap "reach the map-click handler that moves the pin" are history — the
+`bubblingMouseEvents: false` still matters, because the alert popup and
+the probe guard live on that handler.
 
 ### Radar visibility toggle (2026-09-25)
 
@@ -983,8 +1028,8 @@ off, 147 min away was invisible under the shorter cap). Labels are all
 permanent (touch kiosk, nothing hovers): cell id beside the dot, clock
 times on the forecast ticks at z ≥ 9 like RadarScope, arrival lead in red.
 Tap opens a popup; the tap target is an 18 px invisible disc with
-`bubblingMouseEvents: false` so the map click that moves the pin never
-fires.
+`bubblingMouseEvents: false` so the map click (which moved the pin until
+2026-10-09, and still opens alert popups) never fires.
 
 ### Idle polling — DONE (2026-09-03)
 

@@ -139,6 +139,17 @@ GOES-East scans. Infrared arrives about 5 minutes after each scan
 toggle** (eye button) hides every radar layer so the cloud deck, storm
 tracks, lightning and alerts can be read on their own.
 
+**Readout under the pointer.** Hover with a mouse to see the value under
+the cursor — reflectivity in dBZ, velocity toward / away from the radar,
+rainfall totals, and the satellite cloud-top temperature, all together
+when radar and satellite are both on. On a touch screen, press and hold
+to get a crosshair with the readout above your finger; slide to move it,
+lift to keep it, tap to dismiss.
+
+**Setting the location.** Tapping the map does not move the home pin.
+Use Settings → Location → **Choose on map** (drag the map under the pin,
+then Set location), the locate button, or follow mode.
+
 **Frame age for every layer.** A stack in the top-left spells out, in
 minutes, how old the on-screen site scan, the mosaic composite, the storm
 track product and the newest lightning flash are, each classed fresh
@@ -249,7 +260,7 @@ Then open `https://localhost:8443` and go full screen (`F11` in Chromium).
 |---|---|---|
 | `mapApiKey` | yes | Mapbox access token |
 | `reverseGeoApiKey` | no | LocationIQ token for the place name in the header |
-| `startingLat` / `startingLon` | no | Home coordinates. Falls back to IP geolocation when absent |
+| `startingLat` / `startingLon` | no | Home coordinates. Falls back to IP geolocation when absent. Also set by Settings → Location → Choose on map |
 | `radarSite` | no | Pin the single-site layer to one NEXRAD (`LWX` or `KLWX`). Empty = nearest radar. Also set by tapping a chip in the map's site picker |
 | `favorites` | no | Managed from the UI (Places button) |
 | `advanced` | no | Managed from the Settings panel (map styles, radar opacity, radar palette, sleep mode, nearby-alerts radius) |

@@ -1,0 +1,134 @@
+/* Map location picker (Settings). Rendered inside the ambient tree so it
+ * inherits the palette tokens; fixed over everything, settings included. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, 100%);
+  height: min(640px, 100%);
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--c-border, rgba(0, 0, 0, 0.15));
+  /* --c-bg, not --c-surface: the surface token is translucent (made for
+   * slabs over the map) and let the Settings text show through. */
+  background: var(--c-bg, #fffaf0);
+  color: var(--c-text, #3a3938);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+}
+
+.head {
+  padding: 14px 16px 10px;
+}
+
+.title {
+  font-size: 1.15em;
+  font-weight: 600;
+}
+
+.hint {
+  margin-top: 2px;
+  font-size: 0.9em;
+  opacity: 0.75;
+}
+
+.map-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+/* A teardrop pin whose tip sits exactly on the map centre. */
+.pin {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1000;
+  width: 28px;
+  height: 28px;
+  margin: -28px 0 0 -14px;
+  pointer-events: none;
+}
+
+.pin::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50% 50% 50% 0;
+  background: var(--c-accent, #c62828);
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  transform: rotate(-45deg);
+}
+
+.pin::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+}
+
+.coords {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.95em;
+}
+
+.buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.cancel,
+.set {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cancel {
+  border: 1px solid var(--c-border, rgba(0, 0, 0, 0.2));
+  background: transparent;
+  color: inherit;
+}
+
+.set {
+  border: none;
+  background: var(--c-accent, #c62828);
+  color: #fff;
+}
+
+.set:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

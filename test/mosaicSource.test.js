@@ -56,6 +56,26 @@ function pickMrmsFrames(list, count = MOSAIC_FRAME_COUNT, stepMs = MOSAIC_STEP_M
 function mrmsUsable(list, nowMs, staleMs = MRMS_STALE_MS) {
   return Boolean(list && list.length) && nowMs - list[list.length - 1].epoch <= staleMs;
 }
+
+/**
+ * Reflectivity of a decoded MRMS mosaic field at a point — the hover
+ * readout. The field is the N0Q byte scale (dBZ = level / 2 − 32.5,
+ * 0 = no echo) with cell-centre geometry, rows running south.
+ *
+ * @param {{grid: {ni: Number, nj: Number, lat0: Number, lon0: Number, dLat: Number, dLon: Number}, cells: Uint8Array}} field decoded field
+ * @param {Number} lat latitude
+ * @param {Number} lon longitude
+ * @returns {Number|null} dBZ, or null outside the grid / no echo
+ */
+function reflDbzAt(field, lat, lon) {
+  if (!field || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const { grid, cells } = field;
+  const r = Math.round((grid.lat0 - lat) / grid.dLat);
+  const c = Math.round((lon - grid.lon0) / grid.dLon);
+  if (r < 0 || c < 0 || r >= grid.nj || c >= grid.ni) return null;
+  const level = cells[r * grid.ni + c];
+  return level ? level * 0.5 - 32.5 : null;
+}
 // ---------- end of verbatim copy ----------
 
 const S = 1000;
@@ -101,4 +121,17 @@ test("MRMS drives the mosaic only while its newest file is recent", () => {
   assert.equal(mrmsUsable(LIST, newest + MRMS_STALE_MS + 1), false);
   assert.equal(mrmsUsable([], newest), false);
   assert.equal(mrmsUsable(null, newest), false);
+});
+
+test("hover readout: dBZ from the N0Q byte under a point, null for no echo or off the grid", () => {
+  const field = {
+    grid: { ni: 3, nj: 2, lat0: 30, lon0: -100, dLat: 0.01, dLon: 0.01 },
+    cells: Uint8Array.from([0, 130, 95, 65, 255, 1]),
+  };
+  assert.equal(reflDbzAt(field, 30, -99.99), 32.5); // level 130
+  assert.equal(reflDbzAt(field, 30.004, -99.98), 15); // level 95, inside the cell
+  assert.equal(reflDbzAt(field, 29.99, -100), 0); // level 65 = 0 dBZ is an echo, not "none"
+  assert.equal(reflDbzAt(field, 30, -100), null); // level 0
+  assert.equal(reflDbzAt(field, 31, -100), null);
+  assert.equal(reflDbzAt(null, 30, -100), null);
 });

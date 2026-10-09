@@ -704,5 +704,13 @@
   "map": {
     "locating": "Buscando tu ubicación…",
     "locatingHint": "Permite el acceso a la ubicación para centrar el radar"
+  },
+  "probe": {
+    "cloudTop": "Topes nubosos {{temp}}",
+    "infrared": "Infrarrojo {{temp}}",
+    "toward": "{{speed}} hacia el radar",
+    "away": "{{speed}} alejándose del radar",
+    "rain": "{{amount}} de lluvia",
+    "nothing": "Sin eco aquí"
   }
 }

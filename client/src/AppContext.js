@@ -1868,6 +1868,46 @@ export function AppContextProvider({ children }) {
   }, []);
 
   /**
+   * Set the home location from the Settings map picker.
+   *
+   * Tapping the map no longer moves the pin (2026-10-09 — it moved it by
+   * accident too often on the touch kiosk, and the press-and-hold readout
+   * now owns the long press), so this is how a location is CHOSEN: the pin
+   * moves at once and the point becomes the saved default — the same
+   * `startingLat` / `startingLon` pair the Latitude / Longitude fields edit,
+   * kept in step the way `setFavoriteAsDefault` keeps it. Four decimals is
+   * ~10 m, finer than anything the app draws.
+   *
+   * @param {number} lat latitude
+   * @param {number} lon longitude
+   * @returns {Promise<boolean>} true when the default was saved (the pin moves either way)
+   */
+  const setHomeLocation = useCallback((lat, lon) => {
+    const la = Math.round(lat * 1e4) / 1e4;
+    const lo = Math.round(lon * 1e4) / 1e4;
+    setMapPosition({ latitude: la, longitude: lo });
+    return axios
+      .patch("/setting", { key: "startingLat", val: String(la) })
+      .then(() => axios.patch("/setting", { key: "startingLon", val: String(lo) }))
+      .then(() => {
+        setCustomLat(String(la));
+        setCustomLon(String(lo));
+        setBrowserGeo({ latitude: la, longitude: lo });
+        // A new point: the old name describes the old default. Let the
+        // reverse-geocode name it afresh.
+        homeLabelCapturedRef.current = false;
+        setHomeLabel(null);
+        return true;
+      })
+      .catch((err) => {
+        if (!(err && err.response && err.response.status === 403)) {
+          console.warn("setHomeLocation PATCH failed:", err && err.message);
+        }
+        return false;
+      });
+  }, [setMapPosition]);
+
+  /**
    * Promote a favorite to the app's default location.
    *
    * Writes `startingLat` / `startingLon` (the same pair the Settings panel
@@ -2626,6 +2666,7 @@ export function AppContextProvider({ children }) {
     removeFavorite,
     renameFavorite,
     setFavoriteAsDefault,
+    setHomeLocation,
   }), [
     mapGeo,
     browserGeo,
@@ -2644,6 +2685,7 @@ export function AppContextProvider({ children }) {
     removeFavorite,
     renameFavorite,
     setFavoriteAsDefault,
+    setHomeLocation,
   ]);
 
   // UI preferences: per-device display choices, user-interaction driven.
