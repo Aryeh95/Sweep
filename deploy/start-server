@@ -203,9 +203,16 @@ case "$BROWSER_FAMILY" in
         if [ -n "$DISPLAY_SCALE_VALUE" ]; then
             apply_firefox_scale "$PROFILE_NAME" "$DISPLAY_SCALE_VALUE"
         fi
+        # MOZ_USE_XINPUT2=1: under an X11 session Firefox otherwise receives
+        # the touch screen as a plain MOUSE — one-finger drag and taps work
+        # (they look like mouse drags and clicks) but pinch-to-zoom cannot
+        # exist, because there is only ever one pointer. With XInput2 it
+        # gets real multi-touch. Ignored under Wayland, which already
+        # delivers touch. (Kiosk report 2026-10-09: drag fine, pinch dead,
+        # while the Android app pinched normally.)
         # --no-remote ensures we don't reuse a non-kiosk Firefox window if one
         # is already open with another profile.
-        "$BROWSER_CMD" --kiosk --no-remote -P "$PROFILE_NAME" "$URL"
+        MOZ_USE_XINPUT2=1 "$BROWSER_CMD" --kiosk --no-remote -P "$PROFILE_NAME" "$URL"
         ;;
     *)
         echo "start-server: unknown browser family '$BROWSER_FAMILY'. Re-run install.sh." >&2

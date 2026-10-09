@@ -389,6 +389,23 @@ Lookups: `useRadarRadial.valueAt`, `reflDbzAt` (mosaicSource.js) and
   as each finger lands — pinch-to-zoom broke on the kiosk (drag still
   worked; the app's Chromium coped). Pinned by
   `test/mapProbeLeaflet.test.js`.
+- **2.13.12 still failed on BOTH devices while every CDP test passed** —
+  real input differs from `Input.dispatchTouchEvent`. Kiosk: drag and taps
+  fine, pinch dead, app pinch fine = Firefox getting the touch screen as a
+  MOUSE (X11 without XInput2; one pointer, so no pinch is possible).
+  `deploy/start-server` now launches Firefox with `MOZ_USE_XINPUT2=1`
+  (no-op under Wayland); the updater does not replace `~/.local/bin/
+  start-server`, so it needs `install.sh` or a manual copy + kiosk
+  relaunch. App: tap-away still did nothing, cause unknown (could not be
+  reproduced in Chromium). Hardened three ways rather than guessed at:
+  move / up / cancel are followed on the DOCUMENT; a tap dismisses ANY
+  readout not being held (pinned or not), and a new press finishes a hold
+  whose lift never arrived; and Leaflet's map `click` (known to reach the
+  phone — it moved the pin until 2.13.11) dismisses as a backstop, behind
+  the same guard. `contextmenu` is now suppressed while a hold is merely
+  POSSIBLE: Android's long-press timeout is 400 ms, under HOLD_MS. If
+  either report recurs, get evidence from the device (event log) before
+  another round.
 - **Hold works for mouse pointers too**, and a mouse press hides the hover
   readout until the pointer moves with no button down — a touch screen
   that reaches the browser as a mouse then leaves nothing behind a tap.

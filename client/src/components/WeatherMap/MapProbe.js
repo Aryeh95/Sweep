@@ -119,10 +119,20 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
 
   const guard = useCallback(() => { guardRef.current = Date.now() + CLICK_GUARD_MS; }, [guardRef]);
 
-  // A pinned probe follows pans and zooms.
+  // A pinned probe follows pans and zooms. And Leaflet's own `click` —
+  // the event that moved the location pin on every device until
+  // 2026-10-09, so known to arrive on the phone — dismisses a readout
+  // that is not being held, as a backstop to the pointer handling below
+  // (2.13.12 still left the readout up after a tap in the app). The guard
+  // keeps the click that ends a hold from dismissing what it just pinned.
   useMapEvents({
     move: () => setViewTick((n) => n + 1),
     zoom: () => setViewTick((n) => n + 1),
+    click: () => {
+      if (Date.now() < guardRef.current) return;
+      if (holdRef.current && holdRef.current.active) return;
+      setPoint((p) => (p && p.mode === "touch" ? null : p));
+    },
   });
 
   // Pointer events on the map container, for both inputs. Hover listens
@@ -197,7 +207,18 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
         cancelAnimationFrame(frameRef.current);
         setPoint((p) => (p && !p.pinned ? null : p));
       }
-      // A pinned probe: this press is either a pan (move) or a dismissing
+      // A hold whose lift never reached us (the platform swallowed it)
+      // must not stay "held": finish it as if lifted, so this press can
+      // dismiss it and the map pans again.
+      const stale = holdRef.current;
+      if (stale) {
+        clearTimeout(stale.timer);
+        if (stale.active) {
+          thawPan();
+          setPoint((p) => (p ? { ...p, pinned: true } : p));
+        }
+      }
+      // A shown probe: this press is either a pan (move) or a dismissing
       // tap (decided on up).
       const hold = { x: ev.clientX, y: ev.clientY, t: Date.now(), id: ev.pointerId, active: false, moved: false, far: false, timer: null };
       hold.timer = setTimeout(() => {
@@ -241,7 +262,7 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
       const tap = ev.type === "pointerup" && !hold.far && (!hold.moved || Date.now() - hold.t < TAP_MS);
       if (tap) {
         setPoint((p) => {
-          if (p && p.pinned) {
+          if (p && (p.pinned || p.mode === "touch")) {
             guard();
             return null;
           }
@@ -257,17 +278,29 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
     const onDocDown = (ev) => {
       if (el.contains(ev.target)) return;
       if (ev.target instanceof Element && ev.target.closest("[data-keeps-probe]")) return;
-      setPoint((p) => (p && p.pinned ? null : p));
+      setPoint((p) => (p && (p.pinned || p.mode === "touch") ? null : p));
     };
     // Long-press must not open a context menu (Android WebView, desktop
     // touch screens).
+    // Suppressed from the first moment a hold is POSSIBLE, not only once it
+    // is active: Android's long-press timeout is 400 ms on current
+    // releases, shorter than HOLD_MS, and an unhandled long press there
+    // can end the touch sequence (pointercancel) or start a text
+    // selection that eats the next tap.
     const onContext = (ev) => {
-      if (holdRef.current && holdRef.current.active) ev.preventDefault();
+      if (holdRef.current && ev.pointerType !== "mouse") ev.preventDefault();
+    };
+    // Presses start on the map container; moves, lifts and cancels are
+    // followed on the DOCUMENT, so a lift that lands (or is retargeted)
+    // outside the container still ends the hold.
+    const onDocMove = (ev) => {
+      if (ev.pointerType === "mouse" && !el.contains(ev.target)) return;
+      onMove(ev);
     };
     el.addEventListener("pointerdown", onDown, true);
-    el.addEventListener("pointermove", onMove, true);
-    el.addEventListener("pointerup", onUp, true);
-    el.addEventListener("pointercancel", onUp, true);
+    document.addEventListener("pointermove", onDocMove, true);
+    document.addEventListener("pointerup", onUp, true);
+    document.addEventListener("pointercancel", onUp, true);
     el.addEventListener("contextmenu", onContext, true);
     el.addEventListener("pointerleave", onLeave);
     document.addEventListener("pointerdown", onDocDown, true);
@@ -275,9 +308,9 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
       document.removeEventListener("pointerdown", onDocDown, true);
       el.removeEventListener("pointerleave", onLeave);
       el.removeEventListener("pointerdown", onDown, true);
-      el.removeEventListener("pointermove", onMove, true);
-      el.removeEventListener("pointerup", onUp, true);
-      el.removeEventListener("pointercancel", onUp, true);
+      document.removeEventListener("pointermove", onDocMove, true);
+      document.removeEventListener("pointerup", onUp, true);
+      document.removeEventListener("pointercancel", onUp, true);
       el.removeEventListener("contextmenu", onContext, true);
       if (holdRef.current) clearTimeout(holdRef.current.timer);
       cancelAnimationFrame(frameRef.current);
