@@ -373,9 +373,25 @@ Lookups: `useRadarRadial.valueAt`, `reflDbzAt` (mosaicSource.js) and
   nothing shown over nothing.
 - **Touch:** press-and-hold (450 ms, 10 px slop) shows a crosshair and a
   box 72 px ABOVE the finger (the finger hides anything under it); slide
-  to move it (map dragging disabled while held); lift to pin it; the next
-  tap dismisses. A quick pan never creates a probe. "No echo here" when a
-  touch probe finds nothing, so the hold visibly did something.
+  to move it (map panning frozen while held); lift to pin it; any short
+  tap dismisses — on the map (< 350 ms or < 10 px, never > 24 px) or
+  anywhere OUTSIDE the map container, except on the timeline
+  (`data-keeps-probe`): scrubbing under a pinned point is the point. A
+  quick pan never creates a probe and a pan keeps a pinned one. "No echo
+  here" when a touch probe finds nothing, so the hold visibly did
+  something. The 2.13.11 rule (map container only, 10 px) missed most
+  phone taps: the phone's overlays (header, chips, legend, dock) are not
+  in the map container.
+- **A second finger cancels the hold** (pending or active). And the freeze
+  is `map.dragging._draggable.disable()`, NOT `map.dragging.disable()`:
+  the public method removes `leaflet-touch-drag`, flipping the container's
+  touch-action from `none` to `pan-x pan-y`, and Firefox reads touch-action
+  as each finger lands — pinch-to-zoom broke on the kiosk (drag still
+  worked; the app's Chromium coped). Pinned by
+  `test/mapProbeLeaflet.test.js`.
+- **Hold works for mouse pointers too**, and a mouse press hides the hover
+  readout until the pointer moves with no button down — a touch screen
+  that reaches the browser as a mouse then leaves nothing behind a tap.
 - **Hover is driven by container `pointermove` with `pointerType ===
   "mouse"`, NOT Leaflet's `mousemove`.** A touch tap fires compatibility
   mouse events, and through `mousemove` every tap left a stray hover

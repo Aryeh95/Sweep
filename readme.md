@@ -144,7 +144,8 @@ the cursor — reflectivity in dBZ, velocity toward / away from the radar,
 rainfall totals, and the satellite cloud-top temperature, all together
 when radar and satellite are both on. On a touch screen, press and hold
 to get a crosshair with the readout above your finger; slide to move it,
-lift to keep it, tap to dismiss.
+lift to keep it (scrub the timeline to watch the value change), tap anywhere
+else to dismiss. A second finger always means pinch-to-zoom.
 
 **Setting the location.** Tapping the map does not move the home pin.
 Use Settings → Location → **Choose on map** (drag the map under the pin,

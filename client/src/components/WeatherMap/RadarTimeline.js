@@ -226,7 +226,7 @@ const RadarTimeline = ({
     : `${sourceName} · ${cadenceMin} min`;
 
   return (
-    <div className={`${styles.radarTimeline} ${dark ? styles.radarTimelineDark : styles.radarTimelineLight}`}>
+    <div className={`${styles.radarTimeline} ${dark ? styles.radarTimelineDark : styles.radarTimelineLight}`} data-keeps-probe="">
       <div className={styles.rtHeader}>
         <button
           type="button"

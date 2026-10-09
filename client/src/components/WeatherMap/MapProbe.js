@@ -6,15 +6,16 @@
 //
 //   MOUSE — hover (pointer events of type "mouse" only). The readout follows the cursor (down-right of it,
 //   flipped at the container edges) and hides when the cursor leaves the
-//   map. Nothing to click; clicks keep moving the location pin as before.
+//   map or a button is pressed (it returns on the next move).
 //
-//   TOUCH — there is no hover, and a tap already moves the pin, so the probe
-//   is a PRESS-AND-HOLD: a finger held still for HOLD_MS drops a crosshair
-//   with the readout ABOVE the finger (where the finger cannot cover it).
-//   While still held, sliding moves the probe and the map does not pan.
-//   Lifting leaves the probe PINNED at its last point — it rides along
-//   with pans and zooms and its values follow the loop — until the next
-//   tap, which only dismisses it (that tap does not move the pin).
+//   TOUCH — there is no hover, so the probe is a PRESS-AND-HOLD: a finger
+//   held still for HOLD_MS drops a crosshair with the readout ABOVE the
+//   finger (where the finger cannot cover it). While still held, sliding
+//   moves the probe and the map does not pan. Lifting leaves the probe
+//   PINNED at its last point — it rides along with pans and zooms and its
+//   values follow the loop — until a short tap anywhere (on the map or
+//   off it) puts it away. A mouse can press-and-hold too, which is what
+//   a touch screen reported as a mouse gets.
 //
 // The values come from `probe(lat, lon)` (WeatherMap), which reads the
 // decoded data behind each layer actually on screen; this component only
@@ -35,6 +36,11 @@ import styles from "./styles.css";
 // become a probe rather than a pan or a tap.
 const HOLD_MS = 450;
 const HOLD_SLOP_PX = 10;
+// A press shorter than this that wandered less than TAP_SLOP_PX is a TAP,
+// and a tap dismisses a pinned readout. Looser than the hold slop: a quick
+// finger tap on a phone routinely drifts past 10 px.
+const TAP_MS = 350;
+const TAP_SLOP_PX = 24;
 // After a probe gesture the browser may still deliver a click; this long a
 // window swallows it (the map click handler checks `guardRef`).
 const CLICK_GUARD_MS = 700;
@@ -124,14 +130,40 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
   // compatibility mouse events (mousedown, mousemove, click), and the
   // first version — on Leaflet's `mousemove` — popped a hover readout up
   // under every tap. Compatibility events are never pointer events.
+  //
+  // Press-and-hold works for EVERY pointer type, mouse included: some
+  // touch screens reach the browser as a mouse (Firefox on X11 without
+  // XInput2 — the kiosk), and there a tap is a mouse move + press. So a
+  // mouse press hides the hover readout and hover stays off until the
+  // pointer moves with no button down; a tap on such a screen then leaves
+  // nothing behind, and holding still shows the readout like a finger.
   useEffect(() => {
     const el = map.getContainer();
+    // Hold the map still while a probe slides. NOT `map.dragging.disable()`:
+    // that removes Leaflet's `leaflet-touch-drag` class, which flips the
+    // container's CSS `touch-action` from `none` to `pan-x pan-y`, and the
+    // browser reads touch-action when each finger LANDS — so a pinch whose
+    // second finger arrived during a hold was handed to the browser, not
+    // Leaflet (pinch broke on the Firefox kiosk while drag still worked).
+    // The Draggable underneath stops the pan without touching the class.
+    // (`_draggable` exists once dragging has been enabled; with no Draggable
+    // the map cannot pan anyway, so there is nothing to freeze.)
+    const freezePan = () => map.dragging._draggable?.disable();
+    const thawPan = () => {
+      if (map.dragging.enabled()) map.dragging._draggable?.enable();
+    };
+    let hoverOff = false;
+    let downAt = null; // {x, y} of the last mouse press, for hoverOff
     const latlngAt = (ev) => {
       const r = el.getBoundingClientRect();
       return map.containerPointToLatLng([ev.clientX - r.left, ev.clientY - r.top]);
     };
     const onHover = (ev) => {
-      if (ev.pointerType !== "mouse") return;
+      if (ev.buttons) return;
+      if (hoverOff) {
+        if (downAt && Math.hypot(ev.clientX - downAt.x, ev.clientY - downAt.y) < 3) return;
+        hoverOff = false;
+      }
       const latlng = latlngAt(ev);
       cancelAnimationFrame(frameRef.current);
       frameRef.current = requestAnimationFrame(() => setPoint((p) => (p && p.pinned ? p : { latlng, mode: "mouse", pinned: false })));
@@ -139,25 +171,44 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
     const onLeave = (ev) => {
       if (ev.pointerType !== "mouse") return;
       cancelAnimationFrame(frameRef.current);
-      setPoint((p) => (p && p.mode === "mouse" ? null : p));
+      setPoint((p) => (p && !p.pinned ? null : p));
     };
     const onDown = (ev) => {
-      if (ev.pointerType !== "touch" || !ev.isPrimary) return;
-      // A pinned probe: this touch is either a pan (move) or a dismissing
+      if (!ev.isPrimary) {
+        // A second finger is a pinch, never a probe: cancel a pending hold,
+        // end an active one (dropping its unpinned readout), and let the
+        // remaining finger's lift be neither a pin nor a dismissing tap.
+        const hold = holdRef.current;
+        if (hold) {
+          clearTimeout(hold.timer);
+          if (hold.active) {
+            thawPan();
+            cancelAnimationFrame(frameRef.current);
+            setPoint((p) => (p && !p.pinned ? null : p));
+          }
+          holdRef.current = null;
+        }
+        return;
+      }
+      if (ev.pointerType === "mouse") {
+        if (ev.button !== 0) return;
+        hoverOff = true;
+        downAt = { x: ev.clientX, y: ev.clientY };
+        cancelAnimationFrame(frameRef.current);
+        setPoint((p) => (p && !p.pinned ? null : p));
+      }
+      // A pinned probe: this press is either a pan (move) or a dismissing
       // tap (decided on up).
-      const hold = { x: ev.clientX, y: ev.clientY, id: ev.pointerId, active: false, moved: false, timer: null };
+      const hold = { x: ev.clientX, y: ev.clientY, t: Date.now(), id: ev.pointerId, active: false, moved: false, far: false, timer: null };
       hold.timer = setTimeout(() => {
         hold.active = true;
-        map.dragging.disable();
+        freezePan();
         setPoint({ latlng: latlngAt(ev), mode: "touch", pinned: false });
       }, HOLD_MS);
       holdRef.current = hold;
     };
     const onMove = (ev) => {
-      if (ev.pointerType === "mouse") {
-        onHover(ev);
-        return;
-      }
+      if (ev.pointerType === "mouse") onHover(ev);
       const hold = holdRef.current;
       if (!hold || ev.pointerId !== hold.id) return;
       if (hold.active) {
@@ -166,10 +217,12 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
         frameRef.current = requestAnimationFrame(() => setPoint({ latlng, mode: "touch", pinned: false }));
         return;
       }
-      if (Math.hypot(ev.clientX - hold.x, ev.clientY - hold.y) > HOLD_SLOP_PX) {
+      const d = Math.hypot(ev.clientX - hold.x, ev.clientY - hold.y);
+      if (d > HOLD_SLOP_PX) {
         clearTimeout(hold.timer);
         hold.moved = true;
       }
+      if (d > TAP_SLOP_PX) hold.far = true;
     };
     const onUp = (ev) => {
       const hold = holdRef.current;
@@ -177,13 +230,16 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
       clearTimeout(hold.timer);
       holdRef.current = null;
       if (hold.active) {
-        map.dragging.enable();
+        thawPan();
         guard();
         setPoint((p) => (p ? { ...p, pinned: true } : p));
         return;
       }
-      // A plain tap while a probe is pinned dismisses it, and only that.
-      if (!hold.moved && ev.type === "pointerup") {
+      // A tap while a probe is pinned dismisses it, and only that (the
+      // guard keeps the same tap from opening an alert popup). A pan keeps
+      // it: the readout rides along with the map.
+      const tap = ev.type === "pointerup" && !hold.far && (!hold.moved || Date.now() - hold.t < TAP_MS);
+      if (tap) {
         setPoint((p) => {
           if (p && p.pinned) {
             guard();
@@ -192,6 +248,16 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
           return p;
         });
       }
+    };
+    // A press anywhere OUTSIDE the map (header, dock, legend) also puts a
+    // pinned readout away — except on the timeline (`data-keeps-probe`),
+    // which floats over the map but is not in its container: scrubbing or
+    // playing the loop under a pinned point is how its values are read
+    // through time.
+    const onDocDown = (ev) => {
+      if (el.contains(ev.target)) return;
+      if (ev.target instanceof Element && ev.target.closest("[data-keeps-probe]")) return;
+      setPoint((p) => (p && p.pinned ? null : p));
     };
     // Long-press must not open a context menu (Android WebView, desktop
     // touch screens).
@@ -204,7 +270,9 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
     el.addEventListener("pointercancel", onUp, true);
     el.addEventListener("contextmenu", onContext, true);
     el.addEventListener("pointerleave", onLeave);
+    document.addEventListener("pointerdown", onDocDown, true);
     return () => {
+      document.removeEventListener("pointerdown", onDocDown, true);
       el.removeEventListener("pointerleave", onLeave);
       el.removeEventListener("pointerdown", onDown, true);
       el.removeEventListener("pointermove", onMove, true);
@@ -213,7 +281,7 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
       el.removeEventListener("contextmenu", onContext, true);
       if (holdRef.current) clearTimeout(holdRef.current.timer);
       cancelAnimationFrame(frameRef.current);
-      map.dragging.enable();
+      thawPan();
     };
   }, [map, guard]);
 
