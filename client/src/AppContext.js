@@ -1671,12 +1671,35 @@ export function AppContextProvider({ children }) {
    *
    * @returns {void}
    */
+  /**
+   * Drop a manual radar pick ("" → nearest radar) when the user says where
+   * they are — locate, starting follow, choosing a location in Settings.
+   * A pick made on a trip otherwise outlives it: reported 2026-10-11, a
+   * TBW (Tampa Bay) pick from Florida kept the radar, tracks and nowcast
+   * on TBW after locate had put the pin in Baltimore. Same write as
+   * `pickRadarSite("")`, which is declared further down and so cannot be
+   * a dependency here.
+   *
+   * @returns {void}
+   */
+  const clearRadarPick = useCallback(() => {
+    if (!radarSite) return;
+    // State changes AFTER the save, not before: the change is what makes
+    // the frame and nowcast pollers refetch, and on the kiosk the server's
+    // saved pick beats the request — refetching first got TBW back once
+    // more and left it up until the next 60 s poll.
+    axios.patch("/setting", { key: "radarSite", val: "" })
+      .catch(() => undefined)
+      .then(() => setRadarSite(""));
+  }, [radarSite]);
+
   const toggleFollowLocation = useCallback(() => {
     setFollowLocation((wasOn) => {
       if (!wasOn && browserGeo) setMapPosition(browserGeo);
       return !wasOn;
     });
-  }, [browserGeo, setMapPosition]);
+    if (!followLocation) clearRadarPick();
+  }, [browserGeo, setMapPosition, followLocation, clearRadarPick]);
 
   /**
    * One-shot "where am I": a single GPS fix, then done.
@@ -1703,9 +1726,10 @@ export function AppContextProvider({ children }) {
       const coords = { latitude, longitude };
       setBrowserGeo(coords);
       setMapPosition(coords);
+      clearRadarPick();
       return coords;
     })
-  ), [setMapPosition]);
+  ), [setMapPosition, clearRadarPick]);
 
   // Each committed fix moves the PIN, not just the view: the pin is what the
   // alert, lightning and storm-arrival layers key on, and at mosaic zoom it
@@ -1852,8 +1876,8 @@ export function AppContextProvider({ children }) {
    * Pin the single-site radar to one site from the map picker, or clear
    * the pin ("" → automatic). Same `radarSite` setting the Settings
    * field edits, written through PATCH so nothing else in settings.json
-   * is touched. Optimistic: the frames poller refetches on the state
-   * change, and the server sanitises identically (KLWX → LWX).
+   * is touched. The state follows the save (see below), and the server
+   * sanitises identically (KLWX → LWX).
    *
    * @param {String} site 3- or 4-letter NEXRAD id, or "" for automatic
    * @returns {Promise} resolves when persisted
@@ -1861,10 +1885,15 @@ export function AppContextProvider({ children }) {
   const pickRadarSite = useCallback((site) => {
     const up = String(site == null ? "" : site).trim().toUpperCase();
     const norm = /^[A-Z]{4}$/.test(up) ? up.slice(1) : (/^[A-Z]{3}$/.test(up) ? up : "");
-    setRadarSite(norm);
-    // Persist failure (remote client, server down) keeps the optimistic
-    // pick for this session; the next settings hydrate corrects it.
-    return axios.patch("/setting", { key: "radarSite", val: norm }).catch(() => undefined);
+    // The state changes once the save has landed: the change triggers the
+    // frame refetch, and the server applies its SAVED pick over the
+    // request's, so refetching first fetched the old site again and kept
+    // it for a full poll. A failed save (remote client, server down) still
+    // applies the pick for this session; the next settings hydrate
+    // corrects it.
+    return axios.patch("/setting", { key: "radarSite", val: norm })
+      .catch(() => undefined)
+      .then(() => setRadarSite(norm));
   }, []);
 
   /**
@@ -1886,6 +1915,7 @@ export function AppContextProvider({ children }) {
     const la = Math.round(lat * 1e4) / 1e4;
     const lo = Math.round(lon * 1e4) / 1e4;
     setMapPosition({ latitude: la, longitude: lo });
+    clearRadarPick();
     return axios
       .patch("/setting", { key: "startingLat", val: String(la) })
       .then(() => axios.patch("/setting", { key: "startingLon", val: String(lo) }))
@@ -1905,7 +1935,7 @@ export function AppContextProvider({ children }) {
         }
         return false;
       });
-  }, [setMapPosition]);
+  }, [setMapPosition, clearRadarPick]);
 
   /**
    * Promote a favorite to the app's default location.

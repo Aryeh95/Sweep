@@ -24,7 +24,8 @@
 import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
-import { useMap, useMapEvents } from "react-leaflet";
+import { useMap } from "react-leaflet";
+import useStableMapEvents from "./useStableMapEvents";
 import { useTranslation } from "react-i18next";
 import { UiPrefsContext } from "~/AppContext";
 import { colorForIrCelsius, IR_GRAY_STOPS_C, IR_STOPS_C } from "~/ui/irEnhancement";
@@ -125,7 +126,7 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
   // that is not being held, as a backstop to the pointer handling below
   // (2.13.12 still left the readout up after a tap in the app). The guard
   // keeps the click that ends a hold from dismissing what it just pinned.
-  useMapEvents({
+  useStableMapEvents({
     move: () => setViewTick((n) => n + 1),
     zoom: () => setViewTick((n) => n + 1),
     click: () => {

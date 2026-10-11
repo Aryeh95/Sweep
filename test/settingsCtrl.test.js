@@ -366,3 +366,42 @@ test("sweepOrphanSettingsTmp: purges tmp siblings, keeps the settings file and .
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Regression (2026-10-11): the Settings map picker clears a manual radar
+// pick and saves latitude / longitude as three PATCHes fired together. Each
+// writer reads the file, changes one key and writes it back with async I/O
+// in between, so unserialised the last write restored the radar pick it had
+// read. `serializeWrites` must make each handler see every earlier write.
+test("serializeWrites: concurrent read-modify-write handlers lose no update", async () => {
+  const { EventEmitter } = require("node:events");
+  const { serializeWrites } = require("../server/settingsCtrl").__test;
+  const tick = (ms) => new Promise((r) => setTimeout(r, ms));
+  let file = { radarSite: "TBW", startingLat: 27.77, startingLon: -82.77 };
+  // Same shape as setSetting: async read, then async write of the merge.
+  const rmw = (req, res) => {
+    (async () => {
+      const current = { ...file };
+      await tick(req.readMs);
+      file = { ...current, [req.key]: req.val };
+      await tick(1);
+      res.emit("finish");
+    })();
+  };
+  const fire = (handler) => Promise.all([
+    { key: "radarSite", val: "", readMs: 20 },
+    { key: "startingLat", val: 39.4, readMs: 5 },
+    { key: "startingLon", val: -76.62, readMs: 10 },
+  ].map((req) => new Promise((done) => {
+    const res = new EventEmitter();
+    res.once("finish", done);
+    handler(req, res);
+  })));
+
+  // Unserialised, the bug reproduces: an update is lost.
+  await fire(rmw);
+  assert.notDeepEqual(file, { radarSite: "", startingLat: 39.4, startingLon: -76.62 });
+
+  file = { radarSite: "TBW", startingLat: 27.77, startingLon: -82.77 };
+  await fire(serializeWrites(rmw));
+  assert.deepEqual(file, { radarSite: "", startingLat: 39.4, startingLon: -76.62 });
+});

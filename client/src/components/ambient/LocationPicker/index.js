@@ -10,7 +10,8 @@
 
 import React, { useCallback, useContext, useEffect, useState } from "react";
 import PropTypes from "prop-types";
-import { MapContainer, TileLayer, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer } from "react-leaflet";
+import useStableMapEvents from "../../WeatherMap/useStableMapEvents";
 import { AppContext } from "~/AppContext";
 import { mapTileUrl, mapAttribution, mapMaxNativeZoom, isUsableMapboxToken } from "~/standalone/upstream";
 import styles from "./styles.css";
@@ -26,7 +27,7 @@ const PICKER_ZOOM = 9;
  * @returns {null} renders nothing
  */
 const CenterTracker = ({ onCenter }) => {
-  const map = useMapEvents({
+  const map = useStableMapEvents({
     move: () => onCenter(map.getCenter()),
     click: (e) => map.panTo(e.latlng),
   });

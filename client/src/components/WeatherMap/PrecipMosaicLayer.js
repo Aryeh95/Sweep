@@ -17,7 +17,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
-import { ImageOverlay, useMap, useMapEvents } from "react-leaflet";
+import { ImageOverlay, useMap } from "react-leaflet";
+import useStableMapEvents from "./useStableMapEvents";
 import { buildPrecipLut } from "../../../../server/precipType";
 import { buildAccumLut } from "../../../../server/accumulation";
 import { buildLevelLut } from "./radialRender";
@@ -271,7 +272,7 @@ const PrecipMosaicLayer = ({ field, opacity, minDbz, kind = "ptype", palette = "
 
   // Moved or zoomed: repaint only when the view has left the rendered
   // image's margin or the zoom has changed enough to matter.
-  useMapEvents({
+  useStableMapEvents({
     moveend: () => {
       if (!renderCovers(renderedRef.current, map.getBounds(), map.getZoom())) render();
     },

@@ -18,8 +18,8 @@ import {
   GeoJSON,
   Popup,
   useMap,
-  useMapEvents,
 } from "react-leaflet";
+import useStableMapEvents from "./useStableMapEvents";
 import L from "leaflet";
 import { installGridLayerRedrawPatch } from "./leafletPatches";
 // Bundle Leaflet's stylesheet via webpack instead of the CDN <link>
@@ -206,7 +206,7 @@ const MAPBOX_ATTRIBUTION = '© <a href="https://www.mapbox.com/feedback/">Mapbox
  * @returns {null} renders nothing
  */
 const MapClickHandler = ({ onClick }) => {
-  useMapEvents({ click: onClick });
+  useStableMapEvents({ click: onClick });
   return null;
 };
 
@@ -401,7 +401,7 @@ InitialOffsetCentering.propTypes = {
  * @returns {null} renders nothing
  */
 const MapZoomTracker = ({ onZoomChange }) => {
-  const map = useMapEvents({
+  const map = useStableMapEvents({
     zoomend: () => onZoomChange(map.getZoom()),
   });
   useEffect(() => {
@@ -462,15 +462,28 @@ const MapViewTracker = ({ onChange }) => {
   // Settle before publishing: a site change re-fetches the scan list, the
   // radial image and (timeline open) the whole loop. A finger dragging
   // across two radars' territories should trigger that once, at rest.
-  const map = useMapEvents({
-    moveend: () => {
+  //
+  // Subscribed with a STABLE listener, not `useMapEvents({moveend: …})`:
+  // that hook takes a fresh handler object every render, so react-leaflet
+  // detaches and re-attaches it after each one — and React runs all of a
+  // commit's effect cleanups before any new effect, in tree order, so
+  // PanHandler (mounted above this) panned the map and fired `moveend`
+  // while the listener was detached. Found 2026-10-11: locate moved the
+  // map from Treasure Island to Baltimore, the view centre stayed in
+  // Florida, and at site zoom (where the view picks the radar) the map
+  // kept TBW until the user panned by hand.
+  const map = useMap();
+  useEffect(() => {
+    const onMoveEnd = () => {
       clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => publish(map), VIEW_SETTLE_MS);
-    },
-  });
-  useEffect(() => {
+    };
+    map.on("moveend", onMoveEnd);
     publish(map);
-    return () => clearTimeout(timerRef.current);
+    return () => {
+      map.off("moveend", onMoveEnd);
+      clearTimeout(timerRef.current);
+    };
   }, [map, publish]);
   return null;
 };

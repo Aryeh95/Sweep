@@ -601,18 +601,57 @@ function writeSettingsFileCb(obj, cb) {
   writeSettingsFile(obj).then(() => cb(null), cb);
 }
 
+/**
+ * Run settings-WRITING handlers one at a time.
+ *
+ * Every writer here is read → modify → write with async I/O in between, so
+ * two requests in flight together both read the same file and the later
+ * write silently drops the earlier one's change. Found 2026-10-11: the
+ * Settings map picker clears a manual radar pick and saves the new
+ * latitude / longitude as three PATCHes fired together; the `startingLat`
+ * write landed last with the old `radarSite: "TBW"` it had read, and the
+ * pick came back. Each wrapped handler starts only after the previous one
+ * has finished its response (`finish` / `close`), so its read sees every
+ * earlier write.
+ *
+ * @param {Function} handler (req, res) express handler
+ * @returns {Function} the same handler, queued behind the previous write
+ */
+let writeQueue = Promise.resolve();
+function serializeWrites(handler) {
+  return (req, res) => {
+    const run = () => new Promise((resolve) => {
+      if (res && typeof res.once === "function") {
+        res.once("finish", resolve);
+        res.once("close", resolve);
+      }
+      try {
+        handler(req, res);
+      } catch (err) {
+        resolve();
+        throw err;
+      }
+      if (!res || typeof res.once !== "function") resolve();
+    });
+    const next = writeQueue.then(run, run);
+    writeQueue = next.catch(() => undefined);
+    return next;
+  };
+}
+
 module.exports = {
   getSettings,
-  setSetting,
-  deleteSetting,
-  createSettingsFile,
-  replaceSettings,
+  setSetting: serializeWrites(setSetting),
+  deleteSetting: serializeWrites(deleteSetting),
+  createSettingsFile: serializeWrites(createSettingsFile),
+  replaceSettings: serializeWrites(replaceSettings),
   getSettingsData,
   ensureSecurePermissions,
   sweepOrphanSettingsTmp,
   // Exported for regression testing only — internal helpers, not part of
   // the public surface. See test/settingsCtrl.test.js.
   __test: {
+    serializeWrites,
     sanitizeSettings,
     sanitizeFavorites,
     sanitizeValue,

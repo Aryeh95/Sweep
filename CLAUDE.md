@@ -1083,6 +1083,41 @@ holding the first nowcast response 20 s and relabelling its site "OLD":
 before, "OLD" stayed on the card 30 s+ after the pin moved; after, never.
 Do not reintroduce a boolean cancel flag in a hook whose effect re-runs.
 
+### Map events: never `useMapEvents` (2026-10-11)
+
+Locate moved the pin and the map to Baltimore but the radar stayed on TBW.
+At site zoom `radarQueryPoint` is the VIEW centre, published by
+`MapViewTracker` on `moveend` — and the locate pan's `moveend` never
+reached it. react-leaflet's `useMapEvents(handlers)` re-subscribes when
+`handlers` changes (an inline literal: every render); React runs all of a
+commit's effect CLEANUPS before any new effect, in tree order, so
+`PanHandler` (above the tracker) panned and fired `moveend` while the
+tracker's listener was detached. Measured with logging in the app bundle:
+centre 39.40 right after `panTo`, no `moveend` delivered, frames still
+requested at the Florida 0.25° cell. All listeners now use
+`WeatherMap/useStableMapEvents` (same API; binds once per event-name set,
+calls the latest handler via a ref); `test/stableMapEvents.test.js` fails
+on any `useMapEvents` in `client/src`. `PrecipMosaicLayer` (repaints on
+`moveend`) and `MapZoomTracker` (`zoomend`) had the same exposure.
+
+Also from the same report:
+- Locate, starting follow, and the Settings location picker clear a
+  manual `radarSite` pick (`clearRadarPick` in AppContext): "this is where
+  I am" means the nearest radar. `clearRadarPick` and `pickRadarSite` set
+  client state only AFTER the PATCH resolves — the state change triggers
+  the frames / nowcast refetch, and the kiosk server applies its SAVED
+  pick over the query, so refetching first got the old site for 60 s.
+- `server/settingsCtrl.js` writers (PATCH / PUT / POST / DELETE) are
+  serialised (`serializeWrites`, waits for `finish` / `close`): they are
+  read → modify → write with async I/O between, and the picker's three
+  PATCHes (radarSite, startingLat, startingLon) fired together lost the
+  radarSite clear — the last write restored `"TBW"`. The app's
+  localStorage store is synchronous and never had this.
+- Testing the app bundle needs `npm run app:build`, a static server on
+  `client/dist-app`, Playwright with `permissions: ["geolocation"]`, and
+  every upstream routed through curl (sandbox Chromium has no network).
+  Seed `sweep.app.settings.v1` and `lastPosition` in localStorage.
+
 ### Idle polling — DONE (2026-09-03)
 
 `pollingPaused = sleepStage > 0 || document.hidden`, published on
