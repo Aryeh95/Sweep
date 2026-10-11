@@ -176,7 +176,12 @@
     "cellOverhead": "Storm cell {{id}} overhead",
     "farRainClosing": "Rain {{dist}} to the {{dir}} is heading this way · about {{eta}} out",
     "farRainAway": "Rain {{dist}} to the {{dir}} is not heading this way",
-    "farRainUntracked": "Rain {{dist}} to the {{dir}} · too little echo within {{core}} to track it"
+    "farRainUntracked": "Rain {{dist}} to the {{dir}} · too little echo within {{core}} to track it",
+    "warningHere": "{{event}} in effect here · until {{time}}",
+    "warningHereNoEnd": "{{event}} in effect here",
+    "warningMore": "(+{{count}} more)",
+    "lightningNear": "Lightning {{dist}} {{dir}} · {{age}}",
+    "lightningNone": "No lightning within {{dist}}"
   },
   "conditions": {
     "title": "Conditions",
@@ -464,6 +469,7 @@
     "ageSatelliteVis": "Satellite VIS",
     "ageTracks": "Tracks",
     "ageLightning": "GLM",
+    "liveOnly": "live only",
     "ageVelocity": "VEL",
     "stormArrivalHours": "≈ {{hours}} h {{minutes}} min",
     "cellMoving": "Moving {{dir}} at {{speed}}",

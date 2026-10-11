@@ -18,6 +18,8 @@ import {
 import { colorForDbz } from "~/components/WeatherMap/radialRender";
 import { frameAge } from "~/components/WeatherMap/iemRadar";
 import useNowcast from "./useNowcast";
+import useLightning from "~/components/WeatherMap/useLightning";
+import { homeWarnings, nearestFlash, NEAR_FLASH_KM } from "../../../../../server/nearHome";
 import styles from "./styles.css";
 
 // Oldest scan the card will forecast from. The strip spans 90 min from the
@@ -136,7 +138,7 @@ function stepColor(step, palette) {
  */
 const NowcastPanel = ({ compact = false }) => {
   const { t } = useTranslation();
-  const { showNowcast, radarPalette } = useContext(AlertsContext);
+  const { showNowcast, radarPalette, govAlerts, showLightning } = useContext(AlertsContext);
   const { mapGeo, mapTimezone } = useContext(LocationContext);
   const { pollingPaused, radarSite } = useContext(SystemContext);
   const { speedUnit, distanceUnit, lengthUnit, clockTime, darkMode } = useContext(UiPrefsContext);
@@ -146,6 +148,17 @@ const NowcastPanel = ({ compact = false }) => {
     longitude: mapGeo ? mapGeo.longitude : null,
     site: radarSite || "",
     enabled: showNowcast && Boolean(mapGeo),
+    paused: pollingPaused,
+  });
+
+  // Lightning for the "near home" line — only while the lightning layer is
+  // on: the GLM window costs ~1 MB of downloads a minute, which the card
+  // should not start on its own (a phone on mobile data). Same request as
+  // the map's poller, which the server's window cache answers once.
+  const lightning = useLightning({
+    latitude: mapGeo ? mapGeo.latitude : null,
+    longitude: mapGeo ? mapGeo.longitude : null,
+    enabled: showNowcast && showLightning && Boolean(mapGeo),
     paused: pollingPaused,
   });
 
@@ -165,12 +178,53 @@ const NowcastPanel = ({ compact = false }) => {
     stale ? styles.stale : "",
   ].filter(Boolean).join(" ");
 
+  // ---- Near home: warnings in effect at the pin, nearest lightning ----
+  // Shown in every state of the card — a warning matters most exactly
+  // when the forecast itself is unavailable or delayed.
+  const warnings = homeWarnings(govAlerts, now);
+  const pin = mapGeo ? { lat: mapGeo.latitude, lon: mapGeo.longitude } : null;
+  const flash = showLightning && lightning.fetchedAt
+    ? nearestFlash(lightning.flashes, pin, { fetchedAt: lightning.fetchedAt, nowMs: now })
+    : null;
+  const nearLines = [];
+  if (warnings.length) {
+    const w = warnings[0];
+    const until = w.expiresAt ? clockAt(w.expiresAt, 0, clockTime, mapTimezone) : null;
+    nearLines.push({
+      key: "warning",
+      cls: styles.nearWarning,
+      text: (until ? t("nowcast.warningHere", { event: w.eventType, time: until }) : t("nowcast.warningHereNoEnd", { event: w.eventType }))
+        + (warnings.length > 1 ? ` ${t("nowcast.warningMore", { count: warnings.length - 1 })}` : ""),
+    });
+  }
+  if (showLightning && lightning.fetchedAt) {
+    nearLines.push(flash ? {
+      key: "lightning",
+      cls: flash.distanceKm <= 16 ? styles.nearLightningClose : styles.nearLightning,
+      text: t("nowcast.lightningNear", {
+        dist: distanceLabel(flash.distanceKm, distanceUnit),
+        dir: compass(flash.bearingDeg),
+        age: flash.ageMin < 1 ? t("radar.ageNow") : t("radar.ageMinutes", { count: flash.ageMin }),
+      }),
+    } : {
+      key: "lightning",
+      cls: styles.nearQuiet,
+      text: t("nowcast.lightningNone", { dist: distanceLabel(NEAR_FLASH_KM, distanceUnit) }),
+    });
+  }
+  const nearHome = nearLines.length ? (
+    <ul className={styles.nearHome}>
+      {nearLines.map((l) => <li key={l.key} className={l.cls}>{l.text}</li>)}
+    </ul>
+  ) : null;
+
   // ---- Pending / failed states -------------------------------------
   if (!data) {
     return (
       <section className={cardClass} aria-label={t("nowcast.title")}>
         <header className={styles.head}><span className={styles.title}>{t("nowcast.title")}</span></header>
         <div className={styles.headline}>{loading ? t("nowcast.loading") : t("nowcast.unavailable")}</div>
+        {nearHome}
       </section>
     );
   }
@@ -185,6 +239,7 @@ const NowcastPanel = ({ compact = false }) => {
         <div className={styles.detail}>
           {data.reason === "no-recent-scans" ? t("nowcast.noScans", { site: data.site }) : t("nowcast.tryLater")}
         </div>
+        {nearHome}
       </section>
     );
   }
@@ -222,6 +277,7 @@ const NowcastPanel = ({ compact = false }) => {
         </header>
         <div className={styles.headline}>{t("nowcast.delayed")}</div>
         <div className={styles.detail}>{t("nowcast.delayedDetail", { site, min: ageMinutes })}</div>
+        {nearHome}
       </section>
     );
   }
@@ -348,6 +404,7 @@ const NowcastPanel = ({ compact = false }) => {
       </header>
       <div className={styles.headline}>{headline}</div>
       {detail ? <div className={styles.detail}>{detail}</div> : null}
+      {nearHome}
       <div className={styles.strip} role="img" aria-label={t("nowcast.stripAria", { min: horizonMin })}>
         {series.map((step) => {
           // Likely steps in the palette colour, at an opacity that grows

@@ -25,6 +25,10 @@ import { useEffect, useRef, useState } from "react";
  * @param {number} opts.stage1Delay Minutes of inactivity before stage 1
  * @param {boolean} opts.stage2Enabled Whether to ever enter stage 2
  * @param {number} opts.stage2Delay Minutes after stage 1 before stage 2
+ * @param {boolean} [opts.hold] While true the display stays awake: stage
+ *   goes to 0 at once (waking it if asleep) and the idle clock keeps
+ *   restarting until the hold ends. Wake-for-warnings sets it while a
+ *   qualifying warning covers home (server/warningWake.js).
  * @returns {object} `{ stage }` — current 0/1/2 stage value
  */
 export default function useIdleDetection({
@@ -32,12 +36,22 @@ export default function useIdleDetection({
   stage1Delay,
   stage2Enabled,
   stage2Delay,
+  hold = false,
 }) {
   const [stage, setStage] = useState(0);
   // Last activity timestamp lives in a ref so listeners can update it
   // without triggering a re-render on every mouse twitch (we only care
   // about the threshold crossings, evaluated by the interval below).
   const lastActivityRef = useRef(Date.now());
+  const holdRef = useRef(hold);
+  holdRef.current = hold;
+
+  // A hold starting wakes the display now, not at the next 1 s tick.
+  useEffect(() => {
+    if (!hold) return;
+    lastActivityRef.current = Date.now();
+    setStage(0);
+  }, [hold]);
 
   useEffect(() => {
     if (!enabled) {
@@ -68,6 +82,7 @@ export default function useIdleDetection({
     // the state directly; users tolerate a 1 s falling-asleep delay
     // better than a 5 s one.
     const interval = setInterval(() => {
+      if (holdRef.current) lastActivityRef.current = Date.now();
       const idleFor = Date.now() - lastActivityRef.current;
       let next;
       if (stage2Enabled && idleFor >= stage1Ms + stage2Ms) {

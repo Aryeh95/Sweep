@@ -1115,6 +1115,12 @@ const WeatherMap = ({ zoom, dark }) => {
   // means the same thing on both even when the counts differ, which
   // keeps the layers in step through the crossfade band.
   const iemFromEnd = iemFrameIdx < 0 ? 0 : Math.max(0, iemFrameIdx);
+  // Storm tracks and lightning exist only for NOW (the pollers fetch the
+  // newest product), so they are drawn only while the playhead is on the
+  // newest frame: two-hour-old radar under this minute's storm cells and
+  // flashes reads as one picture and is not. Replaying them would need
+  // per-frame history; until then the age chip says "live only".
+  const liveOverlaysShown = iemFromEnd === 0;
   const pickFromEnd = (list, back) => {
     if (!list || !list.length) return null;
     // Beyond the oldest frame → null, so the layer HIDES rather than
@@ -1562,7 +1568,7 @@ const WeatherMap = ({ zoom, dark }) => {
   // refresh still shows — that one is a real fault worth surfacing, and the
   // hook keeps the last good cells behind it.
   const stormsDrawn = stormCells.length > 0 || stormMesos.length > 0;
-  if (showStormTracks && Number.isFinite(stormScanEpoch) && (stormsDrawn || stormStale)) {
+  if (liveOverlaysShown && showStormTracks && Number.isFinite(stormScanEpoch) && (stormsDrawn || stormStale)) {
     ageRows.push({
       key: "tracks",
       label: t("radar.ageTracks"),
@@ -1575,7 +1581,7 @@ const WeatherMap = ({ zoom, dark }) => {
   // on the map whose age this could describe. (Its epoch does not go stale
   // the way the tracks one does — an empty window reports its own generation
   // time — but a row reading "now" next to an empty sky is still noise.)
-  if (showLightning && Number.isFinite(lightning.dataEpoch)
+  if (liveOverlaysShown && showLightning && Number.isFinite(lightning.dataEpoch)
       && (lightning.flashes.length > 0 || lightning.stale)) {
     ageRows.push({
       key: "lightning",
@@ -1583,6 +1589,14 @@ const WeatherMap = ({ zoom, dark }) => {
       epoch: lightning.dataEpoch,
       approximate: false,
       sourceStale: lightning.stale,
+    });
+  }
+  // Scrubbed back: say why the live-only overlays are gone.
+  if (!liveOverlaysShown && (showStormTracks || showLightning)) {
+    ageRows.push({
+      key: "live-only",
+      label: [showStormTracks ? t("radar.ageTracks") : null, showLightning ? t("radar.ageLightning") : null].filter(Boolean).join(" · "),
+      note: t("radar.liveOnly"),
     });
   }
 
@@ -2192,7 +2206,7 @@ const WeatherMap = ({ zoom, dark }) => {
             onPick={pickRadarSite}
           />
         ) : null}
-        {showStormTracks ? (
+        {showStormTracks && liveOverlaysShown ? (
           <StormTracks
             cells={stormCells}
             mesos={stormMesos}
@@ -2207,7 +2221,7 @@ const WeatherMap = ({ zoom, dark }) => {
         ) : null}
         {/* GLM lightning flashes -- age-faded dots, painted last so the
             freshest strikes read over every other overlay. */}
-        {showLightning ? (
+        {showLightning && liveOverlaysShown ? (
           <LightningOverlay
             flashes={lightning.flashes}
             fetchedAt={lightning.fetchedAt}
@@ -2276,7 +2290,7 @@ const WeatherMap = ({ zoom, dark }) => {
         <RadarLegend
           dark={dark}
           chipMode={radarTimelineVisible && isSmallScreen}
-          lightningCount={showLightning ? lightning.count : null}
+          lightningCount={showLightning && liveOverlaysShown ? lightning.count : null}
           velocity={radarVelocity && iemVisible.site}
           correlation={radarCorrelation && iemVisible.site}
           satelliteColor={satelliteMode === "irc"}

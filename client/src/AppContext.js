@@ -16,6 +16,7 @@ import { placeLabelFromAddress } from "~/ui/placeLabel";
 import { SATELLITE_MODES, normalizeSatelliteMode } from "~/ui/satellite";
 import { RADAR_NOISE_MODES, RADAR_NOISE_DEFAULT } from "~/ui/radarNoise";
 import { eventProductType } from "~/ui/alertLogic";
+import { WAKE_LEVELS, QUIET_HOURS, activeWakeWarning } from "../../server/warningWake";
 import { RADAR_PALETTE_DEFAULT, RADAR_PALETTE_STORAGE_KEY, normalizeRadarPalette } from "~/ui/radarPalette";
 import axios from "axios";
 import tzlookup from "tz-lookup";
@@ -499,6 +500,8 @@ export function AppContextProvider({ children }) {
     sleepStage2Enabled, setSleepStage2Enabled,
     sleepStage2Delay, setSleepStage2Delay,
     sleepNightMode, setSleepNightMode,
+    sleepWakeWarnings, setSleepWakeWarnings,
+    sleepQuietHours, setSleepQuietHours,
   } = useScreenSaver();
 
   // Kiosk display-scale override (`~/hooks/useDisplayScale`). Owns the
@@ -524,11 +527,18 @@ export function AppContextProvider({ children }) {
   // miss → one Anthropic call, or a cache hit → still wasted CPU for
   // a screen nobody is looking at). The hook returns stage=0 when
   // sleepEnabled is false, so the cost stays zero for opt-out users.
+  // Wake for warnings at home: true while a qualifying warning (see
+  // server/warningWake.js and the effect next to the alert poll) covers the
+  // pin — it wakes a sleeping kiosk and holds it awake until the warning
+  // ends. Declared here because the idle hook needs it; set further down,
+  // where the alerts live.
+  const [warningHold, setWarningHold] = useState(false);
   const { stage: sleepStage } = useIdleDetection({
     enabled: sleepEnabled,
     stage1Delay: sleepStage1Delay,
     stage2Enabled: sleepStage2Enabled,
     stage2Delay: sleepStage2Delay,
+    hold: warningHold,
   });
   // One flag every poller gates on: nobody is looking at the screen.
   // True while the screensaver is up (stage ≥ 1) or the document is
@@ -1404,6 +1414,12 @@ export function AppContextProvider({ children }) {
               if (typeof advancedSleep.stage2Delay === "number") {
                 setSleepStage2Delay(advancedSleep.stage2Delay);
               }
+              if (WAKE_LEVELS.includes(advancedSleep.wakeWarnings)) {
+                setSleepWakeWarnings(advancedSleep.wakeWarnings);
+              }
+              if (QUIET_HOURS.includes(advancedSleep.quietHours)) {
+                setSleepQuietHours(advancedSleep.quietHours);
+              }
               if (typeof advancedSleep.nightMode === "boolean") {
                 // localStorage takes precedence over the server-side
                 // value: a remote client's saveAdvancedSleepFlag
@@ -1440,6 +1456,8 @@ export function AppContextProvider({ children }) {
     setSleepStage1Brightness,
     setSleepStage2Enabled,
     setSleepStage2Delay,
+    setSleepWakeWarnings,
+    setSleepQuietHours,
     setSleepNightMode,
   ]);
 
@@ -2008,6 +2026,8 @@ export function AppContextProvider({ children }) {
     sleepStage2Enabled,
     sleepStage2Delay,
     sleepNightMode,
+    sleepWakeWarnings,
+    sleepQuietHours,
     alertRadiusKm,
   });
   useEffect(() => {
@@ -2023,6 +2043,8 @@ export function AppContextProvider({ children }) {
       sleepStage2Enabled,
       sleepStage2Delay,
       sleepNightMode,
+      sleepWakeWarnings,
+      sleepQuietHours,
       alertRadiusKm,
     };
   }, [
@@ -2037,6 +2059,8 @@ export function AppContextProvider({ children }) {
     sleepStage2Enabled,
     sleepStage2Delay,
     sleepNightMode,
+    sleepWakeWarnings,
+    sleepQuietHours,
     alertRadiusKm,
   ]);
 
@@ -2094,6 +2118,8 @@ export function AppContextProvider({ children }) {
         stage2Enabled: s.sleepStage2Enabled,
         stage2Delay: s.sleepStage2Delay,
         nightMode: s.sleepNightMode,
+        wakeWarnings: s.sleepWakeWarnings,
+        quietHours: s.sleepQuietHours,
         ...(overrides.sleep || {}),
       },
       pollen: {
@@ -2221,6 +2247,8 @@ export function AppContextProvider({ children }) {
     if (key === "stage1Brightness") setSleepStage1Brightness(value);
     if (key === "stage2Enabled") setSleepStage2Enabled(value);
     if (key === "stage2Delay") setSleepStage2Delay(value);
+    if (key === "wakeWarnings") setSleepWakeWarnings(value);
+    if (key === "quietHours") setSleepQuietHours(value);
     if (key === "nightMode") {
       setSleepNightMode(value);
       // Mirror to localStorage so the choice survives a page reload
@@ -2247,6 +2275,8 @@ export function AppContextProvider({ children }) {
     setSleepStage1Brightness,
     setSleepStage2Enabled,
     setSleepStage2Delay,
+    setSleepWakeWarnings,
+    setSleepQuietHours,
     setSleepNightMode,
   ]);
 
@@ -2293,9 +2323,17 @@ export function AppContextProvider({ children }) {
   // for 5 min anyway, so a tighter cadence would only generate
   // redundant requests). Failures silently keep the previous list so
   // a transient network blip doesn't blank the banner.
+  //
+  // Unlike every other poller this one keeps running while the
+  // screensaver is up (only a hidden page stops it): it is how a sleeping
+  // kiosk learns of a warning at home and wakes (wake-for-warnings, below).
+  // Every 2 min (was 10) for the same reason — with the server's 60 s
+  // point cache a new warning reaches the screen within ~3 min. One small
+  // cached call; the radar, lightning and satellite pollers stay paused.
+  const alertPollPaused = !documentVisible || (sleepStage > 0 && sleepWakeWarnings === "off");
   useEffect(() => {
-    if (!mapGeo || pollingPaused) return undefined;
-    const GOV_ALERTS_INTERVAL = 10 * 60 * 1000;
+    if (!mapGeo || alertPollPaused) return undefined;
+    const GOV_ALERTS_INTERVAL = 2 * 60 * 1000;
     // Cancellation flag (same pattern as the AQI / pollen effects below):
     // without it, a slow response keyed to the PREVIOUS position can
     // resolve after this effect re-ran for a new position and overwrite
@@ -2316,7 +2354,22 @@ export function AppContextProvider({ children }) {
     fetchAlerts();
     const interval = setInterval(fetchAlerts, GOV_ALERTS_INTERVAL);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [mapGeo, showTestAlerts, pollingPaused]);
+  }, [mapGeo, showTestAlerts, alertPollPaused]);
+
+  // Wake for warnings: hold the kiosk awake while a qualifying warning
+  // covers home. Re-checked every minute as well as on each poll, so the
+  // hold ends when the warning expires and follows quiet-hours boundaries.
+  useEffect(() => {
+    const evaluate = () => {
+      const warning = sleepEnabled
+        ? activeWakeWarning(govAlerts, { level: sleepWakeWarnings, quietHours: sleepQuietHours, now: new Date() })
+        : null;
+      setWarningHold(Boolean(warning));
+    };
+    evaluate();
+    const id = setInterval(evaluate, 60 * 1000);
+    return () => clearInterval(id);
+  }, [govAlerts, sleepEnabled, sleepWakeWarnings, sleepQuietHours]);
 
   // Nearby-alerts radius survey (display-only overlay). Only polls while
   // the layer is toggled ON; clears immediately when it's off so the map
@@ -2608,6 +2661,8 @@ export function AppContextProvider({ children }) {
     sleepStage2Enabled,
     sleepStage2Delay,
     sleepNightMode,
+    sleepWakeWarnings,
+    sleepQuietHours,
     sleepStage,
     pollingPaused,
     updateAvailable: updateAvailable && latestSha !== skippedSha,
@@ -2652,6 +2707,8 @@ export function AppContextProvider({ children }) {
     sleepStage2Enabled,
     sleepStage2Delay,
     sleepNightMode,
+    sleepWakeWarnings,
+    sleepQuietHours,
     sleepStage,
     pollingPaused,
     updateAvailable,

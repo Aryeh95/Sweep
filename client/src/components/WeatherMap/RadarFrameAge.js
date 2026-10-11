@@ -104,7 +104,9 @@ const RadarFrameAge = ({ rows, dark = false }) => {
     return () => clearInterval(id);
   }, []);
 
-  const live = (rows || []).filter((r) => r && Number.isFinite(r.epoch));
+  // A row is either timed (epoch → "N min ago") or a plain note (e.g.
+  // "Tracks · GLM — live only" while the timeline is scrubbed back).
+  const live = (rows || []).filter((r) => r && (Number.isFinite(r.epoch) || r.note));
   if (!live.length) return null;
 
   return (
@@ -115,7 +117,12 @@ const RadarFrameAge = ({ rows, dark = false }) => {
        * every user, and staleness is the safety-relevant signal here. */
       aria-live="polite"
     >
-      {live.map((r) => (
+      {live.map((r) => (r.note ? (
+        <div key={r.key || r.label} className={styles.frameAgeRow}>
+          {r.label ? <span className={styles.frameAgeSite}>{r.label}</span> : null}
+          <span className={styles.frameAgeValue}>{r.note}</span>
+        </div>
+      ) : (
         <AgeRow
           key={r.key || r.label}
           label={r.label}
@@ -124,7 +131,7 @@ const RadarFrameAge = ({ rows, dark = false }) => {
           sourceStale={Boolean(r.sourceStale)}
           now={now}
         />
-      ))}
+      )))}
     </div>
   );
 };
@@ -136,6 +143,7 @@ RadarFrameAge.propTypes = {
     epoch: PropTypes.number,
     approximate: PropTypes.bool,
     sourceStale: PropTypes.bool,
+    note: PropTypes.string,
   })),
   dark: PropTypes.bool,
 };

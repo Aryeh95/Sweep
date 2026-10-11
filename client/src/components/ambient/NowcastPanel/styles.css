@@ -169,3 +169,32 @@
   color: var(--c-text);
   font-weight: 600;
 }
+
+/* Near home (2026-10-11): a warning in effect at the pin and the nearest
+ * lightning. Text carries the meaning; colour only reinforces it (the
+ * nightRed palette collapses hues). */
+.nearHome {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: calc(13px * var(--c-font-scale, 1));
+  line-height: 1.35;
+}
+.nearWarning {
+  color: var(--rc-alert-warn, #c62828);
+  font-weight: 700;
+}
+.nearLightningClose {
+  color: var(--rc-alert-watch, #ee7710);
+  font-weight: 600;
+}
+.nearLightning {
+  color: var(--c-text);
+}
+.nearQuiet {
+  color: var(--c-text);
+  opacity: 0.7;
+}

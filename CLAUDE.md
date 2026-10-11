@@ -1144,6 +1144,44 @@ Four findings, all confirmed against the source; two were already fixed
   index.js for route tests, and an origin / CSRF check on the localhost
   mutation endpoints (socket locality is the only gate today).
 
+### Wake for warnings, near-home lines, live-only overlays (2026-10-11)
+
+From an outside feature review; user picked these two of three (full
+event replay deferred).
+- **Wake for warnings** (`server/warningWake.js`, shared CJS like
+  precipType.js): the HOME point alert list (`/api/weather-alerts`, which
+  only returns alerts covering the pin) decides. `activeWakeWarning`
+  returns the first non-test, unexpired warning in the level's set
+  (severe / tornado / off; quiet hours narrow to the tornado set). While
+  one exists AppContext sets `warningHold`, passed to `useIdleDetection`
+  as `hold`: stage forced to 0 (wakes at once) and the idle clock keeps
+  restarting until the hold ends. HOLD, not wake-once: waking once let the
+  screensaver cover the map ten minutes into a tornado warning, and holding
+  also makes per-update dedup (VTEC event keys) unnecessary — built, then
+  removed. The point poll is the ONE poller not gated on `pollingPaused`
+  (`alertPollPaused` = hidden page, or asleep with wake off), every 2 min;
+  NWS point cache 60 s (`POINT_CACHE_TTL_MS`) and HTTP `max-age=60`. Area
+  survey cache unchanged (5 min). Settings live in `advanced.sleep`
+  (`wakeWarnings`, `quietHours`) — remember `buildAdvancedSubtree` must
+  carry every key or a PATCH wipes it. Kiosk only (sleep UI is
+  `!__STANDALONE__`).
+- **Near-home lines** (`server/nearHome.js`): `homeWarnings` (name contains
+  "Warning", not test, not expired) and `nearestFlash` (from /api/lightning
+  triples `[lat, lon, ageSec]`, aged by `fetchedAt`, 80 km ≈ 50 mi cap).
+  Rendered in every NowcastPanel branch. The card's own `useLightning`
+  runs only while the lightning LAYER is on — the GLM window costs ~1 MB/min
+  and the card must not start that on a phone; same request as the map's,
+  answered once by the server's window cache.
+- **Live-only overlays**: `liveOverlaysShown = iemFromEnd === 0` gates
+  StormTracks, LightningOverlay, their age rows and the legend's flash
+  count; scrubbed back, a text row ("Tracks · GLM — live only") says why.
+  `RadarFrameAge` gained note rows (`{label, note}`, no epoch).
+- Verified in Playwright: sleep after 1 min idle with the alert poll still
+  running, an injected Tornado Warning waking the screen within one poll,
+  the hold keeping it awake past the sleep delay, and the card's warning
+  line; scrubbing back two frames hid all 36 track elements with the note
+  shown, and they returned at "now".
+
 ### Idle polling — DONE (2026-09-03)
 
 `pollingPaused = sleepStage > 0 || document.hidden`, published on

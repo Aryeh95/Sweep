@@ -114,12 +114,12 @@ async function getWeatherAlerts(req, res) {
   const showTest = req.isLocal && req.query.showTest === "1";
   const sorted = await getActiveAlertsAt(lat, lon, { showTest });
 
-  // Default: 5 min HTTP cache aligned with the per-source server cache so a
-  // remote client polling at the recommended 10 min cadence sees consistent
-  // results without hammering the upstream feeds. When test alerts are revealed
+  // 60 s HTTP cache, matching the NWS point cache: the kiosk wakes from
+  // sleep for a new warning at home, so this answer must not sit in a
+  // browser cache for minutes (it was 300 s). When test alerts are revealed
   // the body varies on locality, so it must NOT be shared by a cache (or a
   // future same-host proxy — see CLAUDE.md's reverse-proxy caveat).
-  res.set("Cache-Control", showTest ? "private, max-age=0, no-store" : "public, max-age=300");
+  res.set("Cache-Control", showTest ? "private, max-age=0, no-store" : "public, max-age=60");
   return res.status(200).json({ alerts: sorted }).end();
 }
 

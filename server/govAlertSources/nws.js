@@ -19,7 +19,12 @@ const { getZoneGeometry, mergeAsMultiPolygon } = require("./nwsZones");
 
 const SERVICE_NAME = "NWS (severe weather alerts)";
 const USER_AGENT = "sweep-radar (github.com/Aryeh95/sweep)";
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min — alerts don't change minute-to-minute
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min — the radius survey (area fetch) is display-only
+// The HOME point's alerts: 60 s. A sleeping kiosk wakes for a new warning
+// at home (server/warningWake.js), and a short-fuse warning (a tornado
+// warning runs ~30-45 min) cannot wait up to five minutes in a cache. One
+// small NWS call a minute per kiosk at most.
+const POINT_CACHE_TTL_MS = 60 * 1000;
 
 // Bounded so a remote client can't grow it without limit by walking the
 // query point (point-alert cache is coordinate-keyed). Cap is far above the
@@ -145,7 +150,7 @@ async function tryAlerts(lat, lon, { showTest = false } = {}) {
     // but the API is the authoritative arbiter (it knows the exact
     // boundary of every NWS region).
     if (status === 400) {
-      cache.set(key, { alerts: [], expiresAt: Date.now() + CACHE_TTL_MS });
+      cache.set(key, { alerts: [], expiresAt: Date.now() + POINT_CACHE_TTL_MS });
       return [];
     }
     recordServiceCall(SERVICE_NAME, status || 500, "fetch failed");
@@ -175,7 +180,7 @@ async function tryAlerts(lat, lon, { showTest = false } = {}) {
   await enrichGeometries(pairs, showTest);
 
   const alerts = pairs.map((p) => p.alert);
-  cache.set(key, { alerts, expiresAt: Date.now() + CACHE_TTL_MS });
+  cache.set(key, { alerts, expiresAt: Date.now() + POINT_CACHE_TTL_MS });
   const withGeom = alerts.filter((a) => a.geometry).length;
   recordServiceCall(SERVICE_NAME, 200, `${alerts.length} alert(s) at ${key} (${withGeom} with geometry)`);
   increment("nws", "alerts");

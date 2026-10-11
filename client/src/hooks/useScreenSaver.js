@@ -47,6 +47,11 @@ export function useScreenSaver() {
   const [sleepStage2Enabled, setSleepStage2Enabled] = useState(true);
   const [sleepStage2Delay, setSleepStage2Delay] = useState(20); // minutes (after stage 1)
   const [sleepNightMode, setSleepNightMode] = useState(true);
+  // Wake for warnings at home (server/warningWake.js): "severe" (default)
+  // | "tornado" | "off", and quiet hours ("off" | "22-6" | …) during which
+  // only the tornado-class set wakes the screen.
+  const [sleepWakeWarnings, setSleepWakeWarnings] = useState("severe");
+  const [sleepQuietHours, setSleepQuietHours] = useState("off");
 
   // Initial fetch — server tells us whether the device exposes a
   // backlight (sysfs path), the current value, and the floor.
@@ -86,5 +91,7 @@ export function useScreenSaver() {
     sleepStage2Enabled, setSleepStage2Enabled,
     sleepStage2Delay, setSleepStage2Delay,
     sleepNightMode, setSleepNightMode,
+    sleepWakeWarnings, setSleepWakeWarnings,
+    sleepQuietHours, setSleepQuietHours,
   };
 }

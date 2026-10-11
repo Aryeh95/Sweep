@@ -176,7 +176,12 @@
     "cellOverhead": "Célula {{id}} encima",
     "farRainClosing": "Lluvia a {{dist}} al {{dir}} viene hacia aquí · a unos {{eta}}",
     "farRainAway": "La lluvia a {{dist}} al {{dir}} no viene hacia aquí",
-    "farRainUntracked": "Lluvia a {{dist}} al {{dir}} · demasiado poco eco en {{core}} para seguirla"
+    "farRainUntracked": "Lluvia a {{dist}} al {{dir}} · demasiado poco eco en {{core}} para seguirla",
+    "warningHere": "{{event}} vigente aquí · hasta las {{time}}",
+    "warningHereNoEnd": "{{event}} vigente aquí",
+    "warningMore": "(+{{count}} más)",
+    "lightningNear": "Rayos a {{dist}} al {{dir}} · {{age}}",
+    "lightningNone": "Sin rayos a menos de {{dist}}"
   },
   "conditions": {
     "title": "Condiciones",
@@ -464,6 +469,7 @@
     "ageSatelliteVis": "Satélite VIS",
     "ageTracks": "Células",
     "ageLightning": "GLM",
+    "liveOnly": "solo en vivo",
     "ageVelocity": "VEL",
     "stormArrivalHours": "≈ {{hours}} h {{minutes}} min",
     "cellMoving": "Se mueve hacia {{dir}} a {{speed}}",

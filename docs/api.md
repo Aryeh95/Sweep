@@ -769,10 +769,12 @@ day. Strict regex on `date`. `tomorrow=1` adds `tomorrowResults`.
 Active government alerts at a point, merged from every source whose
 bounding box covers it: **NWS** (`api.weather.gov/alerts/active?point=`,
 zone-only alerts enriched with real geometry from `affectedZones`, cached
-24 h) and **ECCC** for Canada (`api.weather.gc.ca`, bbox-filtered). Both
-sources cached 5 min; always returns 200 with an `alerts` array.
+24 h) and **ECCC** for Canada (`api.weather.gc.ca`, bbox-filtered). The
+NWS point answer is cached **60 s** (it drives the kiosk's wake-for-warnings,
+see `server/warningWake.js`; the area survey below stays at 5 min), ECCC
+5 min; always returns 200 with an `alerts` array.
 
-- **Access:** 🌐 Public — rate limited; `Cache-Control: public, max-age=300`
+- **Access:** 🌐 Public — rate limited; `Cache-Control: public, max-age=60`
 - **`showTest=1`** includes Test/Exercise alerts (`isTest`), honoured for
   **localhost only**
 

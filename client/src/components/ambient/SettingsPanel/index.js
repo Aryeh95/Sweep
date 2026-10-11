@@ -994,6 +994,8 @@ const SectionAdvanced = ({ ctx, lang, remote }) => {
     sleepStage2Enabled,
     sleepStage2Delay,
     sleepNightMode,
+    sleepWakeWarnings,
+    sleepQuietHours,
     brightnessAvailable,
     brightnessMinPercent,
     debugEnabled,
@@ -1227,6 +1229,42 @@ const SectionAdvanced = ({ ctx, lang, remote }) => {
                 />
               </div>
             ) : null}
+
+            {/* Wake for warnings (server/warningWake.js): a warning that
+              * covers home wakes the screen and keeps it on until it ends. */}
+            <div className={styles.grid4} style={{ marginTop: 10 }}>
+              <Seg
+                label={lbl(lang, "Wake for warnings at home", "Réveil pour les avertissements", "Despertar por avisos en casa")}
+                options={[
+                  { v: "severe", l: lbl(lang, "Severe", "Violents", "Severos") },
+                  { v: "tornado", l: lbl(lang, "Tornado only", "Tornade seul.", "Solo tornado") },
+                  { v: "off", l: lbl(lang, "Off", "Non", "No") },
+                ]}
+                value={sleepWakeWarnings || "severe"}
+                onChange={sleep("wakeWarnings")}
+                disabled={remote}
+              />
+              <Seg
+                label={lbl(lang, "Quiet hours · tornado only", "Heures calmes · tornade seul.", "Horas de silencio · solo tornado")}
+                options={[
+                  { v: "off", l: lbl(lang, "Off", "Non", "No") },
+                  { v: "22-6", l: "22–6" },
+                  { v: "23-7", l: "23–7" },
+                  { v: "0-6", l: "0–6" },
+                ]}
+                value={sleepQuietHours || "off"}
+                onChange={sleep("quietHours")}
+                disabled={remote}
+              />
+            </div>
+            <p className={styles.locationHelp}>
+              {lbl(
+                lang,
+                "When a warning covers your location the screen wakes and stays on until it ends. Severe: tornado, severe thunderstorm, flash flood, extreme wind, snow squall and tsunami warnings. During quiet hours only tornado, extreme wind and tsunami warnings wake it.",
+                "Quand un avertissement couvre votre position, l'écran se réveille et reste allumé jusqu'à sa fin. Violents : tornade, orage violent, crue éclair, vents extrêmes, bourrasques de neige et tsunami. Pendant les heures calmes, seuls tornade, vents extrêmes et tsunami le réveillent.",
+                "Cuando un aviso cubre su ubicación, la pantalla se enciende y sigue encendida hasta que termine. Severos: tornado, tormenta severa, inundación repentina, viento extremo, ráfagas de nieve y tsunami. En horas de silencio solo tornado, viento extremo y tsunami la despiertan.",
+              )}
+            </p>
 
             <div className={`${styles.subhead} ${styles.subheadGap}`}>
               {lbl(lang, "Diagnostic", "Diagnostic", "Diagnóstico")}

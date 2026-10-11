@@ -4,7 +4,7 @@
      Regenerate with: node tools/gen-localization-glossary.js
      Validation marks (☑) in the first column ARE preserved across runs. -->
 
-**Generated** by `tools/gen-localization-glossary.js` on 2026-10-09. Re-run it after
+**Generated** by `tools/gen-localization-glossary.js` on 2026-10-11. Re-run it after
 touching a locale file or an inline `lbl()` string — every row below is derived, so a
 hand edit will be overwritten. The one exception is the **Validé** column: it is human
 review state and the generator carries existing `☑` marks forward, matching on the key
@@ -16,8 +16,8 @@ Replace `☐` with `☑` when a native speaker has confirmed the FR and ES wordi
 
 | Source | Rows | Notes |
 |---|---|---|
-| `client/src/i18n/locales/{en,fr,es}.json` | 594 translated + 28 identical | Every kiosk-visible surface. 622 leaf keys total. |
-| `client/src/components/ambient/SettingsPanel/index.js` | 113 (+4 non-literal, not listed) | Settings overlay — the user-facing configuration surface. |
+| `client/src/i18n/locales/{en,fr,es}.json` | 600 translated + 28 identical | Every kiosk-visible surface. 628 leaf keys total. |
+| `client/src/components/ambient/SettingsPanel/index.js` | 120 (+4 non-literal, not listed) | Settings overlay — the user-facing configuration surface. |
 | `client/src/components/ambient/DebugPanel/index.js` | 70 | Debug overlay — localhost-only, reached from a desktop browser or an SSH tunnel. |
 
 Inline `lbl(lang, en, fr, es)` is a **codified exception** (see CLAUDE.md), permitted in
@@ -480,6 +480,8 @@ reported here as a gap table, so an empty check means the three files are aligne
 | ☐ | light | faible | ligera | `nowcast.intensity.light` |
 | ☐ | moderate | modérée | moderada | `nowcast.intensity.moderate` |
 | ☐ | no rain | pas de pluie | sin lluvia | `nowcast.intensity.none` |
+| ☐ | Lightning {{dist}} {{dir}} · {{age}} | Foudre à {{dist}} {{dir}} · {{age}} | Rayos a {{dist}} al {{dir}} · {{age}} | `nowcast.lightningNear` |
+| ☐ | No lightning within {{dist}} | Pas de foudre à moins de {{dist}} | Sin rayos a menos de {{dist}} | `nowcast.lightningNone` |
 | ☐ | Here: {{right}}% of {{lead}}-min rain calls came true ({{n}} checked) | Ici : {{right}} % des annonces à {{lead}} min se sont vérifiées ({{n}} contrôlées) | Aquí: el {{right}}% de los avisos a {{lead}} min se cumplieron ({{n}} comprobados) | `nowcast.liveSkill` |
 | ☐ | Scored live at this location: every call is checked against the radar scan that arrives {{lead}} min later. | Vérifié en direct à cet endroit : chaque annonce est contrôlée avec le balayage qui arrive {{lead}} min plus tard. | Verificado en vivo en este lugar: cada aviso se comprueba con el barrido que llega {{lead}} min después. | `nowcast.liveSkillHint` |
 | ☐ | Reading the radar… | Lecture du radar… | Leyendo el radar… | `nowcast.loading` |
@@ -511,6 +513,9 @@ reported here as a gap table, so an empty check means the three files are aligne
 | ☐ | building | en renforcement | intensificándose | `nowcast.trend.growing` |
 | ☐ | The radar feed did not answer — it will retry in a minute | Le radar n'a pas répondu ; nouvel essai dans une minute | El radar no respondió; se reintentará en un minuto | `nowcast.tryLater` |
 | ☐ | Nowcast unavailable | Prévision immédiate indisponible | Pronóstico inmediato no disponible | `nowcast.unavailable` |
+| ☐ | {{event}} in effect here · until {{time}} | {{event}} en vigueur ici · jusqu'à {{time}} | {{event}} vigente aquí · hasta las {{time}} | `nowcast.warningHere` |
+| ☐ | {{event}} in effect here | {{event}} en vigueur ici | {{event}} vigente aquí | `nowcast.warningHereNoEnd` |
+| ☐ | (+{{count}} more) | (+{{count}} autre(s)) | (+{{count}} más) | `nowcast.warningMore` |
 | ☐ | surface radar agrees | le radar de surface confirme | el radar de superficie coincide | `nowcast.withSurface` |
 
 ## probe (`probe.*`)
@@ -593,6 +598,7 @@ reported here as a gap table, so an empty check means the three files are aligne
 | ☐ | Light | Léger | Ligero | `radar.light` |
 | ☐ | {{count}} flash · 5 min | {{count}} éclair · 5 min | {{count}} destello · 5 min | `radar.lightningCount_one` |
 | ☐ | {{count}} flashes · 5 min | {{count}} éclairs · 5 min | {{count}} destellos · 5 min | `radar.lightningCount_other` |
+| ☐ | live only | en direct seulement | solo en vivo | `radar.liveOnly` |
 | ☐ | {{count}} alerts here | {{count}} alertes ici | {{count}} alertas aquí | `radar.nearbyHere` |
 | ☐ | +{{count}} not mapped | +{{count}} non cartographiée(s) | +{{count}} no mapeada(s) | `radar.nearbyNotMapped` |
 | ☐ | Nearby alerts | Alertes à proximité | Alertas cercanas | `radar.nearbyTitle` |
@@ -841,44 +847,51 @@ Settings overlay — the user-facing configuration surface. Source: `client/src/
 | ☐ | Saving… | Enregistrement… | Guardando… | `:959` |
 | ☐ | ✓ Saved | ✓ Enregistré | ✓ Guardado | `:961` |
 | ☐ | Save changes | Enregistrer | Guardar cambios | `:962` |
-| ☐ | Advanced | Avancé | Avanzado | `:1040` |
-| ☐ | Display · alerts | Affichage · alertes | Pantalla · alertas | `:1042` |
-| ☐ | Display · alerts · sleep | Affichage · alertes · veille | Pantalla · alertas · suspensión | `:1043` |
-| ☐ | Display | Affichage | Pantalla | `:1048` |
-| ☐ | Map · light | Carte · clair | Mapa · claro | `:1059` |
-| ☐ | Map · dark | Carte · sombre | Mapa · oscuro | `:1070` |
-| ☐ | Radar palette | Palette radar | Paleta del radar | `:1086` |
-| ☐ | Radar opacity · light | Opacité radar · clair | Opacidad radar · claro | `:1095` |
-| ☐ | Radar opacity · dark | Opacité radar · sombre | Opacidad radar · oscuro | `:1105` |
-| ☐ | Nearby alerts | Alertes à proximité | Alertas cercanas | `:1118` |
-| ☐ | Alert radius | Rayon d'alerte | Radio de alerta | `:1124` |
-| ☐ | Sleep | Veille | Suspensión | `:1147` |
-| ☐ | Enable sleep | Activer la veille | Activar suspensión | `:1165` |
-| ☐ | Red text at night | Texte rouge nuit | Texto rojo de noche | `:1171` |
-| ☐ | Soft sleep · delay | Veille douce · délai | Suspensión suave · retraso | `:1179` |
-| ☐ | Soft sleep · brightness | Veille douce · lum. | Suspensión suave · brillo | `:1188` |
-| ☐ | Soft sleep · brightness | Veille douce · lum. | Suspensión suave · brillo | `:1198` |
-| ☐ | Deep sleep · enabled | Veille profonde · activée | Suspensión profunda · activada | `:1209` |
-| ☐ | Deep sleep · +delay | Veille profonde · +délai | Suspensión profunda · +retraso | `:1221` |
-| ☐ | Diagnostic | Diagnostic | Diagnóstico | `:1232` |
-| ☐ | Debug panel | Panneau Débogage | Panel depuración | `:1236` |
-| ☐ | (set via DEBUG=true on the service) | (défini par DEBUG=true au service) | (definido por DEBUG=true en el servicio) | `:1239` |
-| ☐ | disabled | désactivée | desactivada | `:1345` |
-| ☐ | On | Allumé | Encendido | `:1355` |
-| ☐ | Soft sleep | Veille douce | Suspensión suave | `:1359` |
-| ☐ | Deep sleep | Veille profonde | Suspensión profunda | `:1363` |
-| ☐ | Tap again — screen blacks ~15 s | Encore — écran noir ~15 s | Otra vez — pantalla negra ~15 s | `:1510` |
-| ☐ | Relaunch kiosk to apply | Relancer le kiosque pour appliquer | Reiniciar el quiosco para aplicar | `:1511` |
-| ☐ | Applied live · stored on this device | Appliqué en direct · stocké sur cet appareil | Aplicado en vivo · guardado en este dispositivo | `:1567` |
-| ☐ | Optional · stored on this device, never in the app | Facultatif · stocké sur cet appareil, jamais dans l'application | Opcional · guardado en este dispositivo, nunca en la app | `:1574` |
-| ☐ | Keys & coordinates saved together via Save | Clés et coordonnées enregistrées ensemble via Enregistrer | Claves y coordenadas guardadas juntas con Guardar | `:1578` |
-| ☐ | Each setting saved on this device on change | Chaque réglage enregistré sur cet appareil au changement | Cada ajuste se guarda en este dispositivo al cambiar | `:1585` |
-| ☐ | Each setting saved to settings.json on change | Chaque réglage enregistré dans settings.json au changement | Cada ajuste se guarda en settings.json al cambiar | `:1589` |
-| ☐ | Remote connection detected. To change these settings, open an SSH tunnel from your local machine and reload the app from https://localhost:8443. | Connexion distante détectée. Pour modifier ces paramètres, ouvrez un tunnel SSH depuis votre poste local et rechargez l'application depuis https://localhost:8443. | Conexión remota detectada. Para modificar estos ajustes, abra un túnel SSH desde su equipo local y recargue la app desde https://localhost:8443. | `:1623` |
-| ☐ | Copy command | Copier la commande | Copiar comando | `:1634` |
-| ☐ | Copy command | Copier la commande | Copiar comando | `:1635` |
-| ☐ | Copied! | Copié ! | ¡Copiado! | `:1638` |
-| ☐ | Copy | Copier | Copiar | `:1639` |
+| ☐ | Advanced | Avancé | Avanzado | `:1042` |
+| ☐ | Display · alerts | Affichage · alertes | Pantalla · alertas | `:1044` |
+| ☐ | Display · alerts · sleep | Affichage · alertes · veille | Pantalla · alertas · suspensión | `:1045` |
+| ☐ | Display | Affichage | Pantalla | `:1050` |
+| ☐ | Map · light | Carte · clair | Mapa · claro | `:1061` |
+| ☐ | Map · dark | Carte · sombre | Mapa · oscuro | `:1072` |
+| ☐ | Radar palette | Palette radar | Paleta del radar | `:1088` |
+| ☐ | Radar opacity · light | Opacité radar · clair | Opacidad radar · claro | `:1097` |
+| ☐ | Radar opacity · dark | Opacité radar · sombre | Opacidad radar · oscuro | `:1107` |
+| ☐ | Nearby alerts | Alertes à proximité | Alertas cercanas | `:1120` |
+| ☐ | Alert radius | Rayon d'alerte | Radio de alerta | `:1126` |
+| ☐ | Sleep | Veille | Suspensión | `:1149` |
+| ☐ | Enable sleep | Activer la veille | Activar suspensión | `:1167` |
+| ☐ | Red text at night | Texte rouge nuit | Texto rojo de noche | `:1173` |
+| ☐ | Soft sleep · delay | Veille douce · délai | Suspensión suave · retraso | `:1181` |
+| ☐ | Soft sleep · brightness | Veille douce · lum. | Suspensión suave · brillo | `:1190` |
+| ☐ | Soft sleep · brightness | Veille douce · lum. | Suspensión suave · brillo | `:1200` |
+| ☐ | Deep sleep · enabled | Veille profonde · activée | Suspensión profunda · activada | `:1211` |
+| ☐ | Deep sleep · +delay | Veille profonde · +délai | Suspensión profunda · +retraso | `:1223` |
+| ☐ | Wake for warnings at home | Réveil pour les avertissements | Despertar por avisos en casa | `:1237` |
+| ☐ | Severe | Violents | Severos | `:1239` |
+| ☐ | Tornado only | Tornade seul. | Solo tornado | `:1240` |
+| ☐ | Off | Non | No | `:1241` |
+| ☐ | Quiet hours · tornado only | Heures calmes · tornade seul. | Horas de silencio · solo tornado | `:1248` |
+| ☐ | Off | Non | No | `:1250` |
+| ☐ | When a warning covers your location the screen wakes and stays on until it ends. Severe: tornado, severe thunderstorm, flash flood, extreme wind, snow squall and tsunami warnings. During quiet hours only tornado, extreme wind and tsunami warnings wake it. | Quand un avertissement couvre votre position, l'écran se réveille et reste allumé jusqu'à sa fin. Violents : tornade, orage violent, crue éclair, vents extrêmes, bourrasques de neige et tsunami. Pendant les heures calmes, seuls tornade, vents extrêmes et tsunami le réveillent. | Cuando un aviso cubre su ubicación, la pantalla se enciende y sigue encendida hasta que termine. Severos: tornado, tormenta severa, inundación repentina, viento extremo, ráfagas de nieve y tsunami. En horas de silencio solo tornado, viento extremo y tsunami la despiertan. | `:1261` |
+| ☐ | Diagnostic | Diagnostic | Diagnóstico | `:1270` |
+| ☐ | Debug panel | Panneau Débogage | Panel depuración | `:1274` |
+| ☐ | (set via DEBUG=true on the service) | (défini par DEBUG=true au service) | (definido por DEBUG=true en el servicio) | `:1277` |
+| ☐ | disabled | désactivée | desactivada | `:1383` |
+| ☐ | On | Allumé | Encendido | `:1393` |
+| ☐ | Soft sleep | Veille douce | Suspensión suave | `:1397` |
+| ☐ | Deep sleep | Veille profonde | Suspensión profunda | `:1401` |
+| ☐ | Tap again — screen blacks ~15 s | Encore — écran noir ~15 s | Otra vez — pantalla negra ~15 s | `:1548` |
+| ☐ | Relaunch kiosk to apply | Relancer le kiosque pour appliquer | Reiniciar el quiosco para aplicar | `:1549` |
+| ☐ | Applied live · stored on this device | Appliqué en direct · stocké sur cet appareil | Aplicado en vivo · guardado en este dispositivo | `:1605` |
+| ☐ | Optional · stored on this device, never in the app | Facultatif · stocké sur cet appareil, jamais dans l'application | Opcional · guardado en este dispositivo, nunca en la app | `:1612` |
+| ☐ | Keys & coordinates saved together via Save | Clés et coordonnées enregistrées ensemble via Enregistrer | Claves y coordenadas guardadas juntas con Guardar | `:1616` |
+| ☐ | Each setting saved on this device on change | Chaque réglage enregistré sur cet appareil au changement | Cada ajuste se guarda en este dispositivo al cambiar | `:1623` |
+| ☐ | Each setting saved to settings.json on change | Chaque réglage enregistré dans settings.json au changement | Cada ajuste se guarda en settings.json al cambiar | `:1627` |
+| ☐ | Remote connection detected. To change these settings, open an SSH tunnel from your local machine and reload the app from https://localhost:8443. | Connexion distante détectée. Pour modifier ces paramètres, ouvrez un tunnel SSH depuis votre poste local et rechargez l'application depuis https://localhost:8443. | Conexión remota detectada. Para modificar estos ajustes, abra un túnel SSH desde su equipo local y recargue la app desde https://localhost:8443. | `:1661` |
+| ☐ | Copy command | Copier la commande | Copiar comando | `:1672` |
+| ☐ | Copy command | Copier la commande | Copiar comando | `:1673` |
+| ☐ | Copied! | Copié ! | ¡Copiado! | `:1676` |
+| ☐ | Copy | Copier | Copiar | `:1677` |
 
 ## DebugPanel
 
