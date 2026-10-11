@@ -78,7 +78,8 @@ const TOP_LEVEL_DECL_RE = /^(?:export\s+)?(?:async\s+)?(?:function\s+(\w+)\s*\(|
 // +3 (2026-10-07): iemRadar's tile URL / frame builders (versioned URLs).
 // +3 (2026-10-07): the reflectivity mosaic's max pyramid (mosaicPyramid).
 // +2 (2026-10-09): hover readout lookups (irKelvinAt, reflDbzAt).
-const EXPECTED_CHECK_COUNT = 89;
+// +1 (2026-10-11): mrmsReady (MRMS falls back when no frame decodes).
+const EXPECTED_CHECK_COUNT = 90;
 
 /**
  * The four copy-carrying test files and how to find their copies.

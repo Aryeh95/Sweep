@@ -59,6 +59,31 @@ export function mrmsUsable(list, nowMs, staleMs = MRMS_STALE_MS) {
 }
 
 /**
+ * Should the map draw MRMS (rather than fall back to IEM) right now?
+ * The file LIST being fresh is not enough: what matters is whether there
+ * is a decoded frame to paint. A frame that failed to load left MRMS
+ * selected with nothing on screen until the next file (~2 min), and since
+ * every new file reset the failure count, a run of bad frames never
+ * reached the fallback at all (review finding, 2026-10-11).
+ *
+ * @param {object} s state
+ * @param {Array<{epoch: Number}>|null} s.list MRMS files, oldest first
+ * @param {Boolean} s.listFailed the last list request failed
+ * @param {Number} s.frameFailures consecutive frame-load failures (reset only by a success)
+ * @param {String|null} s.fieldValidTime valid time of the decoded frame on hand, if any
+ * @param {Number} s.nowMs current time
+ * @param {Number} [maxFailures] failures after which MRMS counts as down
+ * @param {Number} [staleMs] age beyond which a file or frame is too old
+ * @returns {Boolean} true to draw MRMS
+ */
+export function mrmsReady({ list, listFailed, frameFailures, fieldValidTime, nowMs }, maxFailures = 2, staleMs = MRMS_STALE_MS) {
+  if (listFailed || !mrmsUsable(list, nowMs, staleMs) || frameFailures >= maxFailures) return false;
+  // No frame yet: MRMS only while the first one is still loading cleanly.
+  if (!fieldValidTime) return frameFailures === 0;
+  return nowMs - Date.parse(fieldValidTime) <= staleMs;
+}
+
+/**
  * Reflectivity of a decoded MRMS mosaic field at a point — the hover
  * readout. The field is the N0Q byte scale (dBZ = level / 2 − 32.5,
  * 0 = no echo) with cell-centre geometry, rows running south.

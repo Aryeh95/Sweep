@@ -1,8 +1,8 @@
 // Regression tests for the single-flight guard (server/singleFlight.js),
 // which protects /api/update from overlapping `git pull` + `npm ci` runs.
 // The contract: first request passes through; a request arriving while one is
-// in flight gets a 409; the lock releases when the response settles (finish
-// or client close) so a failed run can be retried.
+// in flight gets a 409; the lock releases when the handler sends its final
+// response, so a failed run can be retried — never on a client close.
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -62,11 +62,24 @@ test("the lock releases when the first response finishes, allowing a retry", () 
   assert.equal(res2.statusCode, 200);
 });
 
-test("the lock also releases when the client disconnects (close event)", () => {
+test("a client disconnect does NOT release the lock; the handler's final response does", () => {
+  // Review finding (2026-10-11): closing the tab mid-update freed the lock
+  // while git pull / npm ci were still running, so a retry could start a
+  // second update on the same checkout.
   const guard = createSingleFlightGuard();
   const res1 = fakeRes();
+  let ended = 0;
+  res1.end = () => { ended += 1; return res1; };
   guard({}, res1, () => {});
-  res1.emit("close");
+  res1.emit("close");                   // tab closed / connection lost
+  assert.equal(guard.isBusy(), true, "the operation is still running");
+  const res2 = fakeRes();
+  let nexted2 = false;
+  guard({}, res2, () => { nexted2 = true; });
+  assert.equal(nexted2, false, "a retry during the running update is refused");
+  assert.equal(res2.statusCode, 409);
+  res1.end();                           // the update finishes and responds
+  assert.equal(ended, 1, "the original end still runs");
   assert.equal(guard.isBusy(), false);
 });
 

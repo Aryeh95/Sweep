@@ -822,8 +822,9 @@ app.all("/api/update-check/force", localhostOnly, async (req, res) => {
 // Concurrency guard: a second /api/update while one is still running would
 // fire a second `git pull` + `npm ci` against the same checkout and can
 // corrupt the working tree / node_modules. Reject overlapping invocations
-// with a 409; the lock auto-releases when the response settles (so a failed
-// update can be retried immediately).
+// with a 409. The lock is held until this handler sends its final response
+// — i.e. until the pull and install have finished or failed — and NOT
+// released when the client disconnects, which does not stop them.
 const updateGuard = createSingleFlightGuard({
   reason: "update-in-progress",
   message: "An update is already running on this device. Wait for it to finish, then retry.",

@@ -58,6 +58,31 @@ function mrmsUsable(list, nowMs, staleMs = MRMS_STALE_MS) {
 }
 
 /**
+ * Should the map draw MRMS (rather than fall back to IEM) right now?
+ * The file LIST being fresh is not enough: what matters is whether there
+ * is a decoded frame to paint. A frame that failed to load left MRMS
+ * selected with nothing on screen until the next file (~2 min), and since
+ * every new file reset the failure count, a run of bad frames never
+ * reached the fallback at all (review finding, 2026-10-11).
+ *
+ * @param {object} s state
+ * @param {Array<{epoch: Number}>|null} s.list MRMS files, oldest first
+ * @param {Boolean} s.listFailed the last list request failed
+ * @param {Number} s.frameFailures consecutive frame-load failures (reset only by a success)
+ * @param {String|null} s.fieldValidTime valid time of the decoded frame on hand, if any
+ * @param {Number} s.nowMs current time
+ * @param {Number} [maxFailures] failures after which MRMS counts as down
+ * @param {Number} [staleMs] age beyond which a file or frame is too old
+ * @returns {Boolean} true to draw MRMS
+ */
+function mrmsReady({ list, listFailed, frameFailures, fieldValidTime, nowMs }, maxFailures = 2, staleMs = MRMS_STALE_MS) {
+  if (listFailed || !mrmsUsable(list, nowMs, staleMs) || frameFailures >= maxFailures) return false;
+  // No frame yet: MRMS only while the first one is still loading cleanly.
+  if (!fieldValidTime) return frameFailures === 0;
+  return nowMs - Date.parse(fieldValidTime) <= staleMs;
+}
+
+/**
  * Reflectivity of a decoded MRMS mosaic field at a point — the hover
  * readout. The field is the N0Q byte scale (dBZ = level / 2 − 32.5,
  * 0 = no echo) with cell-centre geometry, rows running south.
@@ -134,4 +159,22 @@ test("hover readout: dBZ from the N0Q byte under a point, null for no echo or of
   assert.equal(reflDbzAt(field, 30, -100), null); // level 0
   assert.equal(reflDbzAt(field, 31, -100), null);
   assert.equal(reflDbzAt(null, 30, -100), null);
+});
+
+test("mrmsReady: a failed frame with nothing decoded falls back to IEM at once", () => {
+  const now = Date.parse("2026-10-11T12:00:00Z");
+  const list = [{ epoch: now - 2 * 60000 }];
+  // Cold start, first frame still loading: MRMS (no flash of the fallback).
+  assert.equal(mrmsReady({ list, listFailed: false, frameFailures: 0, fieldValidTime: null, nowMs: now }), true);
+  // That frame failed: nothing to paint, so IEM — not a blank map.
+  assert.equal(mrmsReady({ list, listFailed: false, frameFailures: 1, fieldValidTime: null, nowMs: now }), false);
+  // A recent frame on hand survives one failure of the next.
+  assert.equal(mrmsReady({ list, listFailed: false, frameFailures: 1, fieldValidTime: "2026-10-11T11:56:00Z", nowMs: now }), true);
+  // A run of failures reaches the fallback even with a frame on hand.
+  assert.equal(mrmsReady({ list, listFailed: false, frameFailures: 2, fieldValidTime: "2026-10-11T11:56:00Z", nowMs: now }), false);
+  // A fresh list cannot keep an old frame on screen.
+  assert.equal(mrmsReady({ list, listFailed: false, frameFailures: 1, fieldValidTime: "2026-10-11T11:45:00Z", nowMs: now }), false);
+  // List failure or a stale list: IEM, as before.
+  assert.equal(mrmsReady({ list, listFailed: true, frameFailures: 0, fieldValidTime: "2026-10-11T11:59:00Z", nowMs: now }), false);
+  assert.equal(mrmsReady({ list: [{ epoch: now - 15 * 60000 }], listFailed: false, frameFailures: 0, fieldValidTime: null, nowMs: now }), false);
 });

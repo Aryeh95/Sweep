@@ -611,8 +611,8 @@ function writeSettingsFileCb(obj, cb) {
  * latitude / longitude as three PATCHes fired together; the `startingLat`
  * write landed last with the old `radarSite: "TBW"` it had read, and the
  * pick came back. Each wrapped handler starts only after the previous one
- * has finished its response (`finish` / `close`), so its read sees every
- * earlier write.
+ * has ENDED its response — its write has landed or failed; a client
+ * disconnect does not count — so its read sees every earlier write.
  *
  * @param {Function} handler (req, res) express handler
  * @returns {Function} the same handler, queued behind the previous write
@@ -621,9 +621,18 @@ let writeQueue = Promise.resolve();
 function serializeWrites(handler) {
   return (req, res) => {
     const run = () => new Promise((resolve) => {
-      if (res && typeof res.once === "function") {
-        res.once("finish", resolve);
-        res.once("close", resolve);
+      // Done when the handler ENDS its response — after its write has
+      // landed or failed — not on a client disconnect, which would let the
+      // next writer read the file before this write reached it.
+      if (res && typeof res.end === "function") {
+        const origEnd = res.end;
+        res.end = function endAndRelease(...args) {
+          res.end = origEnd;
+          resolve();
+          return origEnd.apply(this, args);
+        };
+      } else {
+        resolve();
       }
       try {
         handler(req, res);
@@ -631,7 +640,6 @@ function serializeWrites(handler) {
         resolve();
         throw err;
       }
-      if (!res || typeof res.once !== "function") resolve();
     });
     const next = writeQueue.then(run, run);
     writeQueue = next.catch(() => undefined);

@@ -5,8 +5,9 @@
 // `npm ci` is the motivating case: two of those running at once on the same
 // checkout can corrupt node_modules / the working tree. The guard lets the
 // first request through and 409s any request that arrives while one is still
-// in flight, auto-releasing when the response finishes (or the client
-// disconnects) so a failed run can simply be retried.
+// in flight, releasing when the handler sends its final response (so a
+// failed run can simply be retried) — NOT when the client disconnects, since
+// a disconnect does not stop the operation.
 //
 // `createPerPeerConcurrencyGuard` instead caps how many requests a single
 // remote peer may have in flight at once on a resource-amplifying endpoint
@@ -36,18 +37,29 @@ function createSingleFlightGuard(opts = {}) {
       return res.status(409).json({ error: true, reason, message });
     }
     busy = true;
-    // Release once this response settles, however it settles: a normal
-    // finish, an error response, or the client hanging up early. On the first
-    // fire, detach BOTH listeners so a later `close` from this same (already
-    // finished) response can never release a *subsequent* request's lock —
-    // the guard stays correct even when reused on a concurrent endpoint.
+    // Release when the HANDLER finishes — when it ends its response, which
+    // the updater does only after `git pull` / `npm ci` have completed or
+    // failed — never on a client disconnect. Releasing on `close` (as this
+    // did until 2026-10-11) let a closed tab or a dropped connection free
+    // the lock while the child processes were still running, so a retry
+    // could start a second pull + install on the same checkout — the
+    // corruption this guard exists to prevent (review finding). `finish`
+    // stays as a second trigger; release is idempotent and detaches
+    // itself, so a late event from this response can never free a LATER
+    // request's lock.
+    const origEnd = typeof res.end === "function" ? res.end : null;
     const release = () => {
+      if (origEnd && res.end !== origEnd) res.end = origEnd;
       busy = false;
       res.removeListener("finish", release);
-      res.removeListener("close", release);
     };
+    if (origEnd) {
+      res.end = function endAndRelease(...args) {
+        release();
+        return origEnd.apply(this, args);
+      };
+    }
     res.once("finish", release);
-    res.once("close", release);
     return next();
   }
 

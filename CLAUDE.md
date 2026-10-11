@@ -1118,6 +1118,32 @@ Also from the same report:
   every upstream routed through curl (sandbox Chromium has no network).
   Seed `sweep.app.settings.v1` and `lastPosition` in localStorage.
 
+### External review of 2.13.13 (2026-10-11)
+
+Four findings, all confirmed against the source; two were already fixed
+(radial generation guard in 2.13.14, settings write serialisation in
+2.13.15). The rest, fixed in 2.13.16:
+- **Update lock** (`singleFlight.js`) now releases when the handler ENDS
+  its response (wraps `res.end`, plus `finish`), never on `close`: a
+  closed tab does not stop `git pull` / `npm ci`. The settings write queue
+  uses the same end-based release.
+- **MRMS readiness is about the decoded FRAME, not the list.**
+  `mrmsReady` (mosaicSource.js, verbatim-tested): fresh list AND (a decoded
+  frame ≤ 10 min old, or the first frame still loading with no failure).
+  Frame fetches are gated on the list being healthy, NOT on `usable` —
+  otherwise a failure streak could never clear without the old
+  reset-on-every-new-file, which also meant repeated failures never
+  reached IEM. Failed frames retry every 20 s; the stamp is marked loaded
+  only after it decodes.
+- **Clean-mode hold is per site + product** (`heldIdRef` in
+  useRadarRadial): switching LWX → DOX used to keep LWX's clean disc up to
+  `CLEAN_HOLD_MAX_MS` under a DOX chip.
+- Not done (noted): async hook tests with deferred requests (the bugs
+  above were all response-ORDER bugs that pure-helper tests cannot see),
+  in-flight dedup for radial decodes, splitting updater / TLS out of
+  index.js for route tests, and an origin / CSRF check on the localhost
+  mutation endpoints (socket locality is the only gate today).
+
 ### Idle polling — DONE (2026-09-03)
 
 `pollingPaused = sleepStage > 0 || document.hidden`, published on

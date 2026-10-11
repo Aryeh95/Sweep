@@ -384,7 +384,7 @@ test("serializeWrites: concurrent read-modify-write handlers lose no update", as
       await tick(req.readMs);
       file = { ...current, [req.key]: req.val };
       await tick(1);
-      res.emit("finish");
+      res.end();
     })();
   };
   const fire = (handler) => Promise.all([
@@ -393,7 +393,7 @@ test("serializeWrites: concurrent read-modify-write handlers lose no update", as
     { key: "startingLon", val: -76.62, readMs: 10 },
   ].map((req) => new Promise((done) => {
     const res = new EventEmitter();
-    res.once("finish", done);
+    res.end = () => { done(); return res; };
     handler(req, res);
   })));
 
@@ -404,4 +404,27 @@ test("serializeWrites: concurrent read-modify-write handlers lose no update", as
   file = { radarSite: "TBW", startingLat: 27.77, startingLon: -82.77 };
   await fire(serializeWrites(rmw));
   assert.deepEqual(file, { radarSite: "", startingLat: 39.4, startingLon: -76.62 });
+});
+
+test("serializeWrites: a client disconnect does not let the next writer in early", async () => {
+  const { EventEmitter } = require("node:events");
+  const { serializeWrites } = require("../server/settingsCtrl").__test;
+  const order = [];
+  let finishFirst;
+  const slow = serializeWrites((req, res) => {
+    order.push("first:start");
+    finishFirst = () => { order.push("first:end"); res.end(); };
+  });
+  const fast = serializeWrites((req, res) => { order.push("second:start"); res.end(); });
+  const res1 = new EventEmitter(); res1.end = () => res1;
+  const res2 = new EventEmitter(); res2.end = () => res2;
+  slow({}, res1);
+  const second = fast({}, res2);
+  await new Promise((r) => setTimeout(r, 5));
+  res1.emit("close");                       // client went away mid-write
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(order, ["first:start"], "the second write waits for the first to finish");
+  finishFirst();
+  await second;
+  assert.deepEqual(order, ["first:start", "first:end", "second:start"]);
 });

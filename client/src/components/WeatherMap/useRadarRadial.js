@@ -106,10 +106,21 @@ export default function useRadarRadial({
   const retriesRef = useRef(0);
   // scanTime of the clean frame on screen, or null when it is not clean.
   const cleanFrameRef = useRef(null);
+  // Site + product the held clean frame belongs to. The hold bridges the
+  // gap until THIS radar's classification lands; it must never carry one
+  // radar's picture over to another (review finding, 2026-10-11: switching
+  // LWX → DOX in clean mode could keep LWX's disc up for 10 min under a
+  // "DOX" chip).
+  const heldIdRef = useRef(null);
 
   useEffect(() => {
     genRef.current += 1;
     const gen = genRef.current;
+    const frameId = `${site}|${product}`;
+    if (heldIdRef.current !== frameId) {
+      heldIdRef.current = frameId;
+      cleanFrameRef.current = null;
+    }
 
     const publish = (url, bounds, scanTime, cleanApplied = null, unavailable = null) => {
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);

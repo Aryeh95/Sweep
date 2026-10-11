@@ -7,18 +7,21 @@
 // 1 km CONUS grid deflated) and keeps it DECODED (7000 × 3500 bytes,
 // ~24.5 MB) for PrecipMosaicLayer to paint the viewport from. `usable`
 // goes false — and WeatherMap falls back to IEM — when the list fails,
-// the newest file is older than MRMS_STALE_MS, or frames repeatedly fail
-// to load.
+// the newest file is older than MRMS_STALE_MS, frames repeatedly fail to
+// load, or there is no recent decoded frame to paint (mrmsReady). A failed
+// frame is retried every FRAME_RETRY_MS while IEM covers for it.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { inflate } from "pako";
 import { decodeBins } from "./radialRender";
-import { mrmsUsable, pickMrmsFrames } from "~/ui/mosaicSource";
+import { mrmsReady, mrmsUsable, pickMrmsFrames } from "~/ui/mosaicSource";
 
 const LIST_REFRESH_MS = 60 * 1000;
 // Consecutive frame-load failures after which MRMS is treated as down.
 const MAX_FRAME_FAILURES = 2;
+// A failed frame is fetched again after this long — while IEM covers for it.
+const FRAME_RETRY_MS = 20 * 1000;
 
 /**
  * Decode a refl-mosaic payload into a paintable field.
@@ -80,32 +83,51 @@ export default function useReflMosaic({ enabled, liveEnabled, paused = false }) 
     };
   }, [enabled, paused]);
 
-  const usable = enabled && !listFailed && frameFailures < MAX_FRAME_FAILURES && mrmsUsable(list, now);
+  // Whether to draw MRMS: a fresh list AND a decoded frame to paint (or the
+  // first one still loading cleanly) — see mrmsReady.
+  const usable = enabled && mrmsReady({
+    list, listFailed, frameFailures, fieldValidTime: field ? field.validTime : null, nowMs: now,
+  }, MAX_FRAME_FAILURES);
   const newestStamp = list && list.length ? list[list.length - 1].stamp : null;
+  // Frames keep loading while the LIST is healthy, even when IEM is on
+  // screen because frames failed: a success is what brings MRMS back. (It
+  // used to be gated on `usable`, so a failure streak could only clear by
+  // resetting the count on every new file — which also meant a run of bad
+  // frames never reached the fallback.)
+  const listOk = enabled && !listFailed && mrmsUsable(list, now);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
-    if (!usable || !liveEnabled || !newestStamp || paused) return undefined;
+    if (!listOk || !liveEnabled || !newestStamp || paused) return undefined;
     if (fieldKeyRef.current === newestStamp) return undefined;
     let cancelled = false;
+    let retry = null;
+    const fail = () => {
+      if (cancelled) return;
+      setFrameFailures((n) => n + 1);
+      retry = setTimeout(() => setRetryTick((n) => n + 1), FRAME_RETRY_MS);
+    };
     axios.get("/api/radar/refl-mosaic", { params: { stamp: newestStamp } })
       .then((res) => {
         if (cancelled) return;
         const d = res.data || {};
         if (!d.available || !d.data) {
-          setFrameFailures((n) => n + 1);
+          fail();
           return;
         }
+        // Decode BEFORE marking the stamp loaded: a payload that fails to
+        // inflate must stay eligible for the retry.
+        const decoded = decodeReflPayload(d);
         fieldKeyRef.current = newestStamp;
-        setField(decodeReflPayload(d));
+        setField(decoded);
         setFrameFailures(0);
       })
-      .catch(() => { if (!cancelled) setFrameFailures((n) => n + 1); });
-    return () => { cancelled = true; };
-  }, [usable, liveEnabled, newestStamp, paused]);
-
-  // A failure streak is worth retrying once the list moves on (a new file
-  // may load fine); without this one bad file would pin IEM forever.
-  useEffect(() => { setFrameFailures(0); }, [newestStamp]);
+      .catch(fail);
+    return () => {
+      cancelled = true;
+      clearTimeout(retry);
+    };
+  }, [listOk, liveEnabled, newestStamp, paused, retryTick]);
 
   const frames = useMemo(() => pickMrmsFrames(list || []), [list]);
   const pending = enabled && list === null && !listFailed;

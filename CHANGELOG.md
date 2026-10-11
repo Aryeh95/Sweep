@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed (2026-10-11, from an external review of 2.13.13)
+- **The in-app update could run twice.** The update lock released when the HTTP connection closed, but closing the tab or losing the connection does not stop `git pull` / `npm ci`, so a retry could start a second update on the same checkout — the corruption the lock exists to prevent. It is now held until the update handler sends its final answer (`server/singleFlight.js`; a disconnect leaves it locked).
+- **A failed MRMS frame left the low-zoom radar blank.** One failed frame kept MRMS selected with nothing decoded and was never retried; the map showed nothing until the next file (~2 min), and because each new file reset the failure count, a run of bad frames never reached the IEM fallback. MRMS is now drawn only while a recent decoded frame exists (`mrmsReady`, tested); a failed frame switches to IEM at once and is retried every 20 s, and MRMS returns on the first success. Verified in Playwright: first frame forced to 503 → IEM tiles within 1 s → retry at 20 s → back on MRMS, IEM requests stop.
+- **Clean mode could hold the previous radar's picture after a site change** (up to 10 min, under the new site's chip). The held clean frame is now tied to its site and product.
+- **The settings write queue** (2.13.15) waits for each write to finish rather than for the client connection to close.
+The review's other two findings were already fixed by 2.13.14 (stale radial answers) and 2.13.15 (concurrent settings writes). App 2.13.16 (versionCode 33).
+
 ### Fixed (2026-10-11, second report)
 - **Locate kept the old city's radar.** Phone report (Baltimore, 8:12 local): after pressing locate the pin and map were on Baltimore but the radar, tracks and nowcast stayed on TBW (Tampa Bay). Two causes, both fixed:
   - *The map's view tracker missed the move.* At site zoom the radar follows the map VIEW, and the tracker learns the view from Leaflet's `moveend`. It subscribed through react-leaflet's `useMapEvents` with an inline handler, which detaches and re-attaches on every render; React runs a commit's effect cleanups before its new effects, so the locate pan (fired from the pan handler's effect in the same commit) landed in that gap. The view stayed in Florida until a manual pan. Traced with logging in the app bundle: map centre 39.40 after the pan, no `moveend` delivered. Every map listener now goes through `WeatherMap/useStableMapEvents`, which binds once and calls the latest handler — this also covers the MRMS mosaic's repaint (`moveend`) and the zoom tracker (`zoomend`), which had the same exposure. `test/stableMapEvents.test.js` keeps `useMapEvents` out of the client.
