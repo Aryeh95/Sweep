@@ -32,4 +32,25 @@ function socketPeerKeyGenerator(req) {
   return ipKeyGenerator(peer);
 }
 
-module.exports = { socketPeerKeyGenerator };
+const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+
+/**
+ * express-rate-limit `skip`: exempt the device's own kiosk (a loopback
+ * socket peer — again never req.ip, which X-Forwarded-For can forge).
+ *
+ * The limiters exist to brake remote/LAN clients. The kiosk itself
+ * outgrew 120 requests a minute once the loop warm-up (radials, IR and
+ * mosaic frames), the pollers and the nowcast card's own lightning poll
+ * all ran together — the likeliest reason the card read "Nowcast
+ * unavailable" under a live storm line (kiosk photo, 2026-10-11) while
+ * the same request answered fine from outside. An SSH tunnel also arrives from loopback and is exempt
+ * too — it is the owner by construction.
+ *
+ * @param {Object} req Express request.
+ * @returns {Boolean} true when the request should not be counted
+ */
+function skipLoopbackPeer(req) {
+  return LOOPBACK.has(req?.socket?.remoteAddress);
+}
+
+module.exports = { socketPeerKeyGenerator, skipLoopbackPeer };

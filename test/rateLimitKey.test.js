@@ -52,3 +52,13 @@ test("a missing socket peer collapses to a single shared bucket (never undefined
   assert.equal(a, "unknown-peer");
   assert.equal(b, "unknown-peer");
 });
+
+test("skipLoopbackPeer exempts the device's own kiosk, by socket peer only", () => {
+  const { skipLoopbackPeer } = require("../server/rateLimitKey");
+  assert.equal(skipLoopbackPeer(fakeReq({ peer: "127.0.0.1" })), true);
+  assert.equal(skipLoopbackPeer(fakeReq({ peer: "::1" })), true);
+  assert.equal(skipLoopbackPeer(fakeReq({ peer: "::ffff:127.0.0.1" })), true);
+  // A forged X-Forwarded-For (req.ip) never earns the exemption.
+  assert.equal(skipLoopbackPeer(fakeReq({ peer: "192.168.1.20", ip: "127.0.0.1" })), false);
+  assert.equal(skipLoopbackPeer(fakeReq({ peer: undefined, ip: "127.0.0.1" })), false);
+});

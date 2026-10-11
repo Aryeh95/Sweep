@@ -10,7 +10,23 @@ import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 
 const POLL_INTERVAL_MS = 60 * 1000;
+// After a failure with nothing on screen, try again sooner: a blank card
+// for a full minute is the worst state the card has.
+const RETRY_EMPTY_MS = 15 * 1000;
 const QUANT_DEG = 0.01;
+
+/**
+ * Why a request failed, in the card's terms.
+ *
+ * @param {Object} err axios error
+ * @returns {"busy"|"server"|"offline"}
+ */
+export function nowcastErrorKind(err) {
+  const status = err && err.response ? err.response.status : null;
+  if (status === 429) return "busy";
+  if (status) return "server";
+  return "offline";
+}
 
 /**
  * Keep the current nowcast for a home point.
@@ -21,10 +37,10 @@ const QUANT_DEG = 0.01;
  * @param {String} [params.site] manual site override ("" for automatic)
  * @param {Boolean} params.enabled false stops polling and clears
  * @param {Boolean} [params.paused] true suspends polling but keeps the last answer
- * @returns {{data: Object|null, fetchedAt: Number|null, stale: Boolean, loading: Boolean}}
+ * @returns {{data: Object|null, fetchedAt: Number|null, stale: Boolean, loading: Boolean, error: String|null}}
  */
 export default function useNowcast({ latitude, longitude, site = "", enabled, paused = false }) {
-  const [state, setState] = useState({ data: null, fetchedAt: null, stale: false, loading: false });
+  const [state, setState] = useState({ data: null, fetchedAt: null, stale: false, loading: false, error: null });
   // Bumped by every effect run and cleanup; an answer is committed only if
   // the generation it was requested under is still current. A shared
   // `cancelled` boolean is NOT enough: the cleanup sets it, the next run
@@ -35,6 +51,8 @@ export default function useNowcast({ latitude, longitude, site = "", enabled, pa
   const genRef = useRef(0);
   // The pin / site the answer on screen was requested for.
   const shownKeyRef = useRef(null);
+  // Whether an answer is on screen — picks the retry delay after a failure.
+  const hasDataRef = useRef(false);
 
   const latKey = latitude != null ? Math.round(latitude / QUANT_DEG) : null;
   const lonKey = longitude != null ? Math.round(longitude / QUANT_DEG) : null;
@@ -44,7 +62,8 @@ export default function useNowcast({ latitude, longitude, site = "", enabled, pa
     const gen = genRef.current;
     if (!enabled || latKey == null || lonKey == null) {
       shownKeyRef.current = null;
-      setState({ data: null, fetchedAt: null, stale: false, loading: false });
+      hasDataRef.current = false;
+      setState({ data: null, fetchedAt: null, stale: false, loading: false, error: null });
       return () => { genRef.current += 1; };
     }
     if (paused) return () => { genRef.current += 1; };
@@ -58,30 +77,35 @@ export default function useNowcast({ latitude, longitude, site = "", enabled, pa
       setState((prev) => (prev.data ? prev : { ...prev, loading: true }));
     } else {
       shownKeyRef.current = key;
-      setState({ data: null, fetchedAt: null, stale: false, loading: true });
+      hasDataRef.current = false;
+      setState({ data: null, fetchedAt: null, stale: false, loading: true, error: null });
     }
 
+    let timer = null;
     const fetchNowcast = () => {
       const params = { lat, lon };
       if (site) params.site = site;
       axios.get("/api/radar/nowcast", { params })
         .then((res) => {
           if (genRef.current !== gen) return;
-          setState({ data: res.data || null, fetchedAt: Date.now(), stale: false, loading: false });
+          hasDataRef.current = Boolean(res.data);
+          setState({ data: res.data || null, fetchedAt: Date.now(), stale: false, loading: false, error: null });
+          timer = setTimeout(fetchNowcast, POLL_INTERVAL_MS);
         })
-        .catch(() => {
+        .catch((err) => {
           if (genRef.current !== gen) return;
           // Keep the last answer, flagged: a stale nowcast is still more
-          // useful than none, as long as it says so.
-          setState((prev) => ({ ...prev, stale: true, loading: false }));
+          // useful than none, as long as it says so. With nothing on
+          // screen, say why and retry sooner.
+          setState((prev) => ({ ...prev, stale: true, loading: false, error: nowcastErrorKind(err) }));
+          timer = setTimeout(fetchNowcast, hasDataRef.current ? POLL_INTERVAL_MS : RETRY_EMPTY_MS);
         });
     };
 
     fetchNowcast();
-    const id = setInterval(fetchNowcast, POLL_INTERVAL_MS);
     return () => {
       genRef.current += 1;
-      clearInterval(id);
+      clearTimeout(timer);
     };
   }, [enabled, paused, latKey, lonKey, site]);
 

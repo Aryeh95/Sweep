@@ -143,7 +143,7 @@ const NowcastPanel = ({ compact = false }) => {
   const { pollingPaused, radarSite } = useContext(SystemContext);
   const { speedUnit, distanceUnit, lengthUnit, clockTime, darkMode } = useContext(UiPrefsContext);
 
-  const { data, stale, loading } = useNowcast({
+  const { data, stale, loading, error } = useNowcast({
     latitude: mapGeo ? mapGeo.latitude : null,
     longitude: mapGeo ? mapGeo.longitude : null,
     site: radarSite || "",
@@ -224,6 +224,7 @@ const NowcastPanel = ({ compact = false }) => {
       <section className={cardClass} aria-label={t("nowcast.title")}>
         <header className={styles.head}><span className={styles.title}>{t("nowcast.title")}</span></header>
         <div className={styles.headline}>{loading ? t("nowcast.loading") : t("nowcast.unavailable")}</div>
+        {!loading && error ? <div className={styles.detail}>{t(`nowcast.error.${error}`)}</div> : null}
         {nearHome}
       </section>
     );

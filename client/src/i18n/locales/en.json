@@ -114,6 +114,11 @@
     "unavailable": "Nowcast unavailable",
     "noScans": "No recent scans from {{site}}",
     "tryLater": "The radar feed did not answer — it will retry in a minute",
+    "error": {
+      "busy": "The server is busy — retrying in a few seconds",
+      "server": "The radar feed did not answer — retrying in a few seconds",
+      "offline": "Can't reach the server — retrying in a few seconds"
+    },
     "rainingNow": "Raining now",
     "noRain": "No rain expected in the next {{min}} min",
     "noRainDetail": "No rain echo within {{dist}} is heading this way",

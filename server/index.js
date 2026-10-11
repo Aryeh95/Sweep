@@ -109,7 +109,7 @@ const { recordClient } = require("./clientTracker");
 const { getDebugInfo, getCpuTemp, getFanSpeed, logSecurityEvent, initServerInfo } = debugCtrl;
 const { checkForUpdate, clearCache: clearUpdateCache } = require("./updateChecker");
 const rateLimit = require("express-rate-limit");
-const { socketPeerKeyGenerator } = require("./rateLimitKey");
+const { socketPeerKeyGenerator, skipLoopbackPeer } = require("./rateLimitKey");
 const { securityHeaders } = require("./securityHeaders");
 const { createSingleFlightGuard, createPerPeerConcurrencyGuard } = require("./singleFlight");
 
@@ -505,12 +505,15 @@ if (ALLOW_REMOTE) app.set("trust proxy", 1);
 // Both limiters key on the socket peer (see rateLimitKey.js), NOT req.ip —
 // under `trust proxy` req.ip is X-Forwarded-For-spoofable, which would let a
 // single remote client rotate the header to bypass the limit entirely.
+// Both skip a loopback peer (the device's own kiosk): they are a brake on
+// remote clients, and the kiosk's own burst could starve the nowcast card.
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 120,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: socketPeerKeyGenerator,
+  skip: skipLoopbackPeer,
   message: "Too many requests",
 });
 
@@ -520,6 +523,7 @@ const tileLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: socketPeerKeyGenerator,
+  skip: skipLoopbackPeer,
   message: "Too many requests",
 });
 

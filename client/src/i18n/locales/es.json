@@ -114,6 +114,11 @@
     "unavailable": "Pronóstico inmediato no disponible",
     "noScans": "Sin barridos recientes de {{site}}",
     "tryLater": "El radar no respondió; se reintentará en un minuto",
+    "error": {
+      "busy": "El servidor está ocupado; se reintentará en unos segundos",
+      "server": "El radar no respondió; se reintentará en unos segundos",
+      "offline": "No se puede conectar con el servidor; se reintentará en unos segundos"
+    },
     "rainingNow": "Lloviendo ahora",
     "noRain": "Sin lluvia prevista en los próximos {{min}} min",
     "noRainDetail": "Ningún eco de lluvia en {{dist}} viene hacia aquí",

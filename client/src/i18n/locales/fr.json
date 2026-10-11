@@ -114,6 +114,11 @@
     "unavailable": "Prévision immédiate indisponible",
     "noScans": "Aucun balayage récent de {{site}}",
     "tryLater": "Le radar n'a pas répondu ; nouvel essai dans une minute",
+    "error": {
+      "busy": "Le serveur est occupé ; nouvel essai dans quelques secondes",
+      "server": "Le radar n'a pas répondu ; nouvel essai dans quelques secondes",
+      "offline": "Serveur injoignable ; nouvel essai dans quelques secondes"
+    },
     "rainingNow": "Il pleut",
     "noRain": "Pas de pluie prévue dans les {{min}} prochaines min",
     "noRainDetail": "Aucun écho de pluie à moins de {{dist}} ne se dirige vers ici",

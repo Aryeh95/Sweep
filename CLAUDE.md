@@ -1896,3 +1896,14 @@ here; `isUsableMapboxToken` refuses `sk.` outright.
 - Only built-in `mapbox/*` styles are reachable. The kiosk's proxy also
   resolves a Studio style via CUSTOM_STYLES, which needs the owning
   account — not something a shared public token carries.
+
+### The kiosk is not rate-limited (2026-10-11)
+
+`apiLimiter` (120/min) and `tileLimiter` (600/min) skip a loopback socket
+peer (`skipLoopbackPeer` in `server/rateLimitKey.js`). The kiosk's own
+traffic measured 67 /api requests in a quiet playing minute and 121 with a
+few pans and zooms (each site/band change re-warms ~30 radials), so it was
+429-ing itself and the nowcast card went blank ("Nowcast unavailable") for
+a minute. The card's empty state now names the failure (busy / server /
+offline) and retries after 15 s. Remote clients are still limited, keyed
+and exempted by socket peer only, never `req.ip`.
