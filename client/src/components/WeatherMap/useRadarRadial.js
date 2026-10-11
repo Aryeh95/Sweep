@@ -98,14 +98,18 @@ export default function useRadarRadial({
   // a megabyte into state; `valueAt` closes over it.
   const binsRef = useRef(null);
   const urlRef = useRef(null);
-  const cancelledRef = useRef(false);
+  // Generation of the effect run a response belongs to: bumped by every
+  // run and cleanup, so a slow answer for a previous site / pin is dropped
+  // (a shared `cancelled` boolean is reset by the next run and let it in).
+  const genRef = useRef(0);
   const retryRef = useRef(null);
   const retriesRef = useRef(0);
   // scanTime of the clean frame on screen, or null when it is not clean.
   const cleanFrameRef = useRef(null);
 
   useEffect(() => {
-    cancelledRef.current = false;
+    genRef.current += 1;
+    const gen = genRef.current;
 
     const publish = (url, bounds, scanTime, cleanApplied = null, unavailable = null) => {
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
@@ -130,7 +134,7 @@ export default function useRadarRadial({
       setState({
         url: null, bounds: null, scanTime: null, stale: false, cleanApplied: null, holdingClean: false, unavailable: null, valueAt: null,
       });
-      return () => { cancelledRef.current = true; };
+      return () => { genRef.current += 1; };
     }
     // Paused: keep the rendered image, stop asking for new scans. The
     // effect re-runs on resume and fetches at once.
@@ -153,7 +157,7 @@ export default function useRadarRadial({
       if (dualPolClean) params.clean = 1;
       axios.get("/api/radar/radial", { params })
         .then((res) => {
-          if (cancelledRef.current) return;
+          if (genRef.current !== gen) return;
           const d = res.data || {};
           if (!d.available) {
             // No recent product — clear so the tile fallback shows (or, for
@@ -224,14 +228,14 @@ export default function useRadarRadial({
           const bins = decodeBins(d.bins);
           const { canvas, bounds } = renderRadialImage(d, bins, minDbz, palette);
           canvas.toBlob((blob) => {
-            if (cancelledRef.current || !blob) return;
+            if (genRef.current !== gen || !blob) return;
             lastKeyRef.current = renderKey;
             binsRef.current = { d, bins };
             publish(URL.createObjectURL(blob), bounds, d.scanTime, cleanApplied);
           }, "image/png");
         })
         .catch(() => {
-          if (cancelledRef.current) return;
+          if (genRef.current !== gen) return;
           // Keep the last rendered frame, flagged stale — consistent with
           // the frame-list and storm-track pollers.
           setState((prev) => ({ ...prev, stale: true }));
@@ -241,7 +245,7 @@ export default function useRadarRadial({
     fetchAndRender();
     const id = setInterval(fetchAndRender, POLL_INTERVAL_MS);
     return () => {
-      cancelledRef.current = true;
+      genRef.current += 1;
       clearInterval(id);
       clearRetry();
     };

@@ -20,20 +20,24 @@ const EMPTY = { sites: {}, fetchedAt: null, stale: false };
  */
 export default function useRadarStatus({ enabled, paused = false }) {
   const [state, setState] = useState(EMPTY);
-  const cancelledRef = useRef(false);
+  // Generation of the effect run a response belongs to: bumped by every
+  // run and cleanup, so a slow answer for a previous site / pin is dropped
+  // (a shared `cancelled` boolean is reset by the next run and let it in).
+  const genRef = useRef(0);
 
   useEffect(() => {
-    cancelledRef.current = false;
+    genRef.current += 1;
+    const gen = genRef.current;
     if (!enabled) {
       setState(EMPTY);
-      return () => { cancelledRef.current = true; };
+      return () => { genRef.current += 1; };
     }
     if (paused) return undefined;
 
     const fetchStatus = () => {
       axios.get("/api/radar/status")
         .then((res) => {
-          if (cancelledRef.current) return;
+          if (genRef.current !== gen) return;
           const d = res.data || {};
           if (!d.available) {
             setState((prev) => ({ ...prev, stale: true }));
@@ -42,7 +46,7 @@ export default function useRadarStatus({ enabled, paused = false }) {
           setState({ sites: d.sites || {}, fetchedAt: d.fetchedAt || null, stale: Boolean(d.stale) });
         })
         .catch(() => {
-          if (cancelledRef.current) return;
+          if (genRef.current !== gen) return;
           // Keep the last answer rather than turning every chip back to
           // "fine": an outage that was real an hour ago probably still is.
           setState((prev) => ({ ...prev, stale: true }));
@@ -52,7 +56,7 @@ export default function useRadarStatus({ enabled, paused = false }) {
     fetchStatus();
     const id = setInterval(fetchStatus, POLL_INTERVAL_MS);
     return () => {
-      cancelledRef.current = true;
+      genRef.current += 1;
       clearInterval(id);
     };
   }, [enabled, paused]);

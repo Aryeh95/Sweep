@@ -24,22 +24,26 @@ const POLL_INTERVAL_MS = 60 * 1000;
  */
 export default function useStormTracks({ site, enabled, paused = false }) {
   const [state, setState] = useState({ cells: [], mesos: [], scanTime: null, hail: null, stale: false });
-  const cancelledRef = useRef(false);
+  // Generation of the effect run a response belongs to: bumped by every
+  // run and cleanup, so a slow answer for a previous site / pin is dropped
+  // (a shared `cancelled` boolean is reset by the next run and let it in).
+  const genRef = useRef(0);
 
   useEffect(() => {
-    cancelledRef.current = false;
+    genRef.current += 1;
+    const gen = genRef.current;
     if (!enabled || !site) {
       // Clear on disable so a re-enable never flashes the previous site's
       // cells before the first fetch lands.
       setState({ cells: [], mesos: [], scanTime: null, hail: null, stale: false });
-      return () => { cancelledRef.current = true; };
+      return () => { genRef.current += 1; };
     }
     if (paused) return undefined;
 
     const fetchTracks = () => {
       axios.get("/api/storm-tracks", { params: { site } })
         .then((res) => {
-          if (cancelledRef.current) return;
+          if (genRef.current !== gen) return;
           const { cells, mesos, scanTime, hail } = res.data || {};
           setState({
             cells: Array.isArray(cells) ? cells : [],
@@ -50,7 +54,7 @@ export default function useStormTracks({ site, enabled, paused = false }) {
           });
         })
         .catch(() => {
-          if (cancelledRef.current) return;
+          if (genRef.current !== gen) return;
           // Keep the last good cells but mark them stale — a storm track
           // that silently stops updating is worse than one visibly aging.
           setState((prev) => ({ ...prev, stale: true }));
@@ -60,7 +64,7 @@ export default function useStormTracks({ site, enabled, paused = false }) {
     fetchTracks();
     const id = setInterval(fetchTracks, POLL_INTERVAL_MS);
     return () => {
-      cancelledRef.current = true;
+      genRef.current += 1;
       clearInterval(id);
     };
   }, [site, enabled, paused]);

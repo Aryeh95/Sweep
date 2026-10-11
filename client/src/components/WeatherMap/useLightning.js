@@ -27,7 +27,10 @@ const RADIUS_KM = 300;
  */
 export default function useLightning({ latitude, longitude, enabled, paused = false }) {
   const [state, setState] = useState({ flashes: [], count: null, fetchedAt: null, dataEpoch: null, stale: false });
-  const cancelledRef = useRef(false);
+  // Generation of the effect run a response belongs to: bumped by every
+  // run and cleanup, so a slow answer for a previous site / pin is dropped
+  // (a shared `cancelled` boolean is reset by the next run and let it in).
+  const genRef = useRef(0);
 
   // Quantised coords so map jitter doesn't restart the poller — same
   // pattern as useIemRadarFrames.
@@ -35,10 +38,11 @@ export default function useLightning({ latitude, longitude, enabled, paused = fa
   const lonKey = longitude != null ? Math.round(longitude / 0.05) : null;
 
   useEffect(() => {
-    cancelledRef.current = false;
+    genRef.current += 1;
+    const gen = genRef.current;
     if (!enabled || latKey == null || lonKey == null) {
       setState({ flashes: [], count: null, fetchedAt: null, dataEpoch: null, stale: false });
-      return () => { cancelledRef.current = true; };
+      return () => { genRef.current += 1; };
     }
     if (paused) return undefined;
     const lat = latKey * 0.05;
@@ -47,7 +51,7 @@ export default function useLightning({ latitude, longitude, enabled, paused = fa
     const fetchFlashes = () => {
       axios.get("/api/lightning", { params: { lat, lon, radiusKm: RADIUS_KM } })
         .then((res) => {
-          if (cancelledRef.current) return;
+          if (genRef.current !== gen) return;
           const d = res.data || {};
           const flashes = Array.isArray(d.flashes) ? d.flashes : [];
           const fetchedAt = Date.now();
@@ -72,7 +76,7 @@ export default function useLightning({ latitude, longitude, enabled, paused = fa
           });
         })
         .catch(() => {
-          if (cancelledRef.current) return;
+          if (genRef.current !== gen) return;
           // Keep the last flashes — they age out visually on their own,
           // which is the honest failure mode for this overlay.
           setState((prev) => ({ ...prev, stale: true }));
@@ -82,7 +86,7 @@ export default function useLightning({ latitude, longitude, enabled, paused = fa
     fetchFlashes();
     const id = setInterval(fetchFlashes, POLL_INTERVAL_MS);
     return () => {
-      cancelledRef.current = true;
+      genRef.current += 1;
       clearInterval(id);
     };
   }, [enabled, paused, latKey, lonKey]);

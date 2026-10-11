@@ -1064,6 +1064,25 @@ Tap opens a popup; the tap target is an 18 px invisible disc with
 `bubblingMouseEvents: false` so the map click (which moved the pin until
 2026-10-09, and still opens alert popups) never fires.
 
+### Pollers drop answers from an older request (2026-10-11)
+
+Phone report: a Baltimore pin with LWX on the map, and the nowcast card
+reading TBW (Tampa Bay). The app opens on its last saved position (the
+previous trip's Treasure Island), starts a nowcast for it, and the locate
+button moved the pin while that request was in flight. Every poller used
+one shared `cancelledRef` boolean: the cleanup set it, the NEXT effect run
+cleared it, and the old pin's slow answer then passed the check and
+replaced the new one. Six hooks had it (useNowcast, useIemRadarFrames,
+useRadarRadial, useStormTracks, useLightning, useRadarStatus); all now
+use `genRef` — bumped on every run and cleanup, captured per request
+(`useIemRadarFrames` captures it inside `fetchFrames`, which lives
+outside the effect), compared before committing. `useNowcast` also
+clears when the pin / site key changes rather than keeping the previous
+place's card up while the new one loads. Reproduced in Playwright by
+holding the first nowcast response 20 s and relabelling its site "OLD":
+before, "OLD" stayed on the card 30 s+ after the pin moved; after, never.
+Do not reintroduce a boolean cancel flag in a hook whose effect re-runs.
+
 ### Idle polling — DONE (2026-09-03)
 
 `pollingPaused = sleepStage > 0 || document.hidden`, published on

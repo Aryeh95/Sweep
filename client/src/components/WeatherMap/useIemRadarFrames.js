@@ -50,7 +50,11 @@ export default function useIemRadarFrames({ latitude, longitude, enabled, paused
   const latKey = latitude != null ? Math.round(latitude / COORD_EPSILON) : null;
   const lonKey = longitude != null ? Math.round(longitude / COORD_EPSILON) : null;
 
-  const cancelledRef = useRef(false);
+  // Generation of the effect run a response belongs to: bumped by every
+  // run and cleanup, and captured when a request starts, so a slow answer
+  // for a previous point or override is dropped (a shared `cancelled`
+  // boolean is reset by the next run and let it in).
+  const genRef = useRef(0);
 
   // The override rides along as the `site` query too, not only via the
   // server's settings.json read: the Android app runs this controller
@@ -60,11 +64,12 @@ export default function useIemRadarFrames({ latitude, longitude, enabled, paused
   siteOverrideRef.current = siteOverride;
 
   const fetchFrames = useCallback(async (lat, lon) => {
+    const gen = genRef.current;
     try {
       const params = { lat, lon };
       if (siteOverrideRef.current) params.site = siteOverrideRef.current;
       const res = await axios.get("/api/radar/frames", { params });
-      if (cancelledRef.current) return;
+      if (genRef.current !== gen) return;
       const { available, site, frames, mosaic, satellite } = res.data || {};
       const satelliteMeta = satellite && typeof satellite === "object" ? satellite : null;
       // The composite's current time rides along on every answer — even
@@ -86,7 +91,7 @@ export default function useIemRadarFrames({ latitude, longitude, enabled, paused
         available: true,
       });
     } catch {
-      if (cancelledRef.current) return;
+      if (genRef.current !== gen) return;
       // Keep the last good frame list on screen but mark it stale, so a
       // failed refresh surfaces as visibly-aging radar rather than as a
       // frozen picture the user has no reason to distrust. The age
@@ -96,9 +101,9 @@ export default function useIemRadarFrames({ latitude, longitude, enabled, paused
   }, []);
 
   useEffect(() => {
-    cancelledRef.current = false;
+    genRef.current += 1;
     if (!enabled || latKey == null || lonKey == null) {
-      return () => { cancelledRef.current = true; };
+      return () => { genRef.current += 1; };
     }
     // Paused (screensaver / hidden tab): no interval, but the last list
     // stays so the layers don't blank. The effect re-runs on resume and
@@ -113,7 +118,7 @@ export default function useIemRadarFrames({ latitude, longitude, enabled, paused
     const id = setInterval(() => fetchFrames(lat, lon), POLL_INTERVAL_MS);
 
     return () => {
-      cancelledRef.current = true;
+      genRef.current += 1;
       clearInterval(id);
     };
   }, [enabled, paused, latKey, lonKey, fetchFrames, siteOverride]);  // eslint-disable-line react-hooks/exhaustive-deps -- siteOverride is a refetch trigger, not an input
