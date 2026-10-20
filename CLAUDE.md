@@ -1907,3 +1907,15 @@ few pans and zooms (each site/band change re-warms ~30 radials), so it was
 a minute. The card's empty state now names the failure (busy / server /
 offline) and retries after 15 s. Remote clients are still limited, keyed
 and exempted by socket peer only, never `req.ip`.
+
+
+### The nowcast holds back uncleaned scans (2026-10-20)
+
+A scan whose N0H classification has not landed yet comes back raw from
+`cleanRadial`. The map already held its last clean scan in that gap; the
+nowcast did not, and at night in migration season one raw scan made the
+card read "Raining now · light" under a clear sky (birds, 16.5 dBZ at the
+pin). `preferCleanScans` now drops every uncleaned scan whenever any scan
+was cleaned (never mix raw into the motion search), and an answer computed
+with a scan held back is cached 15 s, not 60. With no cleaned scan at all
+the raw scans are used, as before.

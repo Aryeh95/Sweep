@@ -482,3 +482,20 @@ test("classificationHasFrozen gates the surface fetch on a frozen class being pr
   assert.equal(nc.classificationHasFrozen(withSnow), true);
   assert.equal(nc.classificationHasFrozen(null), false);
 });
+
+test("preferCleanScans holds back scans the clean mask has not reached yet", () => {
+  const { preferCleanScans } = require("../server/nowcastCtrl");
+  const clean = (key) => ({ key, clean: { applied: true } });
+  const raw = (key, reason = "no-classification") => ({ key, clean: { applied: false, reason } });
+  // Newest scan raw (its N0H not in yet): use the cleaned ones only.
+  let r = preferCleanScans([clean("a"), clean("b"), clean("c"), raw("d")]);
+  assert.deepEqual(r.scans.map((p) => p.key), ["a", "b", "c"]);
+  assert.equal(r.held, 1);
+  // A raw scan in the middle is dropped too — never mixed into the motion search.
+  r = preferCleanScans([clean("a"), raw("b", "grid-mismatch"), clean("c")]);
+  assert.deepEqual(r.scans.map((p) => p.key), ["a", "c"]);
+  // Nothing cleaned at all: fall back to the raw scans.
+  r = preferCleanScans([raw("a"), raw("b")]);
+  assert.deepEqual(r.scans.map((p) => p.key), ["a", "b"]);
+  assert.equal(r.held, 0);
+});

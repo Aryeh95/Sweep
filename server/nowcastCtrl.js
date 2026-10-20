@@ -274,6 +274,9 @@ const SKILL_FILE = path.join(typeof os.homedir === "function" ? os.homedir() : "
 
 const cache = new BoundedMap(16);
 const NOWCAST_TTL_MS = 60 * 1000;
+// Cache life of an answer computed with a scan held back for want of its
+// classification (see preferCleanScans).
+const HELD_TTL_MS = 15 * 1000;
 // Previous nowcast per site+home, for the temporal ensemble members.
 const previousMotion = new BoundedMap(32);
 // The newest MRMS rate grid, decoded once per file and shared by every
@@ -1883,6 +1886,34 @@ function classificationHasFrozen(cls) {
 }
 
 /**
+ * Use only the scans the dual-pol clean mask was applied to, whenever
+ * any were — the map's own rule ("holding last clean scan").
+ *
+ * The classification (N0H) lands ~30 s after the reflectivity, and at
+ * times several minutes later. A scan fetched in that gap comes back
+ * raw, and on an October night raw means the bird migration: kiosk
+ * photo 2026-10-20 03:01 Z, clear sky at Pikesville, card "Raining now
+ * · light / still raining at 12:28 AM / motion unknown" while the map
+ * held its last clean scan. Replayed on the same four LWX scans: newest
+ * raw → raining, 16.5 dBZ at the pin for all 90 min; all cleaned → dry.
+ * Mixing one raw scan into the motion search is wrong as well (birds in
+ * one scan, not the others), so every uncleaned scan is dropped, not
+ * just the newest.
+ *
+ * With no cleaned scan at all (a radar without the classification, or a
+ * long outage) the raw scans are used as before — the 15 dBZ echo floor
+ * still applies, and the payload's `cleaned: false` says so.
+ *
+ * @param {Object[]} scans decoded scans, oldest first
+ * @returns {{scans: Object[], held: Number}} scans to use, and how many were dropped
+ */
+function preferCleanScans(scans) {
+  const cleaned = scans.filter((p) => p.clean && p.clean.applied);
+  if (!cleaned.length) return { scans, held: 0 };
+  return { scans: cleaned, held: scans.length - cleaned.length };
+}
+
+/**
  * Cached nowcast for a site and home point.
  *
  * @param {String} site
@@ -1902,8 +1933,9 @@ async function fetchNowcast(site, home) {
   const hit = cache.get(cacheKey);
   if (hit && hit.expires > Date.now()) return hit.value;
 
-  const scans = (await Promise.all(keys.map((k) => fetchRadialByKey(site, PRODUCT, k, true))))
+  const fetched = (await Promise.all(keys.map((k) => fetchRadialByKey(site, PRODUCT, k, true))))
     .filter((p) => p && p.available && Number.isFinite(Date.parse(p.scanTime)));
+  const { scans, held } = preferCleanScans(fetched);
   if (!scans.length) {
     return { available: false, site, reason: "no-decodable-scans" };
   }
@@ -1934,11 +1966,14 @@ async function fetchNowcast(site, home) {
     scanTime: newest.scanTime,
     scans: scans.map((p) => p.key),
     cleaned: scans.every((p) => p.clean && p.clean.applied),
+    heldUncleaned: held,
     ...core,
     liveSkill,
     computedIn: Date.now() - t0,
   };
-  cache.set(cacheKey, { value, expires: Date.now() + NOWCAST_TTL_MS });
+  // Holding a scan back is temporary (its classification is usually ~30 s
+  // behind): recompute soon so the newest scan joins once it is cleaned.
+  cache.set(cacheKey, { value, expires: Date.now() + (held ? HELD_TTL_MS : NOWCAST_TTL_MS) });
   const m = value.motion ? `${value.motion.speedKmh} km/h toward ${value.motion.towardDeg}° (ncc ${value.motion.quality})` : "motion unknown";
   const what = value.now.raining
     ? `${value.now.ptype} now`
@@ -2001,6 +2036,7 @@ module.exports = {
   fetchNowcast,
   // Pure pieces, for the hindcast harness and tests.
   nowcastFromScans,
+  preferCleanScans,
   projectToGrid,
   projectClassGrid,
   projectMrmsFlagGrid,
