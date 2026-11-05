@@ -1659,6 +1659,12 @@
   font-size: 0.95em;
 }
 
+.haUrls {
+  margin: -6px 0 10px;
+  padding-left: 1.1em;
+  user-select: all;
+}
+
 .locationHelp {
   margin-bottom: 14px;
   font-size: 0.85em;

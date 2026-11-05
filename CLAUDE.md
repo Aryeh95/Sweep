@@ -1919,3 +1919,35 @@ pin). `preferCleanScans` now drops every uncleaned scan whenever any scan
 was cleaned (never mix raw into the motion search), and an answer computed
 with a scan held back is cached 15 s, not 60. With no cleaned scan at all
 the raw scans are used, as before.
+
+### Home Assistant bridge (2026-11-05)
+
+`server/haBridge.js`: a SEPARATE plain-HTTP listener (default port 8099,
+all interfaces, opt-in via settings.json `homeAssistant: {enabled, port}`,
+Settings → Advanced → Home Assistant) serving only `GET /summary` —
+`server/homeSummary.js`'s flat JSON for the saved `startingLat/Lon`.
+Chosen over `ALLOW_REMOTE` because that opens the whole app and its
+self-signed HTTPS would force HA to skip certificate checks. Plain HTTP is
+acceptable ONLY because the document is weather for a place the caller
+cannot choose: no settings, keys, coordinates or writes. Do not add routes
+to it. Things to keep:
+- `homeSummary.js` mirrors the NowcastPanel card's reading rules (leads
+  shifted by the scan's age, "now" = step nearest the elapsed minutes,
+  arrival already past is not an arrival, > 20 min old = delayed). Change
+  both together.
+- The home is quantised to 0.01° like `useNowcast`, so HA and the kiosk
+  card share one nowcast cache entry and one live-skill record.
+- `nowcastForPoint` (nowcastCtrl) and `flashesNear` (glmLightningCtrl) are
+  the route bodies factored out; the routes and the bridge share them.
+- The listener reconfigures after every successful settings write
+  (`reconcileHaAfterWrite` on all four write routes, on `finish`) and at
+  startup; `configure` calls are queued so listen / close never race. A
+  taken port is reported (`error: "EADDRINUSE"`), not fatal, and retried
+  on the next write.
+- HA polling keeps the GLM window warm: ~1 MB/min of downloads, even with
+  the kiosk asleep. Documented in `docs/home-assistant.md`.
+- Verified live 2026-11-05 06:34 Z (Pikesville, LWX, rain overhead): the
+  summary and the card's `/api/radar/nowcast` gave the same scan, raining
+  moderate, end at +45 → "rain_ends_in_min: 42" read 3 min later; cold
+  4.7 s, cached 9 ms; restart brings the listener back from settings.
+

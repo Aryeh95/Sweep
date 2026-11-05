@@ -3,7 +3,8 @@
  * this file. Their shapes are documented via JSDoc on the exported
  * SettingsPanel; declaring PropTypes for every helper adds ~80 lines
  * of boilerplate for components no other file imports. */
-import React, { useContext, useEffect, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
+import axios from "axios";
 import { useTranslation } from "react-i18next";
 import { InlineIcon } from "@iconify/react";
 import closeSharp from "@iconify/icons-ion/close-sharp";
@@ -1266,6 +1267,8 @@ const SectionAdvanced = ({ ctx, lang, remote }) => {
               )}
             </p>
 
+            <HomeAssistantSettings lang={lang} remote={remote} />
+
             <div className={`${styles.subhead} ${styles.subheadGap}`}>
               {lbl(lang, "Diagnostic", "Diagnostic", "Diagnóstico")}
             </div>
@@ -1548,6 +1551,77 @@ const RelaunchButton = ({ lang, onConfirm }) => {
         ? lbl(lang, "Tap again — screen blacks ~15 s", "Encore — écran noir ~15 s", "Otra vez — pantalla negra ~15 s")
         : lbl(lang, "Relaunch kiosk to apply", "Relancer le kiosque pour appliquer", "Reiniciar el quiosco para aplicar")}
     </button>
+  );
+};
+
+/**
+ * Home Assistant bridge (server/haBridge.js): on / off, and the address
+ * to give Home Assistant. Kiosk only, and only the kiosk itself can
+ * switch it (a settings write) or read the status (it lists this
+ * machine's network addresses).
+ */
+const HomeAssistantSettings = ({ lang, remote }) => {
+  const [status, setStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const refresh = useCallback(() => axios.get("/api/home-assistant")
+    .then((res) => setStatus(res.data))
+    .catch(() => setStatus(null)), []);
+  useEffect(() => {
+    if (!remote) refresh();
+  }, [remote, refresh]);
+  const setEnabled = (enabled) => {
+    if (remote || busy || !status || status.enabled === enabled) return;
+    setBusy(true);
+    axios.patch("/setting", { key: "homeAssistant", val: { enabled, port: status.port } })
+      // The listener reconfigures once the write has finished; give it a
+      // moment before reading back whether it is listening.
+      .then(() => new Promise((resolve) => setTimeout(resolve, 400)))
+      .then(refresh)
+      .catch(() => refresh())
+      .finally(() => setBusy(false));
+  };
+  let line = null;
+  if (status && status.enabled) {
+    if (status.listening) {
+      line = lbl(lang, `Serving on port ${status.port}. In Home Assistant use:`, `Actif sur le port ${status.port}. Dans Home Assistant, utilisez :`, `Activo en el puerto ${status.port}. En Home Assistant use:`);
+    } else if (status.error === "EADDRINUSE") {
+      line = lbl(lang, `Port ${status.port} is used by another program.`, `Le port ${status.port} est utilisé par un autre programme.`, `Otro programa usa el puerto ${status.port}.`);
+    } else if (status.error) {
+      line = lbl(lang, `Could not start (${status.error}).`, `Démarrage impossible (${status.error}).`, `No se pudo iniciar (${status.error}).`);
+    }
+  }
+  return (
+    <>
+      <div className={`${styles.subhead} ${styles.subheadGap}`}>Home Assistant</div>
+      <div className={styles.grid4}>
+        <Seg
+          label={lbl(lang, "Rain and lightning sensors", "Capteurs pluie et foudre", "Sensores de lluvia y rayos")}
+          options={[
+            { v: true, l: lbl(lang, "On", "Oui", "Sí") },
+            { v: false, l: lbl(lang, "Off", "Non", "No") },
+          ]}
+          value={status ? status.enabled : false}
+          onChange={setEnabled}
+          disabled={remote || busy || !status}
+        />
+      </div>
+      {line ? <p className={styles.locationHelp}>{line}</p> : null}
+      {status && status.listening ? (
+        <ul className={styles.haUrls}>
+          {status.urls.map((u) => <li key={u} className={styles.locationValue}>{u}</li>)}
+        </ul>
+      ) : null}
+      <p className={styles.locationHelp}>
+        {remote
+          ? lbl(lang, "Can only be changed on the kiosk itself.", "Modifiable uniquement sur le kiosque.", "Solo se puede cambiar en el propio quiosco.")
+          : lbl(
+            lang,
+            "Lets Home Assistant on your network read this kiosk's nowcast for your saved location: raining now, minutes until rain, and the nearest lightning. Read-only, nothing else is shared. Setup: docs/home-assistant.md.",
+            "Permet à Home Assistant sur votre réseau de lire la prévision immédiate de ce kiosque pour votre position : pluie en cours, minutes avant la pluie, foudre la plus proche. Lecture seule, rien d'autre n'est partagé. Configuration : docs/home-assistant.md.",
+            "Permite que Home Assistant en su red lea el pronóstico inmediato de este quiosco para su ubicación: lluvia ahora, minutos hasta la lluvia y el rayo más cercano. Solo lectura, no se comparte nada más. Configuración: docs/home-assistant.md.",
+          )}
+      </p>
+    </>
   );
 };
 

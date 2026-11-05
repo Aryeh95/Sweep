@@ -110,6 +110,7 @@ const { getDebugInfo, getCpuTemp, getFanSpeed, logSecurityEvent, initServerInfo 
 const { checkForUpdate, clearCache: clearUpdateCache } = require("./updateChecker");
 const rateLimit = require("express-rate-limit");
 const { socketPeerKeyGenerator, skipLoopbackPeer } = require("./rateLimitKey");
+const haBridge = require("./haBridge");
 const { securityHeaders } = require("./securityHeaders");
 const { createSingleFlightGuard, createPerPeerConcurrencyGuard } = require("./singleFlight");
 
@@ -632,6 +633,10 @@ if (sslOptions) {
   });
 }
 
+// The Home Assistant listener is separate from the main server (plain
+// HTTP, LAN, one read-only route) and off unless Settings switched it on.
+haBridge.reconcileFromSettings();
+
 app.get("/settings", getSettings);
 // All settings writes are localhostOnly — including for advanced.ai.* keys
 // which look benign (booleans, no secrets). Two reasons, both worth keeping:
@@ -645,10 +650,21 @@ app.get("/settings", getSettings);
 // If you're tempted to relax this for "harmless preferences", remember the
 // AdvancedSettings UI already shows the section read-only on remote with a
 // notice pointing the user to the SSH-tunnel workflow.
-app.post("/settings", localhostOnly, createSettingsFile);
-app.put("/settings", localhostOnly, replaceSettings);
-app.patch("/setting", localhostOnly, setSetting);
-app.delete("/setting", localhostOnly, deleteSetting);
+// After a successful write, the Home Assistant listener re-reads its
+// config (it may have been switched on or off, or moved port).
+const reconcileHaAfterWrite = (req, res, next) => {
+  res.on("finish", () => {
+    if (res.statusCode < 400) haBridge.reconcileFromSettings();
+  });
+  next();
+};
+app.post("/settings", localhostOnly, reconcileHaAfterWrite, createSettingsFile);
+app.put("/settings", localhostOnly, reconcileHaAfterWrite, replaceSettings);
+app.patch("/setting", localhostOnly, reconcileHaAfterWrite, setSetting);
+app.delete("/setting", localhostOnly, reconcileHaAfterWrite, deleteSetting);
+// The bridge's status for Settings (LAN URLs, port in use). Local only:
+// it lists this machine's network addresses.
+app.get("/api/home-assistant", localhostOnly, haBridge.getHomeAssistantStatus);
 
 app.get("/geolocation", getCoords);
 

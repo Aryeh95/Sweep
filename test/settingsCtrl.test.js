@@ -249,7 +249,7 @@ test("maskForRemote: realistic full-settings input — full strip + mask roundtr
 
 test("ALLOWED_KEYS is exactly the current top-level setting keys", () => {
   assert.deepEqual([...ALLOWED_KEYS].sort(), [
-    "advanced", "favorites", "mapApiKey", "radarSite", "reverseGeoApiKey",
+    "advanced", "favorites", "homeAssistant", "mapApiKey", "radarSite", "reverseGeoApiKey",
     "startingLat", "startingLon",
   ]);
 });

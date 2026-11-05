@@ -239,6 +239,35 @@ async function assembleWindow(nowMs) {
 }
 
 /**
+ * The rolling window's flashes within `radiusKm` of a point, cached per
+ * point and radius. Shared by the route and the Home Assistant bridge.
+ * Throws on an upstream failure.
+ *
+ * @param {Number} lat
+ * @param {Number} lon
+ * @param {Number} radiusKm
+ * @returns {Promise<Object>} payload for /api/lightning
+ */
+async function flashesNear(lat, lon, radiusKm) {
+  const cacheKey = `${lat.toFixed(2)}:${lon.toFixed(2)}:${radiusKm}`;
+  const hit = responseCache.get(cacheKey);
+  if (hit && hit.expires > Date.now()) return hit.value;
+  const nowMs = Date.now();
+  const entries = await assembleWindow(nowMs);
+  const flashes = filterFlashes(entries, lat, lon, radiusKm, nowMs);
+  const value = {
+    available: true,
+    windowMinutes: WINDOW_MINUTES,
+    count: flashes.length,
+    flashes,
+    generatedAt: new Date(nowMs).toISOString(),
+  };
+  responseCache.set(cacheKey, { value, expires: Date.now() + RESPONSE_TTL_MS });
+  recordServiceCall(SERVICE_NAME, 200, `${flashes.length} flash(es) in ${radiusKm} km`);
+  return value;
+}
+
+/**
  * GET /api/lightning?lat&lon&radiusKm=300
  *
  * Flash positions from the last WINDOW_MINUTES within the radius, each
@@ -257,26 +286,8 @@ async function getLightning(req, res) {
   if (!Number.isFinite(radiusKm) || radiusKm <= 0) radiusKm = 300;
   radiusKm = Math.min(radiusKm, 800);
 
-  const cacheKey = `${lat.toFixed(2)}:${lon.toFixed(2)}:${radiusKm}`;
-  const hit = responseCache.get(cacheKey);
-  if (hit && hit.expires > Date.now()) {
-    return res.status(200).json(hit.value).end();
-  }
-
   try {
-    const nowMs = Date.now();
-    const entries = await assembleWindow(nowMs);
-    const flashes = filterFlashes(entries, lat, lon, radiusKm, nowMs);
-    const value = {
-      available: true,
-      windowMinutes: WINDOW_MINUTES,
-      count: flashes.length,
-      flashes,
-      generatedAt: new Date(nowMs).toISOString(),
-    };
-    responseCache.set(cacheKey, { value, expires: Date.now() + RESPONSE_TTL_MS });
-    recordServiceCall(SERVICE_NAME, 200, `${flashes.length} flash(es) in ${radiusKm} km`);
-    return res.status(200).json(value).end();
+    return res.status(200).json(await flashesNear(lat, lon, radiusKm)).end();
   } catch (err) {
     const status = err?.response?.status || 500;
     recordServiceCall(SERVICE_NAME, status, "lightning window failed");
@@ -288,6 +299,7 @@ async function getLightning(req, res) {
 
 module.exports = {
   getLightning,
+  flashesNear,
   // Exported for tests.
   decodeGlmBuffer,
   keyEpoch,

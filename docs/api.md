@@ -738,6 +738,30 @@ quotes the pin's own hit rate once it has 20 verified calls.
 
 ---
 
+## Home Assistant
+
+### `GET /api/home-assistant` (localhost only)
+
+The Home Assistant bridge's state for the Settings panel:
+`{enabled, port, listening, error, urls}`. `error` is the listen error code
+(`EADDRINUSE` when another program holds the port); `urls` lists this
+machine's LAN addresses and its `.local` name. Switched with
+`PATCH /setting` `{"key": "homeAssistant", "val": {"enabled": true, "port": 8099}}`;
+the listener re-reads the setting after every successful settings write.
+
+### `GET http://<kiosk>:8099/summary` (separate listener, LAN)
+
+Not part of the main server: a plain-HTTP listener on all interfaces,
+off by default, serving only this document (`/` answers the same; HEAD
+works; anything else 404 / 405). Flat JSON for the SAVED home location
+(`startingLat` / `startingLon`, quantised to 0.01° like the nowcast
+card): the nowcast reduced with the card's own rules (leads shifted to
+"from now", "raining" judged at the scan's current age, scans over
+20 min old give `state: "unknown"`, `nowcast_reason: "delayed"`) and the
+nearest GLM flash within 80 km. No coordinates in the output. Cached
+30 s, one computation in flight, 30 requests a minute per peer (429).
+Field table and Home Assistant YAML: `docs/home-assistant.md`.
+
 ## Geocoding and solar
 
 ### `GET /api/reverse-geocode?lat=&lon=`

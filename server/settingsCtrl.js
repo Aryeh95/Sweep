@@ -56,6 +56,9 @@ const ALLOWED_KEYS = new Set([
   // sanitizeRadarSite: 3-letter IEM form, with a 4-letter ICAO id
   // (KLWX) accepted and trimmed to its IEM form (LWX).
   "radarSite",
+  // Home Assistant bridge (server/haBridge.js): {enabled, port}. Validated
+  // by sanitizeHomeAssistant; the listener re-reads it after every write.
+  "homeAssistant",
 ]);
 
 const API_KEY_FIELDS = new Set([
@@ -175,9 +178,27 @@ function sanitizeRadarSite(val) {
   return "";
 }
 
+const HA_DEFAULT_PORT = 8099;
+
+/**
+ * Coerce the Home Assistant bridge config. Off unless `enabled` is
+ * exactly true; a port outside 1024–65535 (or the main server's own
+ * 8080 / 8443) falls back to the default rather than being rejected.
+ *
+ * @param {*} val incoming value
+ * @returns {{enabled: Boolean, port: Number}}
+ */
+function sanitizeHomeAssistant(val) {
+  const v = val && typeof val === "object" ? val : {};
+  const port = Number(v.port);
+  const ok = Number.isInteger(port) && port >= 1024 && port <= 65535 && port !== 8080 && port !== 8443;
+  return { enabled: v.enabled === true, port: ok ? port : HA_DEFAULT_PORT };
+}
+
 const VALUE_SANITIZERS = {
   favorites: sanitizeFavorites,
   radarSite: sanitizeRadarSite,
+  homeAssistant: sanitizeHomeAssistant,
 };
 
 /**
@@ -654,6 +675,7 @@ module.exports = {
   createSettingsFile: serializeWrites(createSettingsFile),
   replaceSettings: serializeWrites(replaceSettings),
   getSettingsData,
+  sanitizeHomeAssistant,
   ensureSecurePermissions,
   sweepOrphanSettingsTmp,
   // Exported for regression testing only — internal helpers, not part of

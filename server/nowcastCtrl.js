@@ -1984,6 +1984,24 @@ async function fetchNowcast(site, home) {
 }
 
 /**
+ * The nowcast for a point, with the route's site precedence: the
+ * settings.json override, then `querySite`, then the radar nearest the
+ * point. Shared by the route and the Home Assistant bridge, so both
+ * answer from one cache. Throws on an upstream failure.
+ *
+ * @param {Number} lat
+ * @param {Number} lon
+ * @param {String} [querySite] "LWX" or "KLWX"; "" for automatic
+ * @returns {Promise<Object>} payload for /api/radar/nowcast
+ */
+async function nowcastForPoint(lat, lon, querySite = "") {
+  let site = await overrideSite();
+  if (!site && querySite) site = querySite.length === 4 ? querySite.slice(1) : querySite;
+  if (!site) site = (await resolveRadarSite(lat, lon)).site;
+  return fetchNowcast(site, { lat, lon });
+}
+
+/**
  * GET /api/radar/nowcast?lat=&lon=[&site=]
  *
  * The site follows the same precedence as /api/radar/frames: the
@@ -2004,10 +2022,7 @@ async function getNowcast(req, res) {
   const querySite = String(req.query.site || "").trim().toUpperCase();
   if (querySite && !/^[A-Z]{3,4}$/.test(querySite)) return res.status(400).json("Invalid site").end();
   try {
-    let site = await overrideSite();
-    if (!site && querySite) site = querySite.length === 4 ? querySite.slice(1) : querySite;
-    if (!site) site = (await resolveRadarSite(lat, lon)).site;
-    const payload = await fetchNowcast(site, { lat, lon });
+    const payload = await nowcastForPoint(lat, lon, querySite);
     return res.status(200).json(payload).end();
   } catch (err) {
     const status = err?.response?.status || 500;
@@ -2032,6 +2047,7 @@ function getNowcastSkill(req, res) {
 
 module.exports = {
   getNowcast,
+  nowcastForPoint,
   getNowcastSkill,
   fetchNowcast,
   // Pure pieces, for the hindcast harness and tests.
