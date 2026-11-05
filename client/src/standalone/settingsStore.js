@@ -20,6 +20,11 @@ const STORAGE_KEY = "sweep.app.settings.v1";
 const ALLOWED_KEYS = new Set([
   "advanced",
   "favorites",
+  // The Home Assistant bridge switch. Meaningless in the app (its
+  // Settings section is kiosk-only, so nothing writes it here); listed
+  // so the shared-writer guard in test/standaloneSettingsKeys.test.js holds for every
+  // PATCH the client source contains.
+  "homeAssistant",
   // The manual NEXRAD site override. It DOES mean something without a
   // server: the app cannot read settings.json, so the frames hook sends
   // the override along as the `site` query instead — but it still has to
