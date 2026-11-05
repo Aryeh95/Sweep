@@ -1307,6 +1307,14 @@
   white-space: nowrap;
 }
 
+/* Embed (ui/embed.js): no zoom stack or focus toggle above it, and a
+ * dashboard tile is small — tuck the chip into the corner. */
+:global(.ambientRoot[data-layout="embed"]) .frame-age {
+  top: 8px;
+  left: 8px;
+  font-size: 0.85em;
+}
+
 :global(.ambientRoot[data-layout="pi"]) .frame-age {
   top: 148px;
 }

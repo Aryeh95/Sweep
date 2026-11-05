@@ -193,6 +193,57 @@ The first automation fires once when the condition becomes true, not on
 every poll. If rain keeps being pushed back and then returns, it can fire
 again; add a `conditions:` block with a cool-down if that gets noisy.
 
+## 4. Radar map on a dashboard
+
+Sweep's map and radar alone, with no dock, header, panels, legend,
+timeline or zoom buttons, for a **Webpage card**. It is live: it updates
+like the kiosk, pans and zooms with a finger, and keeps the small
+frame-age chip so old radar never passes for current.
+
+1. On the kiosk: **Settings → Advanced → Home Assistant → Radar map for
+   dashboards: On** (the sensors switch must be on too). The panel shows
+   the address, e.g. `http://192.168.1.50:8099/embed?zoom=8`.
+2. In Home Assistant: edit a dashboard → **Add card → Webpage**, or in
+   YAML:
+
+```yaml
+type: iframe
+url: http://192.168.1.50:8099/embed?zoom=8&theme=dark
+aspect_ratio: 75%
+```
+
+Options, added to the URL with `&`:
+
+| option | effect |
+|---|---|
+| `zoom=8` | map zoom (default: the kiosk's saved zoom). 7 or lower shows the regional mosaic, 9 or higher the high-resolution home radar |
+| `theme=dark` / `light` / `auto` | basemap; `auto` (default) goes dark at sunset |
+| `play=1` | animate the radar loop (default: newest frame only) |
+| `lightning=1` | lightning flashes |
+| `tracks=1` | storm tracks |
+| `alerts=1` | warning polygons |
+| `satellite=ir` / `irc` / `vis` | satellite under the radar |
+| `chip=0` | hide the frame-age chip |
+| `pin=0` | hide the home pin |
+
+What to know:
+
+- **It only works while Home Assistant is open over `http://` on your
+  home network** (e.g. `http://homeassistant.local:8123`). A page served
+  over `https://` (Nabu Casa remote access, or HA with its own
+  certificate) is not allowed to show an `http://` page inside it, so the
+  card stays blank there, and away from home the kiosk's address is not
+  reachable anyway. The sensors above work everywhere, because HA itself
+  fetches them.
+- The map shows where home is to anyone on your network who opens the
+  address. It serves the map's data and nothing else: no settings
+  changes, no API keys, not your saved places.
+- The embed never changes the kiosk: its zoom and layer choices come
+  from the URL and are forgotten when the card closes.
+- Each open card loads radar like a kiosk does. `play=1` is the costly
+  one (it fetches the whole loop); leave it off on a tile that is always
+  on screen.
+
 ## The fields
 
 `GET /summary` returns flat JSON (every value a string, number, boolean
@@ -230,6 +281,6 @@ rules), so HA and the screen never disagree.
   `scan_interval` to lower it.
 - Each answer is cached 30 s; more than 30 requests a minute from one
   address are refused (429).
-- The listener speaks plain HTTP because it carries nothing private. Do
-  not forward port 8099 from your router; it is meant for your home
-  network only.
+- The listener speaks plain HTTP because it carries nothing private
+  (the radar map shows where home is; see section 4). Do not forward
+  port 8099 from your router; it is meant for your home network only.

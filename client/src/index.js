@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import App from "~/components/App";
 import { AppContextProvider } from "~/AppContext";
 import installStandaloneApi from "~/standalone/install";
+import axios from "axios";
+import { EMBED, installEmbed } from "~/ui/embed";
 import "~/styles";
 
 // App build (Android): there is no server behind this bundle, so the API the
@@ -19,6 +21,10 @@ if (__STANDALONE__) {
 // Firefox pays dearly for backdrop blur over a moving map). A data
 // attribute rather than a UA-sniffing class in React so it applies before
 // the first paint and never re-renders anything.
+// Embed mode (ui/embed.js): before the first render, so every preference
+// read sees the embed's in-memory storage and no write can leave.
+if (EMBED.on) installEmbed(axios);
+
 if (typeof navigator !== "undefined" && /firefox/i.test(navigator.userAgent)) {
   document.documentElement.setAttribute("data-browser", "firefox");
 }

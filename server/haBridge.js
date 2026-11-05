@@ -2,15 +2,25 @@
 // the LAN that answers one question: what is the weather doing at home?
 //
 //   GET http://<kiosk>:8099/summary  →  homeSummary.js's flat JSON
+//   GET http://<kiosk>:8099/embed    →  the radar map alone (ui/embed.js),
+//                                       only with `homeAssistant.map` on
 //
 // Why a separate listener instead of the main server with ALLOW_REMOTE:
 //   - ALLOW_REMOTE opens the WHOLE app (UI, every /api route, masked
 //     settings) to the network. Home Assistant needs one JSON document.
 //   - The main server is HTTPS with a self-signed CA; HA would need its
-//     certificate checks turned off. This listener is plain HTTP, which
-//     is acceptable ONLY because of what it serves: no settings, no keys,
-//     no coordinates, nothing that writes — the weather at a place the
-//     caller cannot choose. Do not add routes that change that.
+//     certificate checks turned off, and a dashboard's browser would
+//     refuse to frame it. This listener is plain HTTP, which is
+//     acceptable ONLY because of what it serves: public weather data,
+//     nothing that writes, no keys. /summary carries no coordinates; the
+//     map (a second opt-in) necessarily shows where home is, and its
+//     /settings is a reduced copy — API keys masked as for any remote
+//     client, saved places and this config left out. Everything else
+//     is a GET whitelist (MAP_EXACT / MAP_PREFIXES / static assets)
+//     forwarded to the main app as a REMOTE client, so the main server's
+//     rate limits and locality gates apply unchanged. Do not widen the
+//     whitelist to anything that writes, spends a key per call
+//     (reverse geocoding) or runs commands (update-check).
 //   - It is opt-in (Settings → Advanced → Home Assistant, stored as
 //     settings.json `homeAssistant: {enabled, port}`), and off by default.
 //
@@ -21,7 +31,7 @@
 
 const http = require("http");
 const os = require("os");
-const { getSettingsData, sanitizeHomeAssistant } = require("./settingsCtrl");
+const { getSettingsData, sanitizeHomeAssistant, maskForRemote } = require("./settingsCtrl");
 const { nowcastForPoint } = require("./nowcastCtrl");
 const { flashesNear } = require("./glmLightningCtrl");
 const { buildHomeSummary } = require("./homeSummary");
@@ -37,8 +47,22 @@ const MAX_TRACKED_PEERS = 256;
 // record for the same home.
 const QUANT_DEG = 0.01;
 
+// What the embedded map may fetch through this listener. Static assets
+// are the client bundle's own files (one path segment, known types).
+const STATIC_ASSET = /^\/[\w.-]+\.(?:js|css|woff2?|png|svg|ico|json|txt)$/;
+const MAP_EXACT = new Set([
+  "/api/is-local",
+  "/api/sunrise-sunset",
+  "/api/weather-alerts",
+  "/api/nearby-alerts",
+  "/api/storm-tracks",
+  "/api/lightning",
+]);
+const MAP_PREFIXES = ["/api/radar/", "/api/satellite/ir/", "/api/tiles/"];
+
 let server = null;
-let state = { enabled: false, port: sanitizeHomeAssistant(null).port, listening: false, error: null };
+let appHandler = null;
+let state = { enabled: false, map: false, port: sanitizeHomeAssistant(null).port, listening: false, error: null };
 let queue = Promise.resolve();
 let cached = null;
 let inflight = null;
@@ -129,24 +153,98 @@ function send(res, status, body, headOnly = false) {
 }
 
 /**
+ * May the embedded map fetch this path through the bridge?
+ *
+ * @param {String} path request path, no query
+ * @returns {Boolean}
+ */
+function isMapPath(path) {
+  if (path === "/embed" || path === "/settings") return true;
+  if (STATIC_ASSET.test(path)) return true;
+  if (MAP_EXACT.has(path)) return true;
+  return MAP_PREFIXES.some((p) => path.startsWith(p)) && !path.includes("..");
+}
+
+/**
+ * The settings document the embedded map reads: what any remote client
+ * gets (API keys reduced to booleans), minus the saved places (labels
+ * can be private, and this travels as plain HTTP) and this listener's
+ * own config.
+ *
+ * @param {Object} data settings.json
+ * @returns {Object}
+ */
+function embedSettings(data) {
+  const masked = maskForRemote(data);
+  delete masked.favorites;
+  delete masked.homeAssistant;
+  return masked;
+}
+
+/**
+ * Let a dashboard frame the response. The main server forbids framing
+ * outright (X-Frame-Options DENY, frame-ancestors 'none'); the embed
+ * exists to be framed, so on this listener both are relaxed.
+ *
+ * @param {http.ServerResponse} res
+ */
+function allowFraming(res) {
+  const setHeader = res.setHeader.bind(res);
+  res.setHeader = (name, value) => {
+    const n = String(name).toLowerCase();
+    if (n === "x-frame-options") return res;
+    if (n === "content-security-policy") {
+      return setHeader(name, String(value).replace(/frame-ancestors[^;]*/i, "frame-ancestors *"));
+    }
+    return setHeader(name, value);
+  };
+}
+
+/**
  * The listener's only handler.
  *
  * @param {http.IncomingMessage} req
  * @param {http.ServerResponse} res
  */
 function handle(req, res) {
-  if (!allowPeer(req.socket.remoteAddress || "unknown", Date.now())) {
-    return send(res, 429, { error: "too-many-requests" });
-  }
   if (req.method !== "GET" && req.method !== "HEAD") {
     res.setHeader("Allow", "GET, HEAD");
     return send(res, 405, { error: "method-not-allowed" });
   }
-  const path = (req.url || "/").split("?")[0];
-  if (path !== "/summary" && path !== "/") return send(res, 404, { error: "not-found", try: "/summary" });
-  return currentSummary()
-    .then((body) => send(res, 200, body, req.method === "HEAD"))
-    .catch(() => send(res, 503, { available: false, reason: "summary-failed" }));
+  const [path, query = ""] = (req.url || "/").split("?");
+  if (path === "/summary" || path === "/") {
+    // The map's own requests are limited by the main app's limiters;
+    // this budget is for the summary alone.
+    if (!allowPeer(req.socket.remoteAddress || "unknown", Date.now())) {
+      return send(res, 429, { error: "too-many-requests" });
+    }
+    return currentSummary()
+      .then((body) => send(res, 200, body, req.method === "HEAD"))
+      .catch(() => send(res, 503, { available: false, reason: "summary-failed" }));
+  }
+  if (state.map && appHandler && isMapPath(path)) {
+    if (path === "/settings") {
+      return getSettingsData()
+        .then((data) => send(res, 200, embedSettings(data), req.method === "HEAD"))
+        .catch(() => send(res, 404, { error: "no-settings" }));
+    }
+    allowFraming(res);
+    // The client is the main bundle; it enters embed mode from the
+    // /embed path in the browser's address, so the server only needs
+    // to hand it the page at "/".
+    if (path === "/embed") req.url = query ? `/?${query}` : "/";
+    return appHandler(req, res);
+  }
+  return send(res, 404, { error: "not-found", try: state.map ? ["/summary", "/embed"] : "/summary" });
+}
+
+/**
+ * The main Express app, which serves the embedded map's files and data.
+ *
+ * @param {Function} handler (req, res) request listener
+ */
+function setAppHandler(handler) {
+  appHandler = handler;
 }
 
 /**
@@ -166,7 +264,7 @@ function configure(config) {
       state = { ...state, listening: false };
       console.log(`[home-assistant] stopped listening on port ${state.port}`);
     }
-    state = { ...state, enabled: want.enabled, port: want.port };
+    state = { ...state, enabled: want.enabled, map: want.map, port: want.port };
     if (!want.enabled) {
       state = { ...state, error: null };
       return;
@@ -226,10 +324,16 @@ function lanUrls(port) {
 /**
  * The bridge's state, for the Settings panel.
  *
- * @returns {{enabled: Boolean, port: Number, listening: Boolean, error: String|null, urls: Array<String>}}
+ * @returns {{enabled: Boolean, map: Boolean, port: Number, listening: Boolean, error: String|null,
+ *   urls: Array<String>, embedUrls: Array<String>}}
  */
 function status() {
-  return { ...state, urls: state.enabled ? lanUrls(state.port) : [] };
+  const urls = state.enabled ? lanUrls(state.port) : [];
+  return {
+    ...state,
+    urls,
+    embedUrls: state.map ? urls.map((u) => u.replace(/\/summary$/, "/embed")) : [],
+  };
 }
 
 /**
@@ -245,11 +349,14 @@ function getHomeAssistantStatus(req, res) {
 module.exports = {
   configure,
   reconcileFromSettings,
+  setAppHandler,
   status,
   getHomeAssistantStatus,
   // Exported for tests.
   computeSummary,
   allowPeer,
   handle,
+  isMapPath,
+  embedSettings,
   PEER_LIMIT_PER_MIN,
 };

@@ -115,6 +115,7 @@ import {
 } from "./iemRadar";
 import MapResizer from "./MapResizer";
 import RadarFocusControl from "./RadarFocusControl";
+import { EMBED } from "~/ui/embed";
 import {
   hasVal,
   panWithRailOffset,
@@ -1838,7 +1839,7 @@ const WeatherMap = ({ zoom, dark }) => {
         dragging={true}
         fadeAnimation={false}
       >
-        {!isPiMaxView(piLayoutState) && (
+        {!isPiMaxView(piLayoutState) && !EMBED.on && (
           <ZoomControl
             key={`zoom-${i18n.language}`}
             position="topleft"
@@ -2272,7 +2273,7 @@ const WeatherMap = ({ zoom, dark }) => {
           rather than hidden. IEM-only for now: RainViewer's timeline
           already carries its own relative-time chip, and ECCC exposes
           no frame timestamp to report. */}
-      {!isPiMaxView(piLayoutState) && ageRows.length > 0 && (
+      {!isPiMaxView(piLayoutState) && ageRows.length > 0 && (!EMBED.on || EMBED.chip) && (
         <RadarFrameAge rows={ageRows} dark={dark} />
       )}
       {/* Legend + timeline serve both reflectivity sources (RainViewer
@@ -2286,7 +2287,7 @@ const WeatherMap = ({ zoom, dark }) => {
           mutual-exclusion rule from the Phase 3 design: both can't fit
           in the 7" kiosk's vertical budget, but the legend stays one
           tap away instead of vanishing. */}
-      {legendShown && !isPiMaxView(piLayoutState) && (
+      {legendShown && !isPiMaxView(piLayoutState) && !EMBED.on && (
         <RadarLegend
           dark={dark}
           chipMode={radarTimelineVisible && isSmallScreen}
@@ -2316,7 +2317,7 @@ const WeatherMap = ({ zoom, dark }) => {
           } : null}
         />
       )}
-      {timelineShown && (
+      {timelineShown && !EMBED.on && (
         <RadarTimeline
           frames={iemTimelineFrames}
           currentIdx={Math.max(0, iemTimelineFrames.length - 1 - iemFromEnd)}

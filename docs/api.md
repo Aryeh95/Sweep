@@ -762,6 +762,21 @@ nearest GLM flash within 80 km. No coordinates in the output. Cached
 30 s, one computation in flight, 30 requests a minute per peer (429).
 Field table and Home Assistant YAML: `docs/home-assistant.md`.
 
+### `GET http://<kiosk>:8099/embed[?zoom=&theme=&play=&lightning=&tracks=&alerts=&satellite=&chip=&pin=]`
+
+Only with `homeAssistant.map` on. The kiosk's own client in embed mode
+(`client/src/ui/embed.js`): the map alone, no controls, never sleeps,
+never writes (preferences in memory, seeded from the URL; non-GET
+requests refused client-side). The listener forwards a GET whitelist —
+the bundle's static files, `/api/radar/*`, `/api/satellite/ir/*`,
+`/api/tiles/*`, `/api/is-local`, `/api/sunrise-sunset`,
+`/api/weather-alerts`, `/api/nearby-alerts`, `/api/storm-tracks`,
+`/api/lightning` — to the main app as a remote client (its rate limits
+apply), and answers `/settings` itself with a reduced copy (keys masked,
+saved places and `homeAssistant` removed). `X-Frame-Options` is dropped
+and `frame-ancestors` set to `*` on this listener only. `?embed=1` on
+the main server gives the same view for testing.
+
 ## Geocoding and solar
 
 ### `GET /api/reverse-geocode?lat=&lon=`

@@ -1951,3 +1951,32 @@ to it. Things to keep:
   moderate, end at +45 → "rain_ends_in_min: 42" read 3 min later; cold
   4.7 s, cached 9 ms; restart brings the listener back from settings.
 
+### Embed mode — radar map for HA dashboards (2026-11-05)
+
+`client/src/ui/embed.js` (`/embed` path or `?embed=1`) + `LayoutEmbed`:
+the map alone. Gates: App renders only AmbientLayers; WeatherMap hides
+ZoomControl, legend and timeline (frame-age chip stays unless `chip=0`);
+`useIdleDetection` gets `hold: warningHold || EMBED.on` (an embed never
+sleeps); `animateWeatherMap` starts true with `play=1`; a URL `zoom`
+beats the server's `advanced.display.defaultMapZoom`. Two rules that
+keep it from touching the kiosk, keep them:
+- `installEmbed` swaps `window.localStorage` for an IN-MEMORY Storage
+  seeded from the URL (`embedPrefs`) — never from the origin's real
+  storage, so an embed on the kiosk's own origin cannot read or change
+  the kiosk's per-device prefs. `test/embed.test.js` fails if a key it
+  seeds is no longer read anywhere in `client/src`.
+- an axios request interceptor refuses every non-GET, so the zoom-persist
+  effect and the other savers can never PATCH from an embed.
+Served by the HA bridge only with `homeAssistant.map` (second opt-in):
+`isMapPath` whitelist forwarded to the Express app as a REMOTE client
+(`setAppHandler(app)`; main rate limits apply), `/settings` answered by
+the bridge itself (`embedSettings`: `maskForRemote` minus favorites and
+`homeAssistant`), `allowFraming` drops X-Frame-Options and rewrites
+`frame-ancestors` to `*` on this listener only. `/embed` is rewritten to
+`/` for express.static; the client detects embed from the browser path.
+Kiosk-only pollers (brightness, display-scale, update-check) 404 there,
+harmlessly. Limit: an `https://` HA dashboard cannot frame the `http://`
+listener (mixed content) — documented, not solved. Verified 2026-11-05 in
+Chromium: cross-origin iframe, embed layout, 0 buttons, loop playing,
+0 non-GET requests, ~40 requests in 30 s with `play=1`.
+

@@ -1,4 +1,5 @@
 import React, { createContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { EMBED } from "~/ui/embed";
 import { getSettings } from "~/settings";
 import PropTypes from "prop-types";
 import { getCoordsFromApi, getCoordsFromBrowser } from "~/services/geolocation";
@@ -538,7 +539,9 @@ export function AppContextProvider({ children }) {
     stage1Delay: sleepStage1Delay,
     stage2Enabled: sleepStage2Enabled,
     stage2Delay: sleepStage2Delay,
-    hold: warningHold,
+    // An embed never sleeps: a dashboard tile whose pollers paused would
+    // keep showing old radar as if it were current.
+    hold: warningHold || EMBED.on,
   });
   // One flag every poller gates on: nobody is looking at the screen.
   // True while the screensaver is up (stage ≥ 1) or the document is
@@ -900,7 +903,9 @@ export function AppContextProvider({ children }) {
     // rather than the previous alert's polygon ghost.
     setHighlightedAlertId(null);
   }, [govAlertIdx]);
-  const [animateWeatherMap, setAnimateWeatherMap] = useState(false);
+  // An embed asked to play (`?play=1`) starts animating; it has no
+  // timeline to press play on.
+  const [animateWeatherMap, setAnimateWeatherMap] = useState(() => EMBED.on && EMBED.play);
   // Radar animation playback speed multiplier — 1× / 2× / 4× cycling.
   // Drives the per-frame interval in WeatherMap (MAP_CYCLE_RATE / radarSpeed).
   // Lives in context so the new RadarTimeline overlay can read and write it
@@ -1379,7 +1384,8 @@ export function AppContextProvider({ children }) {
               // Server-persisted map zoom — the level the user last left
               // the map at. Wins over the localStorage copy: settings.json
               // is the shared source of truth and survives a cache clear.
-              if (Number.isFinite(advancedDisplay.defaultMapZoom)) {
+              // An embed's `?zoom=` beats it (and an embed never saves one).
+              if (Number.isFinite(advancedDisplay.defaultMapZoom) && !(EMBED.on && EMBED.zoom != null)) {
                 // Not rounded: with `zoomSnap: 0` this is wherever the pinch
                 // came to rest. Rounding here would also disagree with the
                 // localStorage copy and leave the persist effect below

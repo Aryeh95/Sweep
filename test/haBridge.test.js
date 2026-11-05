@@ -18,13 +18,14 @@ const get = (port, path, method = "GET") => new Promise((resolve, reject) => {
 });
 
 test("config is off unless enabled is exactly true; bad ports fall back to 8099", () => {
-  assert.deepEqual(sanitizeHomeAssistant(null), { enabled: false, port: 8099 });
-  assert.deepEqual(sanitizeHomeAssistant({ enabled: "true", port: 9000 }), { enabled: false, port: 9000 });
-  assert.deepEqual(sanitizeHomeAssistant({ enabled: true, port: 80 }), { enabled: true, port: 8099 });
-  assert.deepEqual(sanitizeHomeAssistant({ enabled: true, port: 8443 }), { enabled: true, port: 8099 });
-  assert.deepEqual(sanitizeHomeAssistant({ enabled: true, port: "8123" }), { enabled: true, port: 8123 });
+  assert.deepEqual(sanitizeHomeAssistant(null), { enabled: false, map: false, port: 8099 });
+  assert.deepEqual(sanitizeHomeAssistant({ enabled: "true", port: 9000 }), { enabled: false, map: false, port: 9000 });
+  assert.deepEqual(sanitizeHomeAssistant({ enabled: true, port: 80 }), { enabled: true, map: false, port: 8099 });
+  assert.deepEqual(sanitizeHomeAssistant({ enabled: true, port: 8443 }), { enabled: true, map: false, port: 8099 });
+  assert.deepEqual(sanitizeHomeAssistant({ enabled: true, map: true, port: "8123" }), { enabled: true, map: true, port: 8123 });
+  assert.deepEqual(sanitizeHomeAssistant({ enabled: true, map: "yes" }), { enabled: true, map: false, port: 8099 });
   assert.ok(__test.ALLOWED_KEYS.has("homeAssistant"));
-  assert.deepEqual(__test.sanitizeValue("homeAssistant", { enabled: true, port: 1 }), { enabled: true, port: 8099 });
+  assert.deepEqual(__test.sanitizeValue("homeAssistant", { enabled: true, port: 1 }), { enabled: true, map: false, port: 8099 });
 });
 
 test("per-peer limit allows a minute's worth of polls, then refuses", () => {
@@ -68,4 +69,65 @@ test("listener starts, serves only /summary, moves port, stops, and reports a ta
   st = await bridge.configure({ enabled: true, port: port + 2 });
   assert.equal(st.listening, true, "retries once the port is free");
   await bridge.configure({ enabled: false });
+});
+
+const getFull = (port, path) => new Promise((resolve, reject) => {
+  const req = http.request({ host: "127.0.0.1", port, path }, (res) => {
+    let body = "";
+    res.on("data", (c) => { body += c; });
+    res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body }));
+  });
+  req.on("error", reject);
+  req.end();
+});
+
+test("map whitelist: the map's reads only — never writes, keys-per-call, commands or local-only routes", () => {
+  for (const p of ["/embed", "/bundle.min.js", "/810.bundle.min.js", "/5e3a510773fa9b9e676b.woff2", "/settings",
+    "/api/radar/radial", "/api/radar/frames", "/api/satellite/ir/frame", "/api/tiles/dark-v10/8/72/97", "/api/lightning"]) {
+    assert.equal(bridge.isMapPath(p), true, p);
+  }
+  for (const p of ["/setting", "/api/update-check", "/api/update", "/api/reverse-geocode", "/api/brightness",
+    "/api/home-assistant", "/api/health", "/api/relaunch-kiosk", "/debug", "/api/tiles/../settings", "/x/y.js"]) {
+    assert.equal(bridge.isMapPath(p), false, p);
+  }
+});
+
+test("the embed's settings mask keys and drop saved places and the bridge config", () => {
+  const out = bridge.embedSettings({
+    mapApiKey: "pk.secret", reverseGeoApiKey: "loc.secret", startingLat: "39.37", startingLon: "-76.72",
+    favorites: [{ id: "a", label: "Mom", lat: 1, lon: 2 }], homeAssistant: { enabled: true, map: true, port: 8099 },
+    advanced: { display: { radarPalette: "scope" } },
+  });
+  assert.equal(out.mapApiKey, true);
+  assert.equal(out.reverseGeoApiKey, true);
+  assert.equal(out.startingLat, "39.37");
+  assert.ok(!("favorites" in out) && !("homeAssistant" in out));
+  assert.ok(!JSON.stringify(out).includes("secret"));
+});
+
+test("map forwarding: only with map on, /embed becomes the page, framing allowed", async () => {
+  const port = 19000 + Math.floor(Math.random() * 1000);
+  const seen = [];
+  bridge.setAppHandler((req, res) => {
+    seen.push(req.url);
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
+    res.setHeader("Content-Type", "text/html");
+    res.end("page");
+  });
+  await bridge.configure({ enabled: true, map: false, port });
+  assert.equal((await getFull(port, "/embed")).status, 404, "map off: no embed");
+
+  const st = await bridge.configure({ enabled: true, map: true, port });
+  assert.ok(st.embedUrls.some((u) => u.endsWith(`:${port}/embed`)));
+  const r = await getFull(port, "/embed?zoom=8&play=1");
+  assert.equal(r.status, 200);
+  assert.equal(r.body, "page");
+  assert.deepEqual(seen, ["/?zoom=8&play=1"]);
+  assert.equal(r.headers["x-frame-options"], undefined);
+  assert.equal(r.headers["content-security-policy"], "frame-ancestors *");
+  assert.equal((await getFull(port, "/api/update-check")).status, 404);
+  assert.equal(seen.length, 1, "a non-whitelisted path never reaches the app");
+  await bridge.configure({ enabled: false });
+  bridge.setAppHandler(null);
 });

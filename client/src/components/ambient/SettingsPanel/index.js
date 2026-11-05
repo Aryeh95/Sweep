@@ -1569,10 +1569,12 @@ const HomeAssistantSettings = ({ lang, remote }) => {
   useEffect(() => {
     if (!remote) refresh();
   }, [remote, refresh]);
-  const setEnabled = (enabled) => {
-    if (remote || busy || !status || status.enabled === enabled) return;
+  const save = (change) => {
+    if (remote || busy || !status) return;
+    const next = { enabled: status.enabled, map: Boolean(status.map), port: status.port, ...change };
+    if (next.enabled === status.enabled && next.map === Boolean(status.map)) return;
     setBusy(true);
-    axios.patch("/setting", { key: "homeAssistant", val: { enabled, port: status.port } })
+    axios.patch("/setting", { key: "homeAssistant", val: next })
       // The listener reconfigures once the write has finished; give it a
       // moment before reading back whether it is listening.
       .then(() => new Promise((resolve) => setTimeout(resolve, 400)))
@@ -1601,9 +1603,21 @@ const HomeAssistantSettings = ({ lang, remote }) => {
             { v: false, l: lbl(lang, "Off", "Non", "No") },
           ]}
           value={status ? status.enabled : false}
-          onChange={setEnabled}
+          onChange={(enabled) => save({ enabled })}
           disabled={remote || busy || !status}
         />
+        {status && status.enabled ? (
+          <Seg
+            label={lbl(lang, "Radar map for dashboards", "Carte radar pour tableaux de bord", "Mapa de radar para paneles")}
+            options={[
+              { v: true, l: lbl(lang, "On", "Oui", "Sí") },
+              { v: false, l: lbl(lang, "Off", "Non", "No") },
+            ]}
+            value={Boolean(status.map)}
+            onChange={(map) => save({ map })}
+            disabled={remote || busy}
+          />
+        ) : null}
       </div>
       {line ? <p className={styles.locationHelp}>{line}</p> : null}
       {status && status.listening ? (
@@ -1611,14 +1625,24 @@ const HomeAssistantSettings = ({ lang, remote }) => {
           {status.urls.map((u) => <li key={u} className={styles.locationValue}>{u}</li>)}
         </ul>
       ) : null}
+      {status && status.listening && status.map ? (
+        <>
+          <p className={styles.locationHelp}>
+            {lbl(lang, "Radar map (Webpage card):", "Carte radar (carte Page web) :", "Mapa de radar (tarjeta Página web):")}
+          </p>
+          <ul className={styles.haUrls}>
+            {status.embedUrls.map((u) => <li key={u} className={styles.locationValue}>{`${u}?zoom=8`}</li>)}
+          </ul>
+        </>
+      ) : null}
       <p className={styles.locationHelp}>
         {remote
           ? lbl(lang, "Can only be changed on the kiosk itself.", "Modifiable uniquement sur le kiosque.", "Solo se puede cambiar en el propio quiosco.")
           : lbl(
             lang,
-            "Lets Home Assistant on your network read this kiosk's nowcast for your saved location: raining now, minutes until rain, and the nearest lightning. Read-only, nothing else is shared. Setup: docs/home-assistant.md.",
-            "Permet à Home Assistant sur votre réseau de lire la prévision immédiate de ce kiosque pour votre position : pluie en cours, minutes avant la pluie, foudre la plus proche. Lecture seule, rien d'autre n'est partagé. Configuration : docs/home-assistant.md.",
-            "Permite que Home Assistant en su red lea el pronóstico inmediato de este quiosco para su ubicación: lluvia ahora, minutos hasta la lluvia y el rayo más cercano. Solo lectura, no se comparte nada más. Configuración: docs/home-assistant.md.",
+            "Lets Home Assistant on your network read this kiosk's nowcast for your saved location: raining now, minutes until rain, and the nearest lightning. The radar map adds Sweep's map alone, without buttons, for a dashboard; it shows where home is to anyone on your network. Read-only, nothing else is shared. Setup: docs/home-assistant.md.",
+            "Permet à Home Assistant sur votre réseau de lire la prévision immédiate de ce kiosque pour votre position : pluie en cours, minutes avant la pluie, foudre la plus proche. La carte radar ajoute la carte de Sweep seule, sans boutons, pour un tableau de bord ; elle montre votre position à tout appareil du réseau. Lecture seule, rien d'autre n'est partagé. Configuration : docs/home-assistant.md.",
+            "Permite que Home Assistant en su red lea el pronóstico inmediato de este quiosco para su ubicación: lluvia ahora, minutos hasta la lluvia y el rayo más cercano. El mapa de radar añade el mapa de Sweep solo, sin botones, para un panel; muestra dónde está su casa a cualquiera en su red. Solo lectura, no se comparte nada más. Configuración: docs/home-assistant.md.",
           )}
       </p>
     </>

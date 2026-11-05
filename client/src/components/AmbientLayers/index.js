@@ -6,6 +6,8 @@ import { useTimeOfDay, useHybridMode } from "~/ui/hybrid";
 import LayoutPi from "~/components/ambient/LayoutPi";
 import LayoutDesktop from "~/components/ambient/LayoutDesktop";
 import LayoutMobile from "~/components/ambient/LayoutMobile";
+import LayoutEmbed from "~/components/ambient/LayoutEmbed";
+import { EMBED } from "~/ui/embed";
 import { FONT_SIZE_ZOOM } from "~/ui/fontSize";
 
 // Global stylesheets — fonts (@font-face declarations) and the
@@ -214,8 +216,8 @@ const AmbientLayers = () => {
   // ternary unambiguous (and lets `isMobile` short-circuit the Pi
   // path for the 0-799 range).
   // eslint-disable-next-line no-nested-ternary -- the three-layout dispatch reads more cleanly inline than via a temporary
-  const ActiveLayout = isMobile ? LayoutMobile : isDesktop ? LayoutDesktop : LayoutPi;
-  const layoutAttr = isMobile ? "mobile" : isDesktop ? "desktop" : "pi";
+  const ActiveLayout = EMBED.on ? LayoutEmbed : isMobile ? LayoutMobile : isDesktop ? LayoutDesktop : LayoutPi;
+  const layoutAttr = EMBED.on ? "embed" : isMobile ? "mobile" : isDesktop ? "desktop" : "pi";
 
   return (
     <div

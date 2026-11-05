@@ -181,18 +181,19 @@ function sanitizeRadarSite(val) {
 const HA_DEFAULT_PORT = 8099;
 
 /**
- * Coerce the Home Assistant bridge config. Off unless `enabled` is
- * exactly true; a port outside 1024–65535 (or the main server's own
+ * Coerce the Home Assistant bridge config: `enabled` (the /summary
+ * listener) and `map` (the embeddable map on the same listener), each
+ * off unless exactly true; a port outside 1024–65535 (or the main server's own
  * 8080 / 8443) falls back to the default rather than being rejected.
  *
  * @param {*} val incoming value
- * @returns {{enabled: Boolean, port: Number}}
+ * @returns {{enabled: Boolean, map: Boolean, port: Number}}
  */
 function sanitizeHomeAssistant(val) {
   const v = val && typeof val === "object" ? val : {};
   const port = Number(v.port);
   const ok = Number.isInteger(port) && port >= 1024 && port <= 65535 && port !== 8080 && port !== 8443;
-  return { enabled: v.enabled === true, port: ok ? port : HA_DEFAULT_PORT };
+  return { enabled: v.enabled === true, map: v.map === true, port: ok ? port : HA_DEFAULT_PORT };
 }
 
 const VALUE_SANITIZERS = {
@@ -676,6 +677,7 @@ module.exports = {
   replaceSettings: serializeWrites(replaceSettings),
   getSettingsData,
   sanitizeHomeAssistant,
+  maskForRemote,
   ensureSecurePermissions,
   sweepOrphanSettingsTmp,
   // Exported for regression testing only — internal helpers, not part of

@@ -634,7 +634,9 @@ if (sslOptions) {
 }
 
 // The Home Assistant listener is separate from the main server (plain
-// HTTP, LAN, one read-only route) and off unless Settings switched it on.
+// HTTP, LAN, read-only) and off unless Settings switched it on. The app
+// is handed over so the bridge can serve the embedded map's whitelist.
+haBridge.setAppHandler(app);
 haBridge.reconcileFromSettings();
 
 app.get("/settings", getSettings);

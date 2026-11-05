@@ -1,0 +1,6 @@
+.mapArea {
+  position: absolute;
+  inset: 0;
+  background-color: var(--c-bg);
+  overflow: hidden;
+}

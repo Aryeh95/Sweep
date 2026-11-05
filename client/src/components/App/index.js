@@ -8,6 +8,7 @@ import AmbientSettingsPanel from "~/components/ambient/SettingsPanel";
 import AmbientDebugPanel from "~/components/ambient/DebugPanel";
 import UpdateModal from "~/components/UpdateModal";
 import ScreenSaver from "~/components/ScreenSaver";
+import { EMBED } from "~/ui/embed";
 import {
   nextRestoreAction,
   RESTORE_MAX_ATTEMPTS,
@@ -151,6 +152,10 @@ const App = () => {
     loadStoredData();
     checkIsLocal();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- initialization, runs once on mount
+
+  // Embed (ui/embed.js): the map only — no settings, debug, update
+  // prompt or screensaver over it.
+  if (EMBED.on) return <AmbientLayers />;
 
   return (
     <div className={mouseHide ? styles.hideMouse : ""}>
