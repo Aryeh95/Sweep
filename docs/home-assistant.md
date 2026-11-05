@@ -81,14 +81,27 @@ rest:
           - radar_age_min
           - nowcast_reason
 
-      # Numbers for dashboards and history graphs. They read "unavailable"
-      # when there is nothing to report (no rain coming, no lightning).
-      - name: Sweep minutes until rain
+      # Readable text for dashboard tiles: "25 min", "Raining now",
+      # "No rain expected", "Not raining", "None within 50 mi", "7 mi NW".
+      # "No data" means Sweep has no usable nowcast (e.g. radar delayed).
+      - name: Sweep rain in
         unique_id: sweep_rain_in_min
-        unit_of_measurement: min
         icon: mdi:timer-sand
-        value_template: "{{ value_json.rain_in_min }}"
-        availability: "{{ value_json.rain_in_min is not none }}"
+        value_template: >-
+          {%- set m = value_json.rain_in_min -%}
+          {%- if value_json.state == 'unknown' -%}No data
+          {%- elif m == 0 -%}Raining now
+          {%- elif m is none -%}No rain expected
+          {%- else -%}{{ m }} min{%- endif -%}
+      - name: Sweep rain stops in
+        unique_id: sweep_rain_ends_in_min
+        icon: mdi:weather-partly-cloudy
+        value_template: >-
+          {%- set e = value_json.rain_ends_in_min -%}
+          {%- if value_json.state == 'unknown' -%}No data
+          {%- elif not value_json.raining -%}Not raining
+          {%- elif e is none -%}Not in next {{ value_json.horizon_min or 90 }} min
+          {%- else -%}{{ e }} min{%- endif -%}
       - name: Sweep rain chance
         unique_id: sweep_rain_probability
         unit_of_measurement: "%"
@@ -97,11 +110,17 @@ rest:
         availability: "{{ value_json.rain_probability is not none }}"
       - name: Sweep nearest lightning
         unique_id: sweep_lightning_mi
-        unit_of_measurement: mi
-        device_class: distance
         icon: mdi:flash
-        value_template: "{{ value_json.lightning_mi }}"
-        availability: "{{ value_json.lightning_mi is not none }}"
+        value_template: >-
+          {%- if not value_json.lightning_available -%}No data
+          {%- elif value_json.lightning_mi is none -%}None within 50 mi
+          {%- else -%}{{ value_json.lightning_mi | round(0) | int }} mi {{ value_json.lightning_direction }}{%- endif -%}
+
+      # Numbers instead, for history graphs or numeric automations: use
+      # e.g. value_template "{{ value_json.rain_in_min }}" with
+      # unit_of_measurement: min and
+      # availability: "{{ value_json.rain_in_min is not none }}".
+      # Those read "Unavailable" whenever there is nothing to report.
 
     binary_sensor:
       - name: Sweep raining
@@ -114,9 +133,8 @@ rest:
         value_template: "{{ value_json.lightning_mi is not none and value_json.lightning_mi <= 10 }}"
 ```
 
-Use `lightning_km` instead of `lightning_mi` (and `unit_of_measurement:
-km`) for metric. HA converts distance sensors to your unit system either
-way.
+For metric, use `lightning_km` and write `km` in the nearest-lightning
+template.
 
 ## 3. Example automations
 
