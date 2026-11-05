@@ -1313,6 +1313,31 @@
   top: 8px;
   left: 8px;
   font-size: 0.85em;
+  /* See-through on a dashboard tile, where the map is small and the chip
+   * would otherwise hide a corner of it. No backdrop blur: the radar
+   * moves under it (see styles/main.css on blur cost). */
+  box-shadow: none;
+}
+
+:global(.ambientRoot[data-layout="embed"]) .frame-age-light {
+  background: rgba(255, 250, 240, 0.55);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+:global(.ambientRoot[data-layout="embed"]) .frame-age-dark {
+  background: rgba(30, 30, 32, 0.5);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* The palette's dim label colour assumes an opaque chip; through a
+ * see-through one it can sink into the map, so the labels get a fixed
+ * contrast against each chip tone instead. */
+:global(.ambientRoot[data-layout="embed"]) .frame-age-light .frame-age-site {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+:global(.ambientRoot[data-layout="embed"]) .frame-age-dark .frame-age-site {
+  color: rgba(255, 255, 255, 0.7);
 }
 
 :global(.ambientRoot[data-layout="pi"]) .frame-age {

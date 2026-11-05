@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed (2026-11-05)
+- **The embed's age chip is see-through** (about half opacity, no shadow), so it hides less of a small dashboard map; its row labels get a fixed contrast so they stay readable over radar. Embed only — the kiosk's chip is unchanged.
+
 ### Added (2026-11-05, later)
 - **Radar map for Home Assistant dashboards.** Settings → Advanced → Home Assistant → "Radar map for dashboards" adds `http://<kiosk>:8099/embed` to the Home Assistant listener: Sweep's live map and radar alone, with no dock, header, panels, legend, timeline or zoom buttons, for a Webpage card. URL options set the zoom, theme (dark / light / auto), loop playback, lightning, storm tracks, warning polygons and satellite; the frame-age chip stays unless `chip=0`. The embed never sleeps and never writes: its preferences live in memory (so it cannot change the kiosk's saved zoom or layers even on the kiosk's own address), and any non-GET request is refused before it leaves. The listener forwards only the map's read routes to the main app as a remote client and serves its own reduced settings (keys masked, saved places left out); framing is allowed on this listener only. Works while Home Assistant is opened over `http://` at home; an `https://` dashboard cannot show an `http://` page. App 2.13.21 (versionCode 38), nothing new for the app.
 
