@@ -841,6 +841,7 @@ const WeatherMap = ({ zoom, dark }) => {
     mapGeo,
     mapTimezone,
     panToCoords,
+    setHomeLocation,
   } = useContext(LocationContext);
   const {
     markerIsVisible,
@@ -1731,6 +1732,18 @@ const WeatherMap = ({ zoom, dark }) => {
   const releaseFollow = useCallback(() => {
     if (followLocation) toggleFollowLocation();
   }, [followLocation, toggleFollowLocation]);
+  // "Set home here" on a pinned readout (MapProbe): the same writes as
+  // Settings → Location → Choose on map. Offered only where the location
+  // is editable (the app, or the kiosk itself) and never in an embed.
+  // Choosing a place by hand ends follow mode, or the next GPS fix would
+  // move the pin straight back.
+  const canSetHome = (__STANDALONE__ || Boolean(isLocal)) && !EMBED.on;
+  const onSetHomeFromMap = useMemo(() => (canSetHome
+    ? (lat, lon) => {
+      releaseFollow();
+      setHomeLocation(lat, lon);
+    }
+    : null), [canSetHome, releaseFollow, setHomeLocation]);
   // Which basemap the app is on. Esri unless the user supplied a Mapbox
   // token; the two differ in tile size, so this decides the layer geometry.
   const appBasemapIsEsri = __STANDALONE__ && !isUsableMapboxToken(appMapboxToken);
@@ -1848,7 +1861,7 @@ const WeatherMap = ({ zoom, dark }) => {
           />
         )}
         <MapClickHandler onClick={guardedMapClick} />
-        <MapProbe probe={probe} guardRef={probeGuardRef} radarPalette={radarPalette} />
+        <MapProbe probe={probe} guardRef={probeGuardRef} radarPalette={radarPalette} onSetHome={onSetHomeFromMap} />
         <PanHandler panToCoords={panToCoords} setPanToCoords={setPanToCoords} railOffset={railOffset} />
         <FollowReleaseOnDrag active={followLocation} onRelease={releaseFollow} />
         <InitialOffsetCentering railOffset={railOffset} markerPosition={markerPosition} />

@@ -722,6 +722,7 @@
     "toward": "{{speed}} toward radar",
     "away": "{{speed}} away from radar",
     "rain": "{{amount}} rain",
-    "nothing": "No echo here"
+    "nothing": "No echo here",
+    "setHome": "Set home here"
   }
 }

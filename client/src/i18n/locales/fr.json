@@ -722,6 +722,7 @@
     "toward": "{{speed}} vers le radar",
     "away": "{{speed}} s’éloignant du radar",
     "rain": "{{amount}} de pluie",
-    "nothing": "Aucun écho ici"
+    "nothing": "Aucun écho ici",
+    "setHome": "Définir comme domicile"
   }
 }

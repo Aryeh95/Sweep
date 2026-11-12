@@ -722,6 +722,7 @@
     "toward": "{{speed}} hacia el radar",
     "away": "{{speed}} alejándose del radar",
     "rain": "{{amount}} de lluvia",
-    "nothing": "Sin eco aquí"
+    "nothing": "Sin eco aquí",
+    "setHome": "Fijar casa aquí"
   }
 }

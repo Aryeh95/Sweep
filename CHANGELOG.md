@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (2026-11-12)
+- **Move the home pin from the map.** A pinned readout now carries a **Set home here** button. Touch: press and hold for the readout (as before), lift to pin it, tap the button. Mouse: hover still previews; **right-click** pins a readout at that point (and replaces the browser's context menu on the map). A short tap or left-click elsewhere on the map still dismisses it without moving anything. The button makes the same writes as Settings → Location → Choose on map (and clears a manual radar pick); in the app it also ends follow mode, or the next GPS fix would move the pin straight back. Shown only where the location is editable: the app and the kiosk itself, never on a remote browser or in the Home Assistant embed. App 2.13.22 (versionCode 39).
+
 ### Changed (2026-11-05)
 - **The embed's age chip is see-through** (about half opacity, no shadow), so it hides less of a small dashboard map; its row labels get a fixed contrast so they stay readable over radar. Embed only — the kiosk's chip is unchanged.
 

@@ -25,6 +25,7 @@ import React, { useCallback, useContext, useEffect, useRef, useState } from "rea
 import { createPortal } from "react-dom";
 import PropTypes from "prop-types";
 import { useMap } from "react-leaflet";
+import L from "leaflet";
 import useStableMapEvents from "./useStableMapEvents";
 import { useTranslation } from "react-i18next";
 import { UiPrefsContext } from "~/AppContext";
@@ -105,9 +106,12 @@ export function formatProbeItem(item, { t, speedUnit, lengthUnit, radarPalette }
  * @param {(lat: Number, lon: Number) => Array<object>} props.probe the values under a point: [{kind, value, source?, palette?}]
  * @param {object} props.guardRef ref whose `.current` holds a time (ms) before which map clicks are swallowed
  * @param {String} props.radarPalette reflectivity palette id, for the swatches
+ * @param {Function|null} [props.onSetHome] (lat, lon) => void; when given, a
+ *   PINNED readout offers "Set home here" — the map's way to move the pin
+ *   without opening Settings (null where the location is not editable)
  * @returns {JSX.Element|null} the readout, portalled into the map container
  */
-const MapProbe = ({ probe, guardRef, radarPalette }) => {
+const MapProbe = ({ probe, guardRef, radarPalette, onSetHome = null }) => {
   const map = useMap();
   const { t } = useTranslation();
   const { speedUnit, lengthUnit } = useContext(UiPrefsContext);
@@ -117,6 +121,19 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
   const [, setViewTick] = useState(0);
   const holdRef = useRef(null); // {timer, x, y, id, active}
   const frameRef = useRef(0);
+  const boxRef = useRef(null);
+
+  // The readout box takes pointer input only for its action button, and
+  // that input must reach neither Leaflet (pan, the map click that opens
+  // alert popups and dismisses readouts) nor the handlers below.
+  // Once per box element (it remounts when the readout reappears).
+  useEffect(() => {
+    const el = boxRef.current;
+    if (el && !el.dataset.noPropagation) {
+      L.DomEvent.disableClickPropagation(el);
+      el.dataset.noPropagation = "1";
+    }
+  });
 
   const guard = useCallback(() => { guardRef.current = Date.now() + CLICK_GUARD_MS; }, [guardRef]);
 
@@ -185,6 +202,9 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
       setPoint((p) => (p && !p.pinned ? null : p));
     };
     const onDown = (ev) => {
+      // A press on the readout's own button is the button's, not a probe
+      // gesture or a dismissing tap.
+      if (ev.target instanceof Element && ev.target.closest("[data-probe-action]")) return;
       if (!ev.isPrimary) {
         // A second finger is a pinch, never a probe: cancel a pending hold,
         // end an active one (dropping its unpinned readout), and let the
@@ -288,8 +308,20 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
     // releases, shorter than HOLD_MS, and an unhandled long press there
     // can end the touch sequence (pointercancel) or start a text
     // selection that eats the next tap.
+    //
+    // A right-click (no hold in progress) is the MOUSE way to pin a readout:
+    // hover only previews, and a pinned readout is what carries "Set home
+    // here". The browser's own context menu has nothing for a map.
     const onContext = (ev) => {
-      if (holdRef.current && ev.pointerType !== "mouse") ev.preventDefault();
+      if (holdRef.current) {
+        if (ev.pointerType !== "mouse") ev.preventDefault();
+        return;
+      }
+      if (ev.target instanceof Element && ev.target.closest("[data-probe-action]")) return;
+      ev.preventDefault();
+      guard();
+      cancelAnimationFrame(frameRef.current);
+      setPoint({ latlng: latlngAt(ev), mode: "mouse", pinned: true });
     };
     // Presses start on the map container; moves, lifts and cancels are
     // followed on the DOCUMENT, so a lift that lands (or is retargeted)
@@ -322,13 +354,20 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
   if (!point) return null;
   const items = probe(point.latlng.lat, point.latlng.lng) || [];
   const touch = point.mode === "touch";
-  // Mouse hover over nothing measurable shows nothing; a touch probe
-  // always answers, so the gesture never looks ignored.
-  if (!items.length && !touch) return null;
+  // Mouse hover over nothing measurable shows nothing; a touch probe (or
+  // a pinned one) always answers, so the gesture never looks ignored.
+  if (!items.length && !touch && !point.pinned) return null;
 
   const size = map.getSize();
   const at = map.latLngToContainerPoint(point.latlng);
   const lines = items.map((it) => formatProbeItem(it, { t, speedUnit, lengthUnit, radarPalette }));
+  const canSetHome = Boolean(onSetHome) && point.pinned;
+  const setHome = () => {
+    const { lat, lng } = point.latlng;
+    guard();
+    setPoint(null);
+    onSetHome(lat, lng);
+  };
   const boxStyle = {};
   if (touch) {
     boxStyle.left = Math.min(Math.max(at.x, 90), size.x - 90);
@@ -347,13 +386,18 @@ const MapProbe = ({ probe, guardRef, radarPalette }) => {
       {touch ? (
         <div className={styles.probeCrosshair} style={{ left: at.x, top: at.y }} aria-hidden="true" />
       ) : null}
-      <div className={`${styles.probeBox} ${touch ? styles.probeBoxTouch : ""}`} style={boxStyle} role="status" aria-live="polite">
+      <div ref={boxRef} className={`${styles.probeBox} ${touch ? styles.probeBoxTouch : ""}`} style={boxStyle} role="status" aria-live="polite">
         {lines.length ? lines.map((l) => (
           <div key={l.text} className={styles.probeLine}>
             {l.color ? <span className={styles.probeSwatch} style={{ background: l.color }} aria-hidden="true" /> : null}
             <span>{l.text}</span>
           </div>
         )) : <div className={styles.probeLine}>{t("probe.nothing")}</div>}
+        {canSetHome ? (
+          <button type="button" className={styles.probeAction} data-probe-action="" onClick={setHome}>
+            {t("probe.setHome")}
+          </button>
+        ) : null}
       </div>
     </>,
     map.getContainer(),
@@ -364,6 +408,7 @@ MapProbe.propTypes = {
   probe: PropTypes.func.isRequired,
   guardRef: PropTypes.shape({ current: PropTypes.number }).isRequired,
   radarPalette: PropTypes.string,
+  onSetHome: PropTypes.func,
 };
 
 export default MapProbe;

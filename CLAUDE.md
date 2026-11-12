@@ -438,6 +438,24 @@ tap "reach the map-click handler that moves the pin" are history — the
 `bubblingMouseEvents: false` still matters, because the alert popup and
 the probe guard live on that handler.
 
+**…and move again from a pinned readout (2026-11-12).** User request: read
+dBZ AND move the pin without opening Settings. `MapProbe` takes
+`onSetHome` (WeatherMap passes it only when `(__STANDALONE__ || isLocal)
+&& !EMBED.on`); a PINNED readout then shows "Set home here", which calls
+`setHomeLocation` (and `releaseFollow` first — follow mode would move the
+pin straight back). Two deliberate steps, never one: touch = hold → lift →
+button; mouse = right-click (contextmenu with no hold in progress pins a
+mouse-mode readout; the browser menu is suppressed on the map) → button.
+Hover and short taps are unchanged. The box stays `pointer-events: none`
+except the button (`.probe-action`, `data-probe-action`): `onDown` and
+`onContext` ignore presses on it, and `L.DomEvent.disableClickPropagation`
+on the box keeps its click from reaching Leaflet (alert popup / dismiss).
+A pinned mouse readout over nothing still renders ("No echo here") so the
+button is reachable anywhere. Verified in Chromium with mouse and CDP
+touch: right-click/hold → button → PATCH startingLat/Lon with the point;
+left-click/tap on the map dismisses with no PATCH; embed shows no button.
+A tap on the timeline keeps the readout by design (`data-keeps-probe`).
+
 ### Radar visibility toggle (2026-09-25)
 
 `showRadar` (dock eye glyph, per-device, default ON — only a stored

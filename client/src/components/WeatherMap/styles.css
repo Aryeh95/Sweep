@@ -1675,3 +1675,23 @@
   background: #fff;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7);
 }
+
+/* "Set home here" on a pinned readout (MapProbe). The box itself ignores
+ * the pointer so it never blocks the map; only this button takes input. */
+.probe-action {
+  pointer-events: auto;
+  margin-top: 4px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--c-border, rgba(0, 0, 0, 0.18));
+  background: var(--c-accent-soft, rgba(0, 0, 0, 0.06));
+  color: inherit;
+  font: inherit;
+  font-family: "Geist", system-ui, sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.probe-box-touch .probe-action {
+  padding: 8px 12px;
+}
