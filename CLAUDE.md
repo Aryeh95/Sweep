@@ -687,6 +687,42 @@ dbz ↔ clean re-renders the current scan.
 `test/dualPolClean.test.js` pins both to 15, and pins the 51 056 figure
 against the committed LWX 04:01:42 pair (`LWX_N0B_/N0H_2026_09_22_04_01_42`).
 
+### CC gate on ice / dry snow in clean mode (2026-11-15)
+
+Kiosk photo, 23:29 Z, a clear evening over Baltimore, "Dual-pol clean"
+applied: blocky grey patches 40–160 km out, and the nowcast quoting
+"light echo nearby". Measured on `LWX_N0B_2026_11_15_23_25_18`: of
+51 774 gates the mask drew, **41 832 were labelled IC and 9 500 DS**,
+with medians of 11 / 13 dBZ, none inside 40 km, and **96–97 % with
+CC < 0.85** (medians 0.65 / 0.60, identical to the BI gates beside them).
+The cause is the classifier, not the mask: above HCA's estimated melting
+level it has no "biological" class, so the evening bird flight aloft is
+called ice.
+
+- Fix: `CLEAN_FROZEN_MIN_CC = 0.85` — `applyClassMask(refl, cls, floor,
+  cc)` also zeroes IC (30) / DS (40) gates with a valid CC below it.
+  `cleanRadial` reads the same scan's N0C through `scanKey` (the same
+  fresh re-list as N0H, throttled per scan AND product). Result: 51 774 →
+  1 916 gates.
+- **The control is real snow, not a guess:** MSX at the same minute had
+  74 866 DS + 36 730 IC gates; 0 % of DS below 0.85, and the gate removed
+  85 gates of 112 231. Both triplets are committed fixtures and pinned in
+  `test/dualPolClean.test.js`.
+- Not gated: RA (0 % below 0.85 at every radar sampled), WS (the melting
+  layer lowers CC legitimately), GR, HA, BD (has its own rule).
+  Reserved CC levels (no data, range folded) are no evidence and keep the
+  gate.
+- CC is a refinement, never a precondition. Missing → class mask alone,
+  `clean.cc = {applied: false, reason, pending}`; `pending` (scan < 5 min,
+  `CC_PENDING_MAX_AGE_MS`) puts the frame on the 15 s cache via
+  `radialTtl`. The 5-min cap matters: N0C lands with N0H ~30 s after N0B,
+  and a radar that never publishes it must not hold the cache at 15 s.
+- The client render key carries `cc:` so a frame re-served with its CC
+  repaints. PTYPE applies the same gate in `mergePrecipType` (`precip.cc`)
+  — otherwise these birds were painted as snow.
+- `decodeKey` is now fetch + `decodeBuffer`, so fixtures decode through
+  the controller's own path.
+
 ### Reflectivity palettes — RadarScope-style default (2026-09-22)
 
 User comparison, side by side over the same drizzle: Sweep painted 5–20 dBZ

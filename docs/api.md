@@ -348,6 +348,28 @@ gate-level picture, not IEM's pre-smoothed raster of it.
   under 15 dBZ that the plain floor had been hiding, against 56 089 above
   it; at radars with no rain the classifier called only 49–144 sub-15 dBZ
   gates rain, so little bloom comes back through the gap.
+
+  **Ice crystals and dry snow must also have a CC ≥ 0.85 (2026-11-15).**
+  The mask reads the same scan's `SSS_N0C_*` (correlation coefficient,
+  product 161, published with the classification) and also zeroes IC / DS
+  gates whose CC is below `CLEAN_FROZEN_MIN_CC`. Above its estimated
+  melting level the classifier has no "biological" class, so an evening
+  bird flight there is labelled ice. Measured on a clear evening (LWX
+  2026-11-15 23:25:18 Z): 41 832 IC and 9 500 DS gates were being drawn,
+  96–97 % of them with CC < 0.85; with the gate the drawn total fell from
+  51 774 to 1 916. Real snow at MSX the same minute: 112 231 → 112 146.
+  Rain, wet snow, graupel and hail are not CC-gated. No CC → the class
+  mask alone, as before. Reported inside `clean`:
+
+```json
+"cc": { "applied": true, "product": "N0C", "key": "LWX_N0C_2026_11_15_23_25_18", "minCc": 0.85, "masked": 49858 }
+```
+
+  or `{"applied": false, "reason": "no-cc" | "cc-failed" | "cc-grid-mismatch",
+  "pending": true}`, where `pending` (scan under 5 min old) puts the frame on
+  the 15 s cache so it is re-served with CC once N0C lands. The
+  precipitation-type product applies the same gate (`precip.cc`), so birds
+  are not painted as snow.
 - **Cached:** 60 s per site+product for the newest scan; historical scans
   30 min (immutable) / 2 min for a miss. Payload ~1.7 MB (N0B) / ~1.1 MB
   (N0G): base64 of 720 azimuth buckets × N range bins of raw byte levels.

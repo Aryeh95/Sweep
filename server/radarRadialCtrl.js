@@ -197,7 +197,13 @@ const CLEAN_RELIST_MAX_AGE_MS = 15 * 60 * 1000;
 // …at most this often per scan: a radar that publishes no classification at
 // all (DIX) must not cost a bucket listing on every request.
 const CLEAN_RELIST_EVERY_MS = 20 * 1000;
-const cleanRelistAt = new BoundedMap(32);
+// A cleaned frame whose CC (N0C) is missing is re-checked on the short TTL
+// only while the scan is younger than this. CC lands with the
+// classification, ~30 s after the reflectivity; a scan this old without it
+// will not get one, and a radar that never publishes CC must not keep the
+// cache on a 15 s refresh.
+const CC_PENDING_MAX_AGE_MS = 5 * 60 * 1000;
+const cleanRelistAt = new BoundedMap(64);
 const radialCache = new BoundedMap(16);
 
 // Historical scans, keyed `site:product:stamp`. A completed volume scan
@@ -450,10 +456,23 @@ function dualPolScaling(buf, code) {
 }
 
 async function decodeKey(site, product, key) {
-  const def = PRODUCTS[product];
   const buf = await fetchObject(key);
   increment("nexrad-l3", "radial-product");
+  return decodeBuffer(site, product, key, buf);
+}
 
+/**
+ * Decode one Level III object already in memory — decodeKey without the
+ * fetch, so tests decode committed fixtures through the same path.
+ *
+ * @param {String} site 3-letter radar id
+ * @param {String} product PRODUCTS token
+ * @param {String} key bucket object key (carried into the payload)
+ * @param {Buffer} buf the object's bytes
+ * @returns {Object} payload for /api/radar/radial
+ */
+function decodeBuffer(site, product, key, buf) {
+  const def = PRODUCTS[product];
   const parsed = parseLevel3(buf);
   const pd = parsed.productDescription;
   const packet = parsed.radialPackets && parsed.radialPackets[0];
@@ -541,6 +560,54 @@ const BIG_DROPS_RAIN_MIN_DBZ = 30;
 const CLEAN_FLOOR_DBZ = 15;
 const CLASS_NO_DATA = 0;
 const CLASS_RANGE_FOLDED = 150;
+// Ice crystals and dry snow must ALSO look like a uniform population of
+// hydrometeors: correlation coefficient at or above this. Kiosk report
+// 2026-11-15 23:29 Z, a clear evening over Baltimore with "Dual-pol clean"
+// applied: blocky grey patches 40-160 km out. 49 486 gates survived the
+// mask on LWX_N0B_2026_11_15_23_25_18 — 39 702 labelled IC, 9 367 DS —
+// and 97 % / 96 % of those had CC < 0.85 (medians 0.65 / 0.60, the same as
+// the BI gates beside them). They are the evening bird flight ABOVE the
+// classifier's estimated melting level, where HCA has no "biological"
+// option and calls whatever it sees ice. Real snow does not look like
+// that: on MSX the same minute, in genuine snow, 0 % of 74 730 DS and
+// 36 730 IC gates were below 0.85. Rain, wet snow (the melting layer
+// drops CC legitimately), graupel and hail are untouched.
+const CLEAN_FROZEN_MIN_CC = 0.85;
+const CLASS_ICE_CRYSTALS = 30;
+const CLASS_DRY_SNOW = 40;
+const CC_PRODUCT = "N0C";
+
+/**
+ * Level → "a valid CC below the frozen-hydrometeor floor" for one decoded
+ * N0C payload. Reserved levels (no data, range folded) are never low:
+ * no CC is no evidence against the classification.
+ *
+ * @param {Object} cc decoded N0C payload
+ * @returns {Uint8Array} 256 entries, 1 = low
+ */
+function lowCcTable(cc) {
+  const low = new Uint8Array(256);
+  for (let level = cc.reservedLevels; level < 256; level += 1) {
+    low[level] = cc.scaling.min + level * cc.scaling.increment < CLEAN_FROZEN_MIN_CC ? 1 : 0;
+  }
+  return low;
+}
+
+/**
+ * Is this ice-crystal / dry-snow gate really birds? True only when the
+ * CC for that gate exists and is low.
+ *
+ * @param {Number} code N0H class code
+ * @param {Buffer|null} ccBins CC levels, or null when there is no CC
+ * @param {Number} idx gate index into ccBins (-1 = outside CC's grid)
+ * @param {Uint8Array} low lowCcTable
+ * @returns {Boolean}
+ */
+function frozenButLowCc(code, ccBins, idx, low) {
+  return ccBins !== null && idx >= 0
+    && (code === CLASS_ICE_CRYSTALS || code === CLASS_DRY_SNOW)
+    && low[ccBins[idx]] === 1;
+}
 
 /**
  * Blank the gates a dual-pol classification calls non-meteorological.
@@ -560,16 +627,25 @@ const CLASS_RANGE_FOLDED = 150;
  * @param {Object} refl decoded N0B payload
  * @param {Object} cls decoded N0H payload
  * @param {Number} [floorDbz] floor for unclassified gates (CLEAN_FLOOR_DBZ)
- * @returns {{bins: Buffer, masked: Number, considered: Number, floored: Number}}
+ * @param {Object} [cc] decoded N0C payload of the same scan; when given and
+ *   on the same grid, ice-crystal / dry-snow gates with CC below
+ *   CLEAN_FROZEN_MIN_CC are masked too (birds above the melting level)
+ * @returns {{bins: Buffer, masked: Number, considered: Number, floored: Number,
+ *   ccMasked: Number, ccUsed: Boolean}}
  *   `considered` counts only echo gates the classification had a verdict
  *   for, so `masked / considered` reads as "of what could be judged, how
  *   much was not weather" instead of being diluted by the unjudgeable
  *   outer ring; `floored` counts the verdict-less gates the floor removed.
  */
-function applyClassMask(refl, cls, floorDbz = CLEAN_FLOOR_DBZ) {
+function applyClassMask(refl, cls, floorDbz = CLEAN_FLOOR_DBZ, cc = null) {
   const bins = Buffer.from(refl.bins, "base64");
   const cbins = Buffer.from(cls.bins, "base64");
   const out = Buffer.from(bins);
+  // CC is optional and only used when it lies on the same grid.
+  const useCc = Boolean(cc) && gridsAlign(refl, cc);
+  const ccBins = useCc ? Buffer.from(cc.bins, "base64") : null;
+  const ccNb = useCc ? cc.numBins : 0;
+  const low = useCc ? lowCcTable(cc) : null;
   // Level → below the big-drops rain floor? below the clear-air floor?
   const weak = new Uint8Array(256);
   const faint = new Uint8Array(256);
@@ -581,6 +657,7 @@ function applyClassMask(refl, cls, floorDbz = CLEAN_FLOOR_DBZ) {
   let masked = 0;
   let considered = 0;
   let floored = 0;
+  let ccMasked = 0;
   const nb = refl.numBins;
   const cnb = cls.numBins;
   const buckets = Math.min(refl.numBuckets, cls.numBuckets);
@@ -605,10 +682,14 @@ function applyClassMask(refl, cls, floorDbz = CLEAN_FLOOR_DBZ) {
       if (MASK_CLASSES.has(code) || (code === CLASS_BIG_DROPS && weak[level])) {
         out[rowR + b] = 0;
         masked += 1;
+      } else if (frozenButLowCc(code, ccBins, b < ccNb ? a * ccNb + b : -1, low)) {
+        out[rowR + b] = 0;
+        masked += 1;
+        ccMasked += 1;
       }
     }
   }
-  return { bins: out, masked, considered, floored };
+  return { bins: out, masked, considered, floored, ccMasked, ccUsed: useCc };
 }
 
 /**
@@ -642,22 +723,10 @@ async function cleanRadial(refl) {
   if (!Number.isFinite(scanEpoch)) {
     return { ...refl, clean: { applied: false, reason: "no-scan-time" } };
   }
+  const recent = Date.now() - scanEpoch < CLEAN_RELIST_MAX_AGE_MS;
   let cls;
   try {
-    let key = await keyForEpoch(refl.site, CLASS_PRODUCT, scanEpoch);
-    increment("nexrad-l3", "radial-list");
-    // The hour listing is cached for a minute and was most likely taken
-    // just before this scan's classification landed (~30 s after its
-    // reflectivity), so a miss on a recent scan re-lists once rather than
-    // trusting the stale list: with 7-min clear-air scans, the old
-    // behaviour could miss two scans running and end the map's clean hold.
-    const relistId = `${refl.site}:${scanEpoch}`;
-    const lastRelist = cleanRelistAt.get(relistId) || 0;
-    if (!key && Date.now() - scanEpoch < CLEAN_RELIST_MAX_AGE_MS && Date.now() - lastRelist >= CLEAN_RELIST_EVERY_MS) {
-      cleanRelistAt.set(relistId, Date.now());
-      key = await keyForEpoch(refl.site, CLASS_PRODUCT, scanEpoch, { fresh: true });
-      increment("nexrad-l3", "radial-list");
-    }
+    const key = await scanKey(refl.site, CLASS_PRODUCT, scanEpoch, recent);
     if (!key) {
       return { ...refl, clean: { applied: false, reason: "no-classification" } };
     }
@@ -671,7 +740,16 @@ async function cleanRadial(refl) {
   if (!gridsAlign(refl, cls)) {
     return { ...refl, clean: { applied: false, reason: "grid-mismatch" } };
   }
-  const { bins, masked, considered, floored } = applyClassMask(refl, cls);
+  // CC is a refinement, never a precondition: without it the class mask
+  // still runs, and the frame is reported so the cache retries a recent
+  // scan soon (CC lands with the classification, ~30 s after N0B).
+  const cc = await scanCc(refl.site, scanEpoch, recent);
+  const ccStatus = cc.payload
+    ? (gridsAlign(refl, cc.payload) ? null : "cc-grid-mismatch")
+    : cc.reason;
+  const { bins, masked, considered, floored, ccMasked } = applyClassMask(
+    refl, cls, CLEAN_FLOOR_DBZ, ccStatus ? null : cc.payload,
+  );
   return {
     ...refl,
     bins: bins.toString("base64"),
@@ -686,8 +764,79 @@ async function cleanRadial(refl) {
       // the client must NOT apply its own, or classified drizzle vanishes.
       floorDbz: CLEAN_FLOOR_DBZ,
       floored,
+      cc: ccStatus
+        ? {
+          applied: false,
+          reason: ccStatus,
+          pending: ccStatus !== "cc-grid-mismatch" && Date.now() - scanEpoch < CC_PENDING_MAX_AGE_MS,
+        }
+        : { applied: true, product: CC_PRODUCT, key: cc.payload.key, minCc: CLEAN_FROZEN_MIN_CC, masked: ccMasked },
     },
   };
+}
+
+/**
+ * Bucket key of one product of a volume scan. The hour listing is cached
+ * for a minute and was most likely taken just before the dual-pol
+ * products landed (~30 s after the reflectivity), so a miss on a recent
+ * scan re-lists once rather than trusting the stale list: with 7-min
+ * clear-air scans, the old behaviour could miss two scans running and end
+ * the map's clean hold. Throttled per scan and product, so a radar that
+ * publishes no classification at all (DIX) does not cost a listing on
+ * every request.
+ *
+ * @param {String} site 3-letter radar id
+ * @param {String} product bucket product token
+ * @param {Number} scanEpoch volume scan time (ms)
+ * @param {Boolean} recent young enough to be worth a fresh listing
+ * @returns {Promise<String|null>} key
+ */
+async function scanKey(site, product, scanEpoch, recent) {
+  let key = await keyForEpoch(site, product, scanEpoch);
+  increment("nexrad-l3", "radial-list");
+  const relistId = `${site}:${product}:${scanEpoch}`;
+  const lastRelist = cleanRelistAt.get(relistId) || 0;
+  if (!key && recent && Date.now() - lastRelist >= CLEAN_RELIST_EVERY_MS) {
+    cleanRelistAt.set(relistId, Date.now());
+    key = await keyForEpoch(site, product, scanEpoch, { fresh: true });
+    increment("nexrad-l3", "radial-list");
+  }
+  return key;
+}
+
+/**
+ * The CC (N0C) of one volume scan, best-effort.
+ *
+ * @param {String} site 3-letter radar id
+ * @param {Number} scanEpoch volume scan time (ms)
+ * @param {Boolean} recent allow a fresh listing on a miss
+ * @returns {Promise<{payload: Object|null, reason: String|null}>}
+ */
+async function scanCc(site, scanEpoch, recent) {
+  try {
+    const key = await scanKey(site, CC_PRODUCT, scanEpoch, recent);
+    if (!key) return { payload: null, reason: "no-cc" };
+    return { payload: await decodeKey(site, CC_PRODUCT, key), reason: null };
+  } catch (err) {
+    console.warn(`[clean] ${site} ${new Date(scanEpoch).toISOString()}: CC failed: ${err && err.message}`);
+    return { payload: null, reason: "cc-failed" };
+  }
+}
+
+/**
+ * Cache lifetime for a (possibly cleaned) radial: short while the mask,
+ * or its CC refinement, is still waiting on a product that should land.
+ *
+ * @param {Object} value radial payload
+ * @param {Number} settledMs TTL once nothing is pending
+ * @returns {Number} ms
+ */
+function radialTtl(value, settledMs) {
+  const c = value && value.clean;
+  if (!c) return settledMs;
+  if (!c.applied && CLEAN_TRANSIENT.has(c.reason)) return CLEAN_PENDING_TTL_MS;
+  if (c.applied && c.cc && c.cc.pending) return CLEAN_PENDING_TTL_MS;
+  return settledMs;
 }
 
 /**
@@ -715,9 +864,7 @@ async function fetchRadial(site, product = DEFAULT_PRODUCT, clean = false) {
 
   const decoded = await decodeKey(site, product, key);
   const value = clean ? await cleanRadial(decoded) : decoded;
-  const ttl = (value.clean && !value.clean.applied && CLEAN_TRANSIENT.has(value.clean.reason))
-    ? CLEAN_PENDING_TTL_MS
-    : RADIAL_TTL_MS;
+  const ttl = radialTtl(value, RADIAL_TTL_MS);
   radialCache.set(cacheKey, { value, expires: Date.now() + ttl });
   return value;
 }
@@ -739,9 +886,7 @@ async function fetchRadialByKey(site, product, key, clean = false) {
   if (hit && hit.expires > Date.now()) return hit.value;
   const decoded = await decodeKey(site, product, key);
   const value = clean ? await cleanRadial(decoded) : decoded;
-  const ttl = (value.clean && !value.clean.applied && CLEAN_TRANSIENT.has(value.clean.reason))
-    ? CLEAN_PENDING_TTL_MS
-    : HISTORY_TTL_MS;
+  const ttl = radialTtl(value, HISTORY_TTL_MS);
   historyCache.set(cacheKey, { value, expires: Date.now() + ttl });
   return value;
 }
@@ -778,9 +923,7 @@ async function fetchRadialAtStamp(site, stamp, product = DEFAULT_PRODUCT, clean 
   value.stamp = stamp;
   // Same reasoning as the live path: a historical scan whose
   // classification has not landed is not immutable yet.
-  const ttl = (value.clean && !value.clean.applied && CLEAN_TRANSIENT.has(value.clean.reason))
-    ? CLEAN_PENDING_TTL_MS
-    : HISTORY_TTL_MS;
+  const ttl = radialTtl(value, HISTORY_TTL_MS);
   historyCache.set(cacheKey, { value, expires: Date.now() + ttl });
   return value;
 }
@@ -805,12 +948,21 @@ async function fetchRadialAtStamp(site, stamp, product = DEFAULT_PRODUCT, clean 
  *
  * @param {Object} refl decoded N0B payload
  * @param {Object} cls decoded N0H payload, same volume scan, same grid
- * @returns {{bins: Buffer, drawn: Number}} encoded levels on the classification's grid
+ * @param {Object} [cc] decoded N0C payload, same scan: ice crystals / dry
+ *   snow with a low CC are birds above the melting level and are not drawn
+ *   (see CLEAN_FROZEN_MIN_CC) — otherwise a clear evening paints as snow
+ * @returns {{bins: Buffer, drawn: Number, ccMasked: Number, ccUsed: Boolean}}
+ *   encoded levels on the classification's grid
  */
-function mergePrecipType(refl, cls) {
+function mergePrecipType(refl, cls, cc = null) {
   const rbins = Buffer.from(refl.bins, "base64");
   const cbins = Buffer.from(cls.bins, "base64");
   const out = Buffer.alloc(cbins.length);
+  const useCc = Boolean(cc) && gridsAlign(cls, cc);
+  const ccBins = useCc ? Buffer.from(cc.bins, "base64") : null;
+  const ccNb = useCc ? cc.numBins : 0;
+  const low = useCc ? lowCcTable(cc) : null;
+  let ccMasked = 0;
   // Level → tier once per level, not per gate.
   const tierOfLevel = new Uint8Array(256);
   for (let level = refl.reservedLevels; level < 256; level += 1) {
@@ -830,18 +982,23 @@ function mergePrecipType(refl, cls) {
     const rowR = a * rnb;
     const rowC = a * cnb;
     for (let b = 0; b < span; b += 1) {
-      const idx = idxOfCode[cbins[rowC + b]];
+      const code = cbins[rowC + b];
+      const idx = idxOfCode[code];
       if (!idx) continue;
       // A class with no reflectivity behind it is not drawn either: the
       // intensity is what says "how much", and N0B's threshold is far
       // below anything the classifier would call precipitation.
       const tier = tierOfLevel[rbins[rowR + b]];
       if (!tier) continue;
+      if (frozenButLowCc(code, ccBins, b < ccNb ? a * ccNb + b : -1, low)) {
+        ccMasked += 1;
+        continue;
+      }
       out[rowC + b] = precipType.encodeGate(idx, tier);
       drawn += 1;
     }
   }
-  return { bins: out, drawn };
+  return { bins: out, drawn, ccMasked, ccUsed: useCc };
 }
 
 /**
@@ -850,10 +1007,11 @@ function mergePrecipType(refl, cls) {
  * @param {String} site 3-letter radar id
  * @param {Object} refl decoded N0B payload
  * @param {Object} cls decoded N0H payload
+ * @param {Object} [cc] decoded N0C payload of the same scan, or null
  * @returns {Object} available:true payload, `kind: "precip"`
  */
-function precipPayload(site, refl, cls) {
-  const { bins, drawn } = mergePrecipType(refl, cls);
+function precipPayload(site, refl, cls, cc = null) {
+  const { bins, drawn, ccMasked, ccUsed } = mergePrecipType(refl, cls, cc);
   recordServiceCall(SERVICE_NAME, 200, `${drawn} typed gates for ${site}`);
   return {
     available: true,
@@ -880,6 +1038,9 @@ function precipPayload(site, refl, cls) {
       classification: { product: CLASS_PRODUCT, key: cls.key, scanTime: cls.scanTime },
       reflectivity: { product: DEFAULT_PRODUCT, key: refl.key, scanTime: refl.scanTime },
       drawn,
+      cc: ccUsed
+        ? { applied: true, product: CC_PRODUCT, key: cc.key, minCc: CLEAN_FROZEN_MIN_CC, masked: ccMasked }
+        : { applied: false },
     },
   };
 }
@@ -922,8 +1083,11 @@ async function fetchPrecipType(site) {
   if (!reflKey) return soft("no-reflectivity", CLEAN_PENDING_TTL_MS);
   const refl = await decodeKey(site, DEFAULT_PRODUCT, reflKey);
   if (!gridsAlign(refl, cls)) return soft("grid-mismatch");
+  // Paired from the classification, so the CC (published with it) is
+  // normally there already; no fresh listing needed.
+  const cc = await scanCc(site, scanEpoch, false);
 
-  const value = precipPayload(site, refl, cls);
+  const value = precipPayload(site, refl, cls, cc.payload);
   radialCache.set(cacheKey, { value, expires: Date.now() + RADIAL_TTL_MS });
   return value;
 }
@@ -960,8 +1124,9 @@ async function fetchPrecipTypeAtStamp(site, stamp) {
   if (!clsKey) return soft("no-classification", CLEAN_PENDING_TTL_MS);
   const cls = await decodeKey(site, CLASS_PRODUCT, clsKey);
   if (!gridsAlign(refl, cls)) return soft("grid-mismatch", HISTORY_TTL_MS);
+  const cc = await scanCc(site, scanEpoch, false);
 
-  const value = precipPayload(site, refl, cls);
+  const value = precipPayload(site, refl, cls, cc.payload);
   value.stamp = stamp;
   historyCache.set(cacheKey, { value, expires: Date.now() + HISTORY_TTL_MS });
   return value;
@@ -1160,6 +1325,7 @@ module.exports = {
   keyForEpoch,
   wantsClean,
   applyClassMask,
+  decodeBuffer,
   gridsAlign,
   cleanRadial,
   mergePrecipType,
@@ -1176,6 +1342,8 @@ module.exports = {
   TDS_RADIUS_KM,
   MASK_CLASSES,
   BIG_DROPS_RAIN_MIN_DBZ,
+  CLEAN_FROZEN_MIN_CC,
+  radialTtl,
   CLEAN_FLOOR_DBZ,
   CLASS_PRODUCT,
   PRODUCTS,

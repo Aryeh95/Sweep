@@ -221,7 +221,11 @@ export default function useRadarRadial({
           // The floor is part of the key: which floor applies depends on
           // whether the server's mask carried it (see floorFor).
           const minDbz = floorFor(d, noiseFilter, dualPolClean);
-          const renderKey = `${d.key}|${d.kind}|floor:${minDbz ?? "none"}|dp:${Boolean(d.clean?.applied)}|pal:${palette}`;
+          // `cc:` — a cleaned frame first served without its CC (it lands
+          // ~30 s after the reflectivity) is re-served with it, and the
+          // pixels differ; same key would keep the bird-speckled picture.
+          const ccOn = Boolean(d.clean?.cc?.applied || d.precip?.cc?.applied);
+          const renderKey = `${d.key}|${d.kind}|floor:${minDbz ?? "none"}|dp:${Boolean(d.clean?.applied)}|cc:${ccOn}|pal:${palette}`;
           if (renderKey === lastKeyRef.current) {
             // Same pixels, so no re-render — but the CLEAN status under
             // them can still have changed, and an unmasked clean frame is

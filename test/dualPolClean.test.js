@@ -306,3 +306,132 @@ test("live LWX scan 2026-09-22 04:01:42 Z: 51 056 rain gates under 15 dBZ surviv
   assert.equal(ndFaintKept, 0, "verdict-less faint echo is still floored");
   assert.equal(ndStrongKept, 703, "verdict-less echo above the floor is drawn as before");
 });
+
+// ── CC gate on ice crystals / dry snow (2026-11-15) ───────────────────
+
+const IC = 30;  // ice crystals
+const DS = 40;  // dry snow
+const WS = 50;  // wet snow
+const { CLEAN_FROZEN_MIN_CC, decodeBuffer, mergePrecipType, radialTtl } = require("../server/radarRadialCtrl");
+const CC_SCALE = { min: 60.5 / 300, increment: 1 / 300, levels: 254 };
+const ccLevel = (v) => Math.round((v - CC_SCALE.min) / CC_SCALE.increment);
+
+/** A CC payload over grid()'s geometry; `null` entries are level 0 (no data). */
+function ccGrid(values) {
+  return {
+    numBuckets: 1,
+    numBins: values.length,
+    bucketDeg: 0.5,
+    binKm: 0.25,
+    firstBinKm: 0,
+    reservedLevels: 2,
+    scaling: CC_SCALE,
+    bins: Buffer.from(values.map((v) => (v === null ? 0 : ccLevel(v)))).toString("base64"),
+  };
+}
+
+test("CC gate: low-CC ice crystals / dry snow are masked, uniform ones and other classes kept", () => {
+  const { refl, cls } = grid([
+    [12, IC],  // birds above the melting level: masked
+    [12, DS],  // ditto: masked
+    [12, IC],  // real ice, uniform: kept
+    [25, DS],  // real snow: kept
+    [25, WS],  // melting layer, low CC legitimately: kept
+    [20, RA],  // rain with a noisy CC: kept (gate is frozen classes only)
+    [12, IC],  // no CC for this gate: no evidence, kept
+  ]);
+  const cc = ccGrid([0.6, 0.7, 0.97, 0.99, 0.8, 0.8, null]);
+  const r = applyClassMask(refl, cls, undefined, cc);
+  assert.deepEqual(levels(r.bins.toString("base64")).map((l) => l !== 0),
+                   [false, false, true, true, true, true, true]);
+  assert.equal(r.ccMasked, 2);
+  assert.equal(r.masked, 2);
+  assert.equal(r.ccUsed, true);
+  // Without CC the mask is exactly what it was.
+  const plain = applyClassMask(refl, cls);
+  assert.equal(plain.masked, 0);
+  assert.equal(plain.ccMasked, 0);
+  assert.equal(plain.ccUsed, false);
+});
+
+test("CC gate: a CC on another grid is ignored, not misapplied", () => {
+  const { refl, cls } = grid([[12, IC], [12, DS]]);
+  const cc = { ...ccGrid([0.5, 0.5]), binKm: 1 };
+  const r = applyClassMask(refl, cls, undefined, cc);
+  assert.equal(r.ccUsed, false);
+  assert.equal(r.masked, 0);
+});
+
+test("CC gate threshold is 0.85 and also applies to precipitation type", () => {
+  assert.equal(CLEAN_FROZEN_MIN_CC, 0.85);
+  const { refl, cls } = grid([[20, IC], [20, DS], [20, RA]]);
+  const cc = ccGrid([0.6, 0.98, 0.6]);
+  const r = mergePrecipType(refl, cls, cc);
+  assert.equal(r.ccMasked, 1);
+  assert.equal(r.drawn, 2);
+  assert.equal(r.bins[0], 0, "low-CC 'ice' is not painted as ice");
+  assert.notEqual(r.bins[1], 0);
+  assert.notEqual(r.bins[2], 0, "rain is never CC-gated");
+});
+
+test("a cleaned frame still waiting on its CC is cached briefly", () => {
+  assert.equal(radialTtl({ clean: { applied: true, cc: { applied: false, reason: "no-cc", pending: true } } }, 60000), 15000);
+  assert.equal(radialTtl({ clean: { applied: true, cc: { applied: false, reason: "no-cc", pending: false } } }, 60000), 60000);
+  assert.equal(radialTtl({ clean: { applied: true, cc: { applied: true } } }, 60000), 60000);
+  assert.equal(radialTtl({ clean: { applied: false, reason: "no-classification" } }, 60000), 15000);
+  assert.equal(radialTtl({ clean: { applied: false, reason: "grid-mismatch" } }, 60000), 60000);
+  assert.equal(radialTtl({}, 60000), 60000);
+});
+
+/** Decode a committed N0B / N0H / N0C triplet through the controller's own path. */
+function triplet(site, stamp) {
+  const load = (product) => {
+    const key = `${site}_${product}_${stamp}`;
+    return decodeBuffer(site, product, key, fs.readFileSync(path.join(__dirname, "fixtures", `${key}.bin`)));
+  };
+  return { refl: load("N0B"), cls: load("N0H"), cc: load("N0C") };
+}
+
+function drawnByClass(refl, cls, bins) {
+  const cb = Buffer.from(cls.bins, "base64");
+  const out = { total: 0 };
+  for (let a = 0; a < refl.numBuckets; a += 1) {
+    for (let b = 0; b < refl.numBins; b += 1) {
+      if (bins[a * refl.numBins + b] < refl.reservedLevels) continue;
+      const code = b < cls.numBins ? cb[a * cls.numBins + b] : ND;
+      out.total += 1;
+      out[code] = (out[code] || 0) + 1;
+    }
+  }
+  return out;
+}
+
+test("live LWX 2026-11-15 23:25 Z, a clear evening: the CC gate removes the 'ice' birds", () => {
+  // The kiosk photo: "Dual-pol clean" on, sky clear, grey patches 40-160
+  // km out. Before the gate the mask drew 51 774 gates, 41 832 of them IC
+  // and 9 500 DS; with it, 1 916. Rain is untouched.
+  const { refl, cls, cc } = triplet("LWX", "2026_11_15_23_25_18");
+  const before = drawnByClass(refl, cls, applyClassMask(refl, cls).bins);
+  const r = applyClassMask(refl, cls, undefined, cc);
+  const after = drawnByClass(refl, cls, r.bins);
+  assert.equal(r.ccUsed, true);
+  assert.equal(before.total, 51774);
+  assert.equal(before[IC], 41832);
+  assert.equal(before[DS], 9500);
+  assert.equal(after.total, 1916);
+  assert.equal(after[RA], before[RA], "rain kept");
+  assert.equal(after[WS], before[WS], "wet snow kept");
+  assert.ok(after.total / before.total < 0.04, "96 %+ of the drawn speckle gone");
+});
+
+test("live MSX 2026-11-15 23:24 Z, real snow: the CC gate keeps it", () => {
+  // Missoula, snowing at the same minute: 74 866 DS and 36 730 IC gates,
+  // CC uniformly high. The gate must cost almost nothing here.
+  const { refl, cls, cc } = triplet("MSX", "2026_11_15_23_24_53");
+  const before = drawnByClass(refl, cls, applyClassMask(refl, cls).bins);
+  const r = applyClassMask(refl, cls, undefined, cc);
+  const after = drawnByClass(refl, cls, r.bins);
+  assert.equal(before.total, 112231);
+  assert.equal(after.total, 112146);
+  assert.ok(after.total / before.total > 0.999, "snow survives");
+});
