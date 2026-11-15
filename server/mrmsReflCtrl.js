@@ -27,7 +27,7 @@
 // controller in the phone's WebView, where speed matters more than bytes.
 
 const zlib = require("zlib");
-const { recordServiceCall } = require("./serviceStatus");
+const { recordServiceCall, recordServiceRecovery } = require("./serviceStatus");
 const { latestKey, listDayKeys, keyNearest, keyValidTime, fetchGrid } = require("./mrmsHailCtrl");
 const { BoundedMap } = require("./boundedCache");
 
@@ -197,6 +197,7 @@ async function getReflFrames(req, res) {
       }
     }
     frames.sort((a, b) => a.epoch - b.epoch);
+    recordServiceRecovery(SERVICE_NAME, "frame list failed", `frame list recovered (${frames.length} frames)`);
     return res.status(200).json({ available: true, frames }).end();
   } catch (err) {
     recordServiceCall(SERVICE_NAME, err?.response?.status || 500, `frame list failed: ${err.message}`);

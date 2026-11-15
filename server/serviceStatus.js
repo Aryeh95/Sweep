@@ -55,6 +55,34 @@ function recordServiceCall(service, status, comment) {
 }
 
 /**
+ * Clear a failure that THIS code path recorded, now that the path works.
+ *
+ * For paths that report only their failures (a listing, a side fetch):
+ * without this, one network blip stayed on the health panel for as long
+ * as the service's main success path did not run — the MRMS mosaic's
+ * "frame list failed: read ECONNRESET" sat there all night on a kiosk
+ * zoomed in past the mosaic (no frames built, so nothing recorded a 200),
+ * while the bucket answered normally (kiosk report 2026-11-15). Only an
+ * entry whose comment starts with `failurePrefix` is cleared, so a
+ * different, still-failing part of the same service stays visible; and
+ * a healthy path records nothing, so this costs no log line per poll.
+ *
+ * @param {String} service service name, as passed to recordServiceCall
+ * @param {String} failurePrefix how this path's failure comments begin
+ * @param {String} comment what the success was
+ * @returns {Boolean} true when a failure was cleared
+ */
+function recordServiceRecovery(service, failurePrefix, comment) {
+  const entry = serviceStatus[service];
+  if (!entry || entry.status == null) return false;
+  const code = Number(entry.status);
+  const failing = !Number.isFinite(code) || code >= 400;
+  if (!failing || !String(entry.comment || "").startsWith(failurePrefix)) return false;
+  recordServiceCall(service, 200, comment);
+  return true;
+}
+
+/**
  * Returns the current service status map
  *
  * @returns {Object} serviceStatus
@@ -63,4 +91,4 @@ function getServiceStatus() {
   return serviceStatus;
 }
 
-module.exports = { registerService, recordServiceCall, getServiceStatus };
+module.exports = { registerService, recordServiceCall, recordServiceRecovery, getServiceStatus };

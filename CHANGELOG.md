@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed (2026-11-15, kiosk report: "MRMS … read ECONNRESET" on the health panel while MRMS was up)
+- **A one-off network blip could stay on the health panel indefinitely.** Three paths recorded their failures but never their successes: the MRMS mosaic frame list, and the nowcast's MRMS surface-type and rain-rate checks. A failure was cleared only when the service's *main* path next succeeded, and on a kiosk zoomed in past the mosaic, or with no frozen precipitation for the type check, that never happened. "Services · Degraded" then stayed up while the bucket answered normally (checked live: newest files 2–3 min old). Each of those paths now clears its own earlier failure when it works again (`recordServiceRecovery`, tested). A different, still-failing part of the same service stays visible, and a healthy path logs nothing extra. Server only; the app has no health panel.
+
 ### Added (2026-11-12)
 - **Move the home pin from the map.** A pinned readout now carries a **Set home here** button. Touch: press and hold for the readout (as before), lift to pin it, tap the button. Mouse: hover still previews; **right-click** pins a readout at that point (and replaces the browser's context menu on the map). A short tap or left-click elsewhere on the map still dismisses it without moving anything. The button makes the same writes as Settings → Location → Choose on map (and clears a manual radar pick); in the app it also ends follow mode, or the next GPS fix would move the pin straight back. Shown only where the location is editable: the app and the kiosk itself, never on a remote browser or in the Home Assistant embed. App 2.13.22 (versionCode 39).
 

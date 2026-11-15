@@ -1998,3 +1998,20 @@ listener (mixed content) — documented, not solved. Verified 2026-11-05 in
 Chromium: cross-origin iframe, embed layout, 0 buttons, loop playing,
 0 non-GET requests, ~40 requests in 30 s with `play=1`.
 
+### Health entries must be able to clear (2026-11-15)
+
+A path that only records FAILURES (catch-only `recordServiceCall`) leaves
+its last failure on the panel until something else records a 200 for the
+same service name. Kiosk report: "MRMS (reflectivity mosaic) · frame list
+failed: read ECONNRESET" and "MRMS (precip type) · nowcast flag
+unavailable" stuck on "Services · Degraded" while the bucket answered
+normally — zoomed in past the mosaic no frame is built (the only 200 for
+that name), and the nowcast flag is fetched only when N0H shows frozen
+precipitation. `recordServiceRecovery(service, failurePrefix, comment)`
+records a 200 only when the CURRENT entry is a failure whose comment
+starts with that prefix: the frame list, `fetchMrmsFlag` and
+`fetchMrmsRate` call it on their success returns (after the whole path,
+never after the listing alone, or listing successes would keep resetting
+a real download failure's count below MIN_CONSECUTIVE_FAILURES). Any new
+catch-only reporter needs the same.
+

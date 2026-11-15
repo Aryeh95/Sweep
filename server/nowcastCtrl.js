@@ -41,7 +41,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { recordServiceCall } = require("./serviceStatus");
+const { recordServiceCall, recordServiceRecovery } = require("./serviceStatus");
 const { increment } = require("./requestCounter");
 const { BoundedMap } = require("./boundedCache");
 const { listHourKeys } = require("./nexradBucket");
@@ -1814,11 +1814,18 @@ async function fetchClassification(site, scanEpoch) {
  */
 async function fetchMrmsRate(epoch) {
   try {
+    // Only a path that got all the way through clears this path's own
+    // earlier failure (a listing that succeeds before a failing download
+    // must not reset the failure count, or the panel would never show it).
+    const ok = (v) => {
+      recordServiceRecovery("MRMS (precip type)", "nowcast rate unavailable", "nowcast rate recovered");
+      return v;
+    };
     const key = await keyNearest(MRMS_RATE_PRODUCT, epoch, MRMS_MAX_SKEW_MS);
     increment("mrms", "nowcast-rate-list");
-    if (!key) return null;
-    if (mrmsLatest && mrmsLatest.key === key) return mrmsLatest;
-    if (mrmsInflight && mrmsInflight.key === key) return mrmsInflight.promise;
+    if (!key) return ok(null);
+    if (mrmsLatest && mrmsLatest.key === key) return ok(mrmsLatest);
+    if (mrmsInflight && mrmsInflight.key === key) return ok(await mrmsInflight.promise);
     const promise = fetchGrid(key, "nowcast-rate").then((r) => {
       mrmsLatest = r;
       return r;
@@ -1826,7 +1833,7 @@ async function fetchMrmsRate(epoch) {
       if (mrmsInflight && mrmsInflight.key === key) mrmsInflight = null;
     });
     mrmsInflight = { key, promise };
-    return await promise;
+    return ok(await promise);
   } catch (err) {
     recordServiceCall("MRMS (precip type)", err?.response?.status || 500, `nowcast rate unavailable: ${err.message}`);
     return null;
@@ -1845,11 +1852,18 @@ let flagInflight = null;
  */
 async function fetchMrmsFlag(epoch) {
   try {
+    // Only a path that got all the way through clears this path's own
+    // earlier failure (a listing that succeeds before a failing download
+    // must not reset the failure count, or the panel would never show it).
+    const ok = (v) => {
+      recordServiceRecovery("MRMS (precip type)", "nowcast flag unavailable", "nowcast flag recovered");
+      return v;
+    };
     const key = await keyNearest(MRMS_TYPE_PRODUCTS.flag, epoch, MRMS_MAX_SKEW_MS);
     increment("mrms", "nowcast-flag-list");
-    if (!key) return null;
-    if (flagLatest && flagLatest.key === key) return flagLatest;
-    if (flagInflight && flagInflight.key === key) return flagInflight.promise;
+    if (!key) return ok(null);
+    if (flagLatest && flagLatest.key === key) return ok(flagLatest);
+    if (flagInflight && flagInflight.key === key) return ok(await flagInflight.promise);
     const promise = fetchGrid(key, "nowcast-flag").then((r) => {
       flagLatest = r;
       return r;
@@ -1857,7 +1871,7 @@ async function fetchMrmsFlag(epoch) {
       if (flagInflight && flagInflight.key === key) flagInflight = null;
     });
     flagInflight = { key, promise };
-    return await promise;
+    return ok(await promise);
   } catch (err) {
     recordServiceCall("MRMS (precip type)", err?.response?.status || 500, `nowcast flag unavailable: ${err.message}`);
     return null;
