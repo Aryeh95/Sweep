@@ -277,6 +277,9 @@ const NOWCAST_TTL_MS = 60 * 1000;
 // Cache life of an answer computed with a scan held back for want of its
 // classification (see preferCleanScans).
 const HELD_TTL_MS = 15 * 1000;
+// = the map's CLEAN_HOLD_MAX_MS (useRadarRadial): how long the newest
+// cleaned scan may lag the newest scan before raw scans are used instead.
+const CLEAN_HOLD_MAX_MS = 10 * 60 * 1000;
 // Previous nowcast per site+home, for the temporal ensemble members.
 const previousMotion = new BoundedMap(32);
 // The newest MRMS rate grid, decoded once per file and shared by every
@@ -1916,7 +1919,14 @@ function classificationHasFrozen(cls) {
  *
  * With no cleaned scan at all (a radar without the classification, or a
  * long outage) the raw scans are used as before — the 15 dBZ echo floor
- * still applies, and the payload's `cleaned: false` says so.
+ * still applies, and the payload's `cleaned: false` says so. The same
+ * when the newest CLEANED scan is more than CLEAN_HOLD_MAX_MS behind the
+ * newest scan — the map's own limit on holding: kiosk photo 2026-11-15
+ * 23:19 Z, the card read "Radar data delayed · no new LWX scan for 22 min"
+ * while the map showed an 8-min-old scan, because two scans in a row had
+ * not been cleaned and the newest clean one was 22 min old. The radar was
+ * not late; the classification was. Past the limit a raw picture beats
+ * none, exactly as on the map.
  *
  * @param {Object[]} scans decoded scans, oldest first
  * @returns {{scans: Object[], held: Number}} scans to use, and how many were dropped
@@ -1924,6 +1934,11 @@ function classificationHasFrozen(cls) {
 function preferCleanScans(scans) {
   const cleaned = scans.filter((p) => p.clean && p.clean.applied);
   if (!cleaned.length) return { scans, held: 0 };
+  const newestAll = Date.parse(scans[scans.length - 1].scanTime || "");
+  const newestClean = Date.parse(cleaned[cleaned.length - 1].scanTime || "");
+  if (Number.isFinite(newestAll) && Number.isFinite(newestClean) && newestAll - newestClean > CLEAN_HOLD_MAX_MS) {
+    return { scans, held: 0 };
+  }
   return { scans: cleaned, held: scans.length - cleaned.length };
 }
 

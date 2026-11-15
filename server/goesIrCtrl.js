@@ -24,7 +24,7 @@
 // the same convention as the radial payloads), cached per scan — a scan
 // never changes once published.
 
-const axios = require("axios");
+const { s3Get } = require("./s3Get");
 const zlib = require("zlib");
 const { recordServiceCall } = require("./serviceStatus");
 const { increment } = require("./requestCounter");
@@ -106,7 +106,7 @@ function hourPrefix(epoch) {
 async function listHour(prefix) {
   const hit = listCache.get(prefix);
   if (hit && hit.expires > Date.now()) return hit.keys;
-  const res = await axios.get(BUCKET_BASE, {
+  const res = await s3Get(BUCKET_BASE, {
     params: { "list-type": 2, prefix: `${prefix}OR_ABI-L2-CMIPC-M`, "max-keys": 1000 },
     timeout: API_TIMEOUT_MS,
     responseType: "text",
@@ -252,7 +252,7 @@ async function fetchFrame(stamp) {
     const t = Date.UTC(+stamp.slice(0, 4), +stamp.slice(4, 6) - 1, +stamp.slice(6, 8), +stamp.slice(8, 10), +stamp.slice(10, 12));
     const scans = await listScans(t, t + 59999);
     if (!scans.length) return null;
-    const res = await axios.get(`${BUCKET_BASE}/${scans[0].key}`, { responseType: "arraybuffer", timeout: API_TIMEOUT_MS });
+    const res = await s3Get(`${BUCKET_BASE}/${scans[0].key}`, { responseType: "arraybuffer", timeout: API_TIMEOUT_MS });
     increment("goes", "file");
     const frame = await decodeCmipBuffer(new Uint8Array(res.data));
     const payload = {

@@ -26,7 +26,7 @@
 // maximum MESH within a small radius of their centre.
 
 const zlib = require("zlib");
-const axios = require("axios");
+const { s3Get } = require("./s3Get");
 const { recordServiceCall } = require("./serviceStatus");
 const { increment } = require("./requestCounter");
 
@@ -103,7 +103,7 @@ async function listDayKeys(product, day) {
   const cacheKey = `${product}/${dayFolder(day)}`;
   const hit = listCache.get(cacheKey);
   if (hit && hit.expires > Date.now()) return hit.value;
-  const res = await axios.get(BUCKET_BASE, {
+  const res = await s3Get(BUCKET_BASE, {
     params: { "list-type": 2, prefix: `${cacheKey}/`, "max-keys": 1000 },
     timeout: API_TIMEOUT_MS,
     responseType: "text",
@@ -328,7 +328,7 @@ function hailPoints(g, samples, minMm = MIN_REPORT_MM) {
  * @returns {Promise<{g: Object, samples: Uint16Array, key: String, validTime: String|null}>}
  */
 async function fetchGrid(key, counter = "grid") {
-  const res = await axios.get(`${BUCKET_BASE}/${key}`, { responseType: "arraybuffer", timeout: API_TIMEOUT_MS });
+  const res = await s3Get(`${BUCKET_BASE}/${key}`, { responseType: "arraybuffer", timeout: API_TIMEOUT_MS });
   increment("mrms", counter);
   const grib = zlib.gunzipSync(Buffer.from(res.data));
   const g = parseGrib2(grib);

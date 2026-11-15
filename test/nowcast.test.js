@@ -499,3 +499,17 @@ test("preferCleanScans holds back scans the clean mask has not reached yet", () 
   assert.deepEqual(r.scans.map((p) => p.key), ["a", "b"]);
   assert.equal(r.held, 0);
 });
+
+test("preferCleanScans holds no longer than the map: 10 min behind, raw scans win", () => {
+  const { preferCleanScans } = require("../server/nowcastCtrl");
+  const at = (key, hhmm, applied) => ({ key, scanTime: `2026-11-15T${hhmm}:00Z`, clean: applied ? { applied: true } : { applied: false, reason: "classification-failed" } });
+  // Kiosk 2026-11-15 23:19 Z: 22:57 cleaned, 23:04 and 23:11 not.
+  const scans = [at("a", "22:50", true), at("b", "22:57", true), at("c", "23:04", false), at("d", "23:11", false)];
+  let r = preferCleanScans(scans);
+  assert.deepEqual(r.scans.map((p) => p.key), ["a", "b", "c", "d"], "14 min behind: use the raw scans");
+  assert.equal(r.held, 0);
+  // One scan behind (7 min): hold, as before.
+  r = preferCleanScans(scans.slice(0, 3));
+  assert.deepEqual(r.scans.map((p) => p.key), ["a", "b"]);
+  assert.equal(r.held, 1);
+});

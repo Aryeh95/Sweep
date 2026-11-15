@@ -26,7 +26,7 @@
 // worth a few seconds once, free afterwards. Flashes are filtered to the
 // caller's radius server-side so the JSON stays small.
 
-const axios = require("axios");
+const { s3Get } = require("./s3Get");
 const { recordServiceCall } = require("./serviceStatus");
 const { increment } = require("./requestCounter");
 const { BoundedMap } = require("./boundedCache");
@@ -104,7 +104,7 @@ async function listWindowKeys(nowMs) {
   const prefixes = curPrefix === cutPrefix ? [curPrefix] : [cutPrefix, curPrefix];
   const keys = [];
   for (const prefix of prefixes) {
-    const res = await axios.get(BUCKET_BASE, {
+    const res = await s3Get(BUCKET_BASE, {
       params: { "list-type": 2, prefix, "max-keys": 1000 },
       timeout: API_TIMEOUT_MS,
       responseType: "text",
@@ -171,7 +171,7 @@ async function fetchFile(key) {
   const hit = fileCache.get(key);
   if (hit) return hit;
 
-  const res = await axios.get(`${BUCKET_BASE}/${key}`, {
+  const res = await s3Get(`${BUCKET_BASE}/${key}`, {
     responseType: "arraybuffer",
     timeout: API_TIMEOUT_MS,
   });

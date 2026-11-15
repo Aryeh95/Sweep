@@ -191,6 +191,13 @@ const RADIAL_TTL_MS = 60 * 1000;
 const CLEAN_PENDING_TTL_MS = 15 * 1000;
 // Reasons worth retrying soon; a grid mismatch will not fix itself.
 const CLEAN_TRANSIENT = new Set(["no-classification", "classification-failed"]);
+// A classification missing for a scan younger than this is looked for again
+// in a fresh listing (see cleanRadial); older scans keep the cached answer.
+const CLEAN_RELIST_MAX_AGE_MS = 15 * 60 * 1000;
+// …at most this often per scan: a radar that publishes no classification at
+// all (DIX) must not cost a bucket listing on every request.
+const CLEAN_RELIST_EVERY_MS = 20 * 1000;
+const cleanRelistAt = new BoundedMap(32);
 const radialCache = new BoundedMap(16);
 
 // Historical scans, keyed `site:product:stamp`. A completed volume scan
@@ -314,7 +321,7 @@ async function keyForStamp(site, product, stamp) {
  * @param {Number} target epoch ms
  * @returns {Promise<String|null>} nearest key within the window, or null
  */
-async function keyForEpoch(site, product, target) {
+async function keyForEpoch(site, product, target, opts = {}) {
   const mm = new Date(target).getUTCMinutes();
 
   // The target's own hour, plus a neighbour when the minute sits close
@@ -325,7 +332,7 @@ async function keyForEpoch(site, product, target) {
 
   let best = null;
   let bestDelta = Infinity;
-  const keyLists = await Promise.all(hours.map((t) => listHourKeys(site, product, t)));
+  const keyLists = await Promise.all(hours.map((t) => listHourKeys(site, product, t, opts)));
   for (const keyList of keyLists) {
     for (const key of keyList) {
       const epoch = l3KeyEpoch(key);
@@ -637,13 +644,28 @@ async function cleanRadial(refl) {
   }
   let cls;
   try {
-    const key = await keyForEpoch(refl.site, CLASS_PRODUCT, scanEpoch);
+    let key = await keyForEpoch(refl.site, CLASS_PRODUCT, scanEpoch);
     increment("nexrad-l3", "radial-list");
+    // The hour listing is cached for a minute and was most likely taken
+    // just before this scan's classification landed (~30 s after its
+    // reflectivity), so a miss on a recent scan re-lists once rather than
+    // trusting the stale list: with 7-min clear-air scans, the old
+    // behaviour could miss two scans running and end the map's clean hold.
+    const relistId = `${refl.site}:${scanEpoch}`;
+    const lastRelist = cleanRelistAt.get(relistId) || 0;
+    if (!key && Date.now() - scanEpoch < CLEAN_RELIST_MAX_AGE_MS && Date.now() - lastRelist >= CLEAN_RELIST_EVERY_MS) {
+      cleanRelistAt.set(relistId, Date.now());
+      key = await keyForEpoch(refl.site, CLASS_PRODUCT, scanEpoch, { fresh: true });
+      increment("nexrad-l3", "radial-list");
+    }
     if (!key) {
       return { ...refl, clean: { applied: false, reason: "no-classification" } };
     }
     cls = await decodeKey(refl.site, CLASS_PRODUCT, key);
-  } catch {
+  } catch (err) {
+    // Logged, not swallowed: on the kiosk this failed silently for 15+
+    // minutes while the bucket had every classification (2026-11-15).
+    console.warn(`[clean] ${refl.site} ${refl.scanTime}: classification failed: ${err && err.message}`);
     return { ...refl, clean: { applied: false, reason: "classification-failed" } };
   }
   if (!gridsAlign(refl, cls)) {

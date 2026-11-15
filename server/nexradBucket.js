@@ -17,7 +17,7 @@
 // The listing is plain HTTPS — no AWS SDK. The bucket is public and
 // keyless.
 
-const axios = require("axios");
+const { s3Get } = require("./s3Get");
 const { BoundedMap } = require("./boundedCache");
 
 const BUCKET_BASE = "https://unidata-nexrad-level3.s3.amazonaws.com";
@@ -63,7 +63,7 @@ async function listKeys(prefix) {
     const params = { "list-type": 2, prefix, "max-keys": 1000 };
     if (token) params["continuation-token"] = token;
     // eslint-disable-next-line no-await-in-loop -- pages are sequential by construction
-    const res = await axios.get(BUCKET_BASE, {
+    const res = await s3Get(BUCKET_BASE, {
       params,
       timeout: API_TIMEOUT_MS,
       responseType: "text",
@@ -82,12 +82,15 @@ async function listKeys(prefix) {
  * @param {String} site 3-letter radar id
  * @param {String} product product token
  * @param {Date} t any instant inside the wanted UTC hour
+ * @param {Object} [opts]
+ * @param {Boolean} [opts.fresh] skip the cache (and refresh it): for a file
+ *   expected to have landed since the cached listing was taken
  * @returns {Promise<Array<String>>} keys, lexicographic (= chronological)
  */
-async function listHourKeys(site, product, t) {
+async function listHourKeys(site, product, t, opts = {}) {
   const prefix = hourPrefix(site, product, t);
   const hit = hourKeysCache.get(prefix);
-  if (hit && hit.expires > Date.now()) return hit.value;
+  if (!opts.fresh && hit && hit.expires > Date.now()) return hit.value;
 
   const keys = await listKeys(prefix);
 
@@ -138,7 +141,7 @@ function l3KeyEpoch(key) {
  * @returns {Promise<Buffer>} object bytes
  */
 async function fetchObject(key) {
-  const res = await axios.get(`${BUCKET_BASE}/${key}`, {
+  const res = await s3Get(`${BUCKET_BASE}/${key}`, {
     responseType: "arraybuffer",
     timeout: API_TIMEOUT_MS,
   });

@@ -2015,3 +2015,25 @@ never after the listing alone, or listing successes would keep resetting
 a real download failure's count below MIN_CONSECUTIVE_FAILURES). Any new
 catch-only reporter needs the same.
 
+### S3 fetches retry; clean finds late classifications; nowcast hold cap (2026-11-15)
+
+Kiosk photo 23:19 Z: legend "Dual-pol clean · unavailable", map chip "LWX
+8 min", nowcast "Radar data delayed · no new LWX scan for 22 min". Upstream
+was fine (every N0H in the bucket ~30 s after its N0B; LWX in VCP 35,
+scans 7 min apart; cleaning the same scans here: all applied). Fixes:
+- `server/s3Get.js` — every bucket GET (nexradBucket, mrmsHailCtrl, GLM,
+  GOES) retries ONCE on ECONNRESET / ETIMEDOUT / ERR_NETWORK / S3 5xx.
+  Call sites use `s3Get`, not `axios.get`; tests that stub `axios.get`
+  still work (s3Get reads `axios.get` at call time).
+- `cleanRadial` re-lists the N0H hour (`listHourKeys(…, {fresh: true})`)
+  when a scan < 15 min old has no classification in the cached listing,
+  at most every 20 s per scan (`cleanRelistAt`; DIX publishes no N0H).
+  Classification failures are `console.warn`ed, no longer swallowed.
+- `preferCleanScans` (nowcast) uses raw scans once the newest cleaned
+  scan is > `CLEAN_HOLD_MAX_MS` (10 min, = the map's) behind the newest.
+- Latency vs RadarScope, for the record: Level III products reach the
+  bucket ~1.4 min after the scan's start time, then Sweep's poll; in
+  clear air (VCP 35/R35) scans are 7 min apart, so the chip legitimately
+  reads up to ~9 min. RadarScope's "1 min" comes from a faster feed
+  (Level II / LDM), not reachable from these buckets.
+
