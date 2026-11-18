@@ -28,6 +28,20 @@ const WAKE_SEVERE = new Set([
 // Quiet-hours override and the "tornado" level.
 const WAKE_URGENT = new Set(["Tornado Warning", "Extreme Wind Warning", "Tsunami Warning"]);
 
+const WAKE_SEVERE_LOWER = new Set([...WAKE_SEVERE].map((s) => s.toLowerCase()));
+const WAKE_URGENT_LOWER = new Set([...WAKE_URGENT].map((s) => s.toLowerCase()));
+// Bare ECCC `alert_code` slugs when `title_en` carries the "warning" word.
+const WAKE_SEVERE_BARE = new Set([
+  "tornado",
+  "extreme wind",
+  "severe thunderstorm",
+  "flash flood",
+  "snow squall",
+  "tsunami",
+]);
+const WAKE_URGENT_BARE = new Set(["tornado", "extreme wind", "tsunami"]);
+const NON_WARNING_RE = /\b(watch|advisory|statement|veille|avis|bulletin)\b/i;
+
 const WAKE_LEVELS = ["severe", "tornado", "off"];
 // "start-end" in local hours, wrapping past midnight; "off" = none.
 const QUIET_HOURS = ["off", "22-6", "23-7", "0-6"];
@@ -58,12 +72,27 @@ function inQuietHours(date, spec) {
  * @param {Date} opts.now current time
  * @returns {Object|null} the first qualifying warning in effect
  */
+function matchesWakeWarning(a, urgentOnly) {
+  const wanted = urgentOnly ? WAKE_URGENT : WAKE_SEVERE;
+  const wantedLower = urgentOnly ? WAKE_URGENT_LOWER : WAKE_SEVERE_LOWER;
+  const wantedBare = urgentOnly ? WAKE_URGENT_BARE : WAKE_SEVERE_BARE;
+  const evRaw = typeof a.eventType === "string" ? a.eventType.trim() : "";
+  const titleRaw = typeof a.title_en === "string" ? a.title_en.trim() : "";
+  if (wanted.has(evRaw) || wanted.has(titleRaw)) return true;
+  const ev = evRaw.toLowerCase();
+  const title = titleRaw.toLowerCase();
+  if (wantedLower.has(ev) || wantedLower.has(title)) return true;
+  if (wantedBare.has(ev) && /\bwarning\b/.test(title) && !NON_WARNING_RE.test(title)) {
+    return true;
+  }
+  return false;
+}
+
 function activeWakeWarning(alerts, { level, quietHours, now }) {
   if (!Array.isArray(alerts) || level === "off") return null;
   const urgentOnly = level === "tornado" || inQuietHours(now, quietHours);
-  const wanted = urgentOnly ? WAKE_URGENT : WAKE_SEVERE;
   for (const a of alerts) {
-    if (!a || a.isTest || !wanted.has(a.eventType)) continue;
+    if (!a || typeof a !== "object" || a.isTest || !matchesWakeWarning(a, urgentOnly)) continue;
     const expires = Date.parse(a.expiresAt || "");
     if (Number.isFinite(expires) && expires <= now.getTime()) continue;
     return a;

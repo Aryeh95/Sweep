@@ -200,6 +200,10 @@ function detectApplied() {
   }
 }
 
+const DISPLAY_SCALE_CACHE_TTL_MS = 5_000;
+let _scaleCache = null;
+let _scaleCacheAt = 0;
+
 /**
  * GET /api/display-scale — current override + what Auto resolves to.
  * `available:false` on non-kiosk installs (no browser.conf — macOS launchd
@@ -209,21 +213,30 @@ function detectApplied() {
  * @param {Object} res Express response
  */
 function getDisplayScale(req, res) {
-  if (!fs.existsSync(BROWSER_CONF)) {
-    return res.status(200).json({ available: false }).end();
+  const now = Date.now();
+  if (_scaleCache && now - _scaleCacheAt < DISPLAY_SCALE_CACHE_TTL_MS) {
+    return res.status(200).json(_scaleCache).end();
   }
-  const override = parseOverrideLine(readBrowserConf() || "");
-  const auto = detectAuto();
-  return res.status(200).json({
-    available: true,
-    override,
-    autoDetected: auto.value,   // null ⇒ effective 1.0
-    applied: detectApplied(),   // scale on the running kiosk ("1.25"/"1"/null)
-    ppi: auto.ppi,
-    raw: auto.raw,
-    choices: SCALE_CHOICES,
-    appliesOnRestart: true,
-  }).end();
+  let payload;
+  if (!fs.existsSync(BROWSER_CONF)) {
+    payload = { available: false };
+  } else {
+    const override = parseOverrideLine(readBrowserConf() || "");
+    const auto = detectAuto();
+    payload = {
+      available: true,
+      override,
+      autoDetected: auto.value,   // null ⇒ effective 1.0
+      applied: detectApplied(),   // scale on the running kiosk ("1.25"/"1"/null)
+      ppi: auto.ppi,
+      raw: auto.raw,
+      choices: SCALE_CHOICES,
+      appliesOnRestart: true,
+    };
+  }
+  _scaleCache = payload;
+  _scaleCacheAt = Date.now();
+  return res.status(200).json(payload).end();
 }
 
 /**
@@ -249,6 +262,7 @@ function setDisplayScale(req, res) {
     return res.status(500).json({ error: "read-failed" }).end();
   }
   const next = rewriteBrowserConf(current, normalized);
+  const tmp = `${BROWSER_CONF}.pwx.${process.pid}`;
   try {
     let mode = 0o644;
     try {
@@ -256,13 +270,15 @@ function setDisplayScale(req, res) {
     } catch {
       // fall back to 0644 if stat fails
     }
-    const tmp = `${BROWSER_CONF}.pwx.${process.pid}`;
     fs.writeFileSync(tmp, next);
     fs.chmodSync(tmp, mode);
     fs.renameSync(tmp, BROWSER_CONF);                     // atomic replace
   } catch {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* ignore */ }
     return res.status(500).json({ error: "write-failed" }).end();
   }
+  _scaleCache = null;
+  _scaleCacheAt = 0;
   return res.status(200).json({
     available: true,
     override: normalized,
@@ -308,6 +324,8 @@ function relaunchKiosk(req, res) {
   } catch {
     return res.status(500).json({ error: "spawn-failed" }).end();
   }
+  _scaleCache = null;
+  _scaleCacheAt = 0;
   return res.status(200).json({ ok: true }).end();
 }
 

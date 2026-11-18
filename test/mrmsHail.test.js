@@ -111,9 +111,15 @@ test("keyValidTime reads the UTC stamp out of a bucket key", () => {
   assert.equal(keyValidTime("garbage"), null);
 });
 
-test("non-MRMS layouts are refused rather than misread", () => {
+test("non-MRMS layouts and corrupt/zero-length sections are refused rather than misread or looping", () => {
   assert.throws(() => parseGrib2(Buffer.from("not a grib file at all, really")), /not GRIB/);
   assert.throws(() => decodePng16(Buffer.alloc(16), 1, 1), /not PNG/);
+  // Zero-length GRIB2 section at offset 16 must throw instead of hanging in `while (p < len) p += 0`.
+  const zeroSec = Buffer.alloc(32);
+  zeroSec.write("GRIB", 0, "ascii");
+  zeroSec[7] = 2;
+  zeroSec.writeUInt32BE(0, 16);
+  assert.throws(() => parseGrib2(zeroSec), /corrupt GRIB2 section/);
 });
 
 test("8-bit frames decode too (the depth MRMS uses on a quiet CONUS)", () => {

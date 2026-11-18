@@ -32,6 +32,7 @@ const INITIAL_DELAY_MS = 1000;
 const MAX_DELAY_MS    = 16 * 1000;
 
 let memCache = null; // { latitude, longitude, fetchedAtMs }
+let inflight = null; // shared in-flight lookup promise
 
 function loadCacheFromDisk() {
   try {
@@ -119,20 +120,32 @@ async function getCoords(req, res) {
     }).end();
   }
 
-  // No cache or cache too old: fetch fresh with retry.
+  // No cache or cache too old: fetch fresh with retry (single-flight so
+  // concurrent cold-boot requests share one upstream retry sequence).
   try {
-    const coords = await fetchWithRetry();
-    memCache = { ...coords, fetchedAtMs: Date.now() };
-    saveCacheToDisk(memCache);
-    increment("ipapi.co", "geolocation");
-    recordServiceCall("ipapi.co", 200, "OK");
+    if (!inflight) {
+      inflight = fetchWithRetry()
+        .then((c) => {
+          memCache = { ...c, fetchedAtMs: Date.now() };
+          saveCacheToDisk(memCache);
+          increment("ipapi.co", "geolocation");
+          recordServiceCall("ipapi.co", 200, "OK");
+          return c;
+        })
+        .catch((err) => {
+          const status = err?.response?.status || 500;
+          const message = err?.response?.data?.reason || err?.code || "Geolocation failed";
+          increment("ipapi.co", "geolocation");
+          recordServiceCall("ipapi.co", status, String(message).slice(0, 100));
+          throw err;
+        })
+        .finally(() => {
+          inflight = null;
+        });
+    }
+    const coords = await inflight;
     return res.status(200).json(coords).end();
-  } catch (err) {
-    const status = err?.response?.status || 500;
-    const message = err?.response?.data?.reason || err?.code || "Geolocation failed";
-    increment("ipapi.co", "geolocation");
-    recordServiceCall("ipapi.co", status, String(message).slice(0, 100));
-
+  } catch {
     // Stale cache fallback — better than no data at all.
     if (memCache) {
       console.log("[geolocation] Falling back to stale cache after retries failed");

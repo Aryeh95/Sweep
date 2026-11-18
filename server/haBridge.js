@@ -152,6 +152,20 @@ function send(res, status, body, headOnly = false) {
   res.end(headOnly ? undefined : text);
 }
 
+function decodeSafePath(rawPath) {
+  if (typeof rawPath !== "string" || !rawPath.startsWith("/")) return null;
+  let decoded;
+  try {
+    decoded = decodeURIComponent(rawPath);
+  } catch {
+    return null;
+  }
+  if (decoded.includes("..") || decoded.includes("\0") || decoded.includes("//") || decoded.includes("\\")) {
+    return null;
+  }
+  return decoded;
+}
+
 /**
  * May the embedded map fetch this path through the bridge?
  *
@@ -159,10 +173,13 @@ function send(res, status, body, headOnly = false) {
  * @returns {Boolean}
  */
 function isMapPath(path) {
-  if (path === "/embed" || path === "/settings") return true;
-  if (STATIC_ASSET.test(path)) return true;
-  if (MAP_EXACT.has(path)) return true;
-  return MAP_PREFIXES.some((p) => path.startsWith(p)) && !path.includes("..");
+  const decoded = decodeSafePath(path);
+  if (!decoded) return false;
+  if (decoded === "/api/radar/nowcast/skill") return false;
+  if (decoded === "/embed" || decoded === "/settings") return true;
+  if (STATIC_ASSET.test(decoded)) return true;
+  if (MAP_EXACT.has(decoded)) return true;
+  return MAP_PREFIXES.some((p) => decoded.startsWith(p));
 }
 
 /**
@@ -212,10 +229,11 @@ function handle(req, res) {
     return send(res, 405, { error: "method-not-allowed" });
   }
   const [path, query = ""] = (req.url || "/").split("?");
+  const peer = req.socket?.remoteAddress || "unknown";
   if (path === "/summary" || path === "/") {
     // The map's own requests are limited by the main app's limiters;
     // this budget is for the summary alone.
-    if (!allowPeer(req.socket.remoteAddress || "unknown", Date.now())) {
+    if (!allowPeer(peer, Date.now())) {
       return send(res, 429, { error: "too-many-requests" });
     }
     return currentSummary()
@@ -223,16 +241,23 @@ function handle(req, res) {
       .catch(() => send(res, 503, { available: false, reason: "summary-failed" }));
   }
   if (state.map && appHandler && isMapPath(path)) {
-    if (path === "/settings") {
+    const decoded = decodeSafePath(path);
+    if (decoded === "/settings") {
+      if (!allowPeer(peer, Date.now())) {
+        return send(res, 429, { error: "too-many-requests" });
+      }
       return getSettingsData()
         .then((data) => send(res, 200, embedSettings(data), req.method === "HEAD"))
         .catch(() => send(res, 404, { error: "no-settings" }));
     }
     allowFraming(res);
+    // Mark bridge traffic so the main app always treats it as remote +
+    // rate-limited even when the bridge is reached via 127.0.0.1.
+    req.fromHaBridge = true;
     // The client is the main bundle; it enters embed mode from the
     // /embed path in the browser's address, so the server only needs
     // to hand it the page at "/".
-    if (path === "/embed") req.url = query ? `/?${query}` : "/";
+    if (decoded === "/embed") req.url = query ? `/?${query}` : "/";
     return appHandler(req, res);
   }
   return send(res, 404, { error: "not-found", try: state.map ? ["/summary", "/embed"] : "/summary" });
@@ -260,7 +285,10 @@ function configure(config) {
     if (server && (!want.enabled || want.port !== state.port)) {
       const old = server;
       server = null;
-      await new Promise((resolve) => old.close(() => resolve()));
+      const closed = new Promise((resolve) => old.close(() => resolve()));
+      old.closeIdleConnections?.();
+      old.closeAllConnections?.();
+      await closed;
       state = { ...state, listening: false };
       console.log(`[home-assistant] stopped listening on port ${state.port}`);
     }
@@ -299,6 +327,7 @@ function configure(config) {
  * @returns {Promise<Object>} status()
  */
 function reconcileFromSettings() {
+  cached = null;
   return getSettingsData()
     .catch(() => ({}))
     .then((settings) => configure(settings.homeAssistant));
@@ -317,7 +346,8 @@ function lanUrls(port) {
       if (a.family === "IPv4" && !a.internal) urls.push(`http://${a.address}:${port}/summary`);
     }
   }
-  urls.push(`http://${os.hostname()}.local:${port}/summary`);
+  const host = (os.hostname() || "").replace(/\.local$/i, "");
+  if (host) urls.push(`http://${host}.local:${port}/summary`);
   return urls;
 }
 

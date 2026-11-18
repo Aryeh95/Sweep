@@ -2,16 +2,18 @@
   "name": "sweep-radar",
   "version": "3.1.0",
   "description": "Sweep — a NEXRAD radar kiosk for any Linux screen (Node/Express server + React/Leaflet client)",
-  "main": "index.js",
+  "main": "./server/index.js",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
-    "test": "node --test 'test/**/*.test.js'",
+    "test": "node --test \"test/**/*.test.js\"",
     "start": "node ./server/index.js"
   },
   "author": "Eric Lewin",
   "license": "MIT",
   "dependencies": {
-    "axios": "^1.19.0",
-    "body-parser": "^2.2.2",
+    "axios": "^1.20.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.6.2",
     "h5wasm": "^0.10.3",

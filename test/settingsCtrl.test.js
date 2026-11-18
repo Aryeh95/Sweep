@@ -283,7 +283,11 @@ test("FILE_MODE is 0600 (owner read/write only)", () => {
   assert.equal(FILE_MODE, 0o600);
 });
 
-test("ensureSecurePermissions: tightens a 0644 file to 0600", () => {
+const skipPosixMode = process.platform === "win32"
+  ? "Windows NTFS does not enforce POSIX 0600 file mode bits"
+  : false;
+
+test("ensureSecurePermissions: tightens a 0644 file to 0600", { skip: skipPosixMode }, () => {
   const tmp = path.join(os.tmpdir(), `settings-perm-${process.pid}-${Date.now()}.json`);
   fs.writeFileSync(tmp, "{}");
   fs.chmodSync(tmp, 0o644); // force world-readable regardless of the umask
@@ -315,7 +319,9 @@ test("writeSettingsFile: atomic write — content, 0600 mode, no .tmp leftover",
     await writeSettingsFile({ mapApiKey: "abc", startingLat: "45.5" }, target);
     const parsed = JSON.parse(fs.readFileSync(target, "utf8"));
     assert.deepEqual(parsed, { mapApiKey: "abc", startingLat: "45.5" });
-    assert.equal(fs.statSync(target).mode & 0o777, FILE_MODE);
+    if (!skipPosixMode) {
+      assert.equal(fs.statSync(target).mode & 0o777, FILE_MODE);
+    }
     const dir = path.dirname(target);
     const leftovers = fs.readdirSync(dir).filter((f) => f.startsWith(`${path.basename(target)}.`) && f.endsWith(".tmp"));
     assert.deepEqual(leftovers, [], "the tmp file must be renamed away");

@@ -48,13 +48,17 @@ const responseCache = new BoundedMap(16);
 // seconds without hammering the bucket.
 const FETCH_CONCURRENCY = 6;
 
-// h5wasm loads once (WASM init is not free); the promise is shared.
+// h5wasm loads once (WASM init is not free); reset on failure so a
+// transient load error does not poison the controller for the session.
 let h5wasmReady = null;
 function getH5() {
   if (!h5wasmReady) {
     h5wasmReady = import("h5wasm/node").then(async (mod) => {
       await mod.ready;
       return mod;
+    }).catch((err) => {
+      h5wasmReady = null;
+      throw err;
     });
   }
   return h5wasmReady;

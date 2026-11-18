@@ -213,7 +213,8 @@ const radialCache = new BoundedMap(16);
 // TTL — the file may simply not have arrived in the bucket yet.
 const HISTORY_TTL_MS = 30 * 60 * 1000;
 const HISTORY_MISS_TTL_MS = 2 * 60 * 1000;
-const historyCache = new BoundedMap(80);
+const HISTORY_CACHE_MAX = typeof window !== "undefined" ? 32 : 80;
+const historyCache = new BoundedMap(HISTORY_CACHE_MAX);
 
 // Super-res geometry per the product spec. The packet's `rangeScale`
 // field is a display scale factor (reads ~0.999), NOT the physical bin

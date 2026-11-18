@@ -196,7 +196,13 @@ function sanitizeHomeAssistant(val) {
   return { enabled: v.enabled === true, map: v.map === true, port: ok ? port : HA_DEFAULT_PORT };
 }
 
+function sanitizeApiKey(val) {
+  return typeof val === "string" ? val.trim() : "";
+}
+
 const VALUE_SANITIZERS = {
+  mapApiKey: sanitizeApiKey,
+  reverseGeoApiKey: sanitizeApiKey,
   favorites: sanitizeFavorites,
   radarSite: sanitizeRadarSite,
   homeAssistant: sanitizeHomeAssistant,
@@ -300,7 +306,7 @@ function createSettingsFile(req, res) {
   } else {
     writeSettingsFileCb(contents, (err) => {
       if (err) {
-        return res.status(500).json(err).end();
+        return res.status(500).json("Failed to write settings").end();
       } else {
         return res.status(201).json(contents).end();
       }
@@ -323,12 +329,12 @@ function getSettings(req, res) {
   readSettingsFile({
     successCb: (data) => {
       if (req.isLocal) {
-        return res.status(200).json(data).end();
+        return res.status(200).json(sanitizeSettings(data)).end();
       }
       return res.status(200).json(maskForRemote(data)).end();
     },
     errorCb: () => {
-      return res.status(500).end();
+      return res.status(500).json("Failed to read settings").end();
     },
   });
 }
@@ -363,7 +369,7 @@ function setSetting(req, res) {
   const writeContents = (newSettings, newFile) => {
     writeSettingsFileCb(newSettings, (err) => {
       if (err) {
-        return res.status(500).json(err).end();
+        return res.status(500).json("Failed to write settings").end();
       } else {
         return res
           .status(newFile ? 201 : 200)
@@ -395,15 +401,13 @@ function setSetting(req, res) {
 
   /**
    * Read error callback
-   *
-   * @param {Object} [err]
    */
-  const readError = (err) => {
-    return res.status(500).json(err).end();
+  const readError = () => {
+    return res.status(500).json("Failed to read settings").end();
   };
 
   if (!fs.existsSync(FILE_PATH)) {
-    writeContents({ [key]: val }, true);
+    writeContents({ [key]: sanitizeValue(key, val) }, true);
   } else {
     readSettingsFile({
       successCb: readSuccess,
@@ -432,13 +436,13 @@ function replaceSettings(req, res) {
       for (const [k, v] of Object.entries(existing)) {
         if (!ALLOWED_KEYS.has(k)) continue;
         if (Object.prototype.hasOwnProperty.call(sanitized, k)) continue;
-        preserved[k] = v;
+        preserved[k] = sanitizeValue(k, v);
       }
     }
     const merged = { ...preserved, ...sanitized };
     writeSettingsFileCb(merged, (err) => {
       if (err) {
-        return res.status(500).json(err).end();
+        return res.status(500).json("Failed to write settings").end();
       }
       return res
         .status(fileExists ? 200 : 201)
@@ -493,7 +497,7 @@ function deleteSetting(req, res) {
       currentSettings,
       (err) => {
         if (err) {
-          return res.status(500).json(err).end();
+          return res.status(500).json("Failed to write settings").end();
         } else {
           return res.status(200).json(currentSettings).end();
         }
@@ -503,11 +507,9 @@ function deleteSetting(req, res) {
 
   /**
    * Error callback
-   *
-   * @param {Object} err
    */
-  const readError = (err) => {
-    return res.status(500).json(err).end();
+  const readError = () => {
+    return res.status(500).json("Failed to read settings").end();
   };
 
   readSettingsFile({

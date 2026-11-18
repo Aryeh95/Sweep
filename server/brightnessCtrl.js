@@ -233,14 +233,26 @@ function getActiveBackend() {
   return null;
 }
 
+const BRIGHTNESS_CACHE_TTL_MS = 2_000;
+let _brightnessCache = undefined;
+let _brightnessCacheAt = 0;
+
 /**
- * Read current brightness state via the active backend.
+ * Read current brightness state via the active backend (cached briefly so
+ * repeated GETs cannot stall the event loop on ~150 ms DDC/CI reads).
  *
  * @returns {Object|null} {percent, raw, max, devicePath} or null if no backend
  */
 function readBrightness() {
+  const now = Date.now();
+  if (_brightnessCache !== undefined && now - _brightnessCacheAt < BRIGHTNESS_CACHE_TTL_MS) {
+    return _brightnessCache;
+  }
   const b = getActiveBackend();
-  return b ? b.read() : null;
+  const state = b ? b.read() : null;
+  _brightnessCache = state;
+  _brightnessCacheAt = Date.now();
+  return state;
 }
 
 /**
@@ -264,7 +276,10 @@ function writeBrightness(percent, opts = {}) {
   }
   const b = getActiveBackend();
   if (!b) return { ok: false, error: "no-device" };
-  return b.write(percent, opts);
+  const result = b.write(percent, opts);
+  _brightnessCache = undefined;
+  _brightnessCacheAt = 0;
+  return result;
 }
 
 /**

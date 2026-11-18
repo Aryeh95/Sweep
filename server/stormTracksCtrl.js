@@ -50,11 +50,12 @@
 // forecast positions, which are unambiguous coordinates. MOVEMENT is
 // carried through for the label and never used to derive direction.
 
-const axios = require("axios");
 const parseLevel3 = require("nexrad-level-3-data");
+const { s3Get } = require("./s3Get");
 const { recordServiceCall } = require("./serviceStatus");
 const { increment } = require("./requestCounter");
 const { BoundedMap } = require("./boundedCache");
+const { createKeyedSingleFlight } = require("./singleFlight");
 
 const SERVICE_NAME = "NEXRAD L3 (storm tracks)";
 // Bucket access (listing, newest-key lookup, key timestamps) lives in
@@ -68,6 +69,7 @@ const { attachDebris } = require("./radarRadialCtrl");
 // radar's own cadence without re-listing the bucket for every client poll.
 const TRACKS_TTL_MS = 60 * 1000;
 const tracksCache = new BoundedMap(16);
+const tracksSingleFlight = createKeyedSingleFlight();
 
 const NM_TO_KM = 1.852;
 const EARTH_R_KM = 6371;
@@ -258,7 +260,7 @@ async function fetchMesos(site, radarLat, radarLon) {
     if (!key) return [];
     const epoch = l3KeyEpoch(key);
     if (epoch == null || Date.now() - epoch > MESO_MAX_AGE_MS) return [];
-    const res = await axios.get(`${BUCKET_BASE}/${key}`, {
+    const res = await s3Get(`${BUCKET_BASE}/${key}`, {
       responseType: "arraybuffer",
       timeout: API_TIMEOUT_MS,
     });
@@ -290,68 +292,73 @@ async function fetchTracks(site) {
   const hit = tracksCache.get(site);
   if (hit && hit.expires > Date.now()) return hit.value;
 
-  const key = await newestKey(site, "NST");
-  increment("nexrad-l3", "list");
-  if (!key) {
-    // No recent product. Normal for a radar in clear-air mode with no
-    // cells — not an error.
-    const empty = { available: true, site, cells: [], generatedAt: new Date().toISOString() };
-    tracksCache.set(site, { value: empty, expires: Date.now() + TRACKS_TTL_MS });
-    recordServiceCall(SERVICE_NAME, 200, `no recent STI for ${site}`);
-    return empty;
-  }
+  return tracksSingleFlight(site, async () => {
+    const cached = tracksCache.get(site);
+    if (cached && cached.expires > Date.now()) return cached.value;
 
-  const res = await axios.get(`${BUCKET_BASE}/${key}`, {
-    responseType: "arraybuffer",
-    timeout: API_TIMEOUT_MS,
+    const key = await newestKey(site, "NST");
+    increment("nexrad-l3", "list");
+    if (!key) {
+      // No recent product. Normal for a radar in clear-air mode with no
+      // cells — not an error.
+      const empty = { available: true, site, cells: [], generatedAt: new Date().toISOString() };
+      tracksCache.set(site, { value: empty, expires: Date.now() + TRACKS_TTL_MS });
+      recordServiceCall(SERVICE_NAME, 200, `no recent STI for ${site}`);
+      return empty;
+    }
+
+    const res = await s3Get(`${BUCKET_BASE}/${key}`, {
+      responseType: "arraybuffer",
+      timeout: API_TIMEOUT_MS,
+    });
+    increment("nexrad-l3", "product");
+
+    const parsed = parseLevel3(Buffer.from(res.data));
+    const pd = parsed && parsed.productDescription;
+    const radarLat = pd && pd.latitude;
+    const radarLon = pd && pd.longitude;
+    if (!Number.isFinite(radarLat) || !Number.isFinite(radarLon)) {
+      throw new Error("product missing radar coordinates");
+    }
+
+    const page = (parsed.tabular && parsed.tabular.pages && parsed.tabular.pages[0]) || [];
+    const cells = parseCellRows(page).map((r) => toGeoCell(r, radarLat, radarLon));
+
+    // Mesocyclone / TVS markers ride the same payload and toggle — they
+    // are storm attributes, not a separate layer.
+    const mesos = await fetchMesos(site, radarLat, radarLon);
+
+    // Hail: MRMS MESH sampled at each cell (the per-radar hail index is no
+    // longer archived). Never fatal — cells simply carry `hail: null`.
+    const hail = await attachHail(cells);
+
+    // Tornado debris signature: low correlation coefficient inside a 30+ dBZ
+    // core, searched only around the circulations above. Never fatal.
+    const debris = await attachDebris(site, mesos);
+
+    // Scan time: the product prints its volume-scan date as a Julian day
+    // (days since 1970-01-01, 1-based) plus seconds past midnight UTC.
+    let scanTime = null;
+    if (Number.isFinite(pd.volumeScanDate) && Number.isFinite(pd.volumeScanTime)) {
+      scanTime = new Date(((pd.volumeScanDate - 1) * 86400 + pd.volumeScanTime) * 1000).toISOString();
+    }
+
+    const value = {
+      available: true,
+      site,
+      key,
+      scanTime,
+      radar: { lat: radarLat, lon: radarLon },
+      cells,
+      mesos,
+      hail,
+      debris,
+      generatedAt: new Date().toISOString(),
+    };
+    tracksCache.set(site, { value, expires: Date.now() + TRACKS_TTL_MS });
+    recordServiceCall(SERVICE_NAME, 200, `${cells.length} cell(s) for ${site}`);
+    return value;
   });
-  increment("nexrad-l3", "product");
-
-  const parsed = parseLevel3(Buffer.from(res.data));
-  const pd = parsed && parsed.productDescription;
-  const radarLat = pd && pd.latitude;
-  const radarLon = pd && pd.longitude;
-  if (!Number.isFinite(radarLat) || !Number.isFinite(radarLon)) {
-    throw new Error("product missing radar coordinates");
-  }
-
-  const page = (parsed.tabular && parsed.tabular.pages && parsed.tabular.pages[0]) || [];
-  const cells = parseCellRows(page).map((r) => toGeoCell(r, radarLat, radarLon));
-
-  // Mesocyclone / TVS markers ride the same payload and toggle — they
-  // are storm attributes, not a separate layer.
-  const mesos = await fetchMesos(site, radarLat, radarLon);
-
-  // Hail: MRMS MESH sampled at each cell (the per-radar hail index is no
-  // longer archived). Never fatal — cells simply carry `hail: null`.
-  const hail = await attachHail(cells);
-
-  // Tornado debris signature: low correlation coefficient inside a 30+ dBZ
-  // core, searched only around the circulations above. Never fatal.
-  const debris = await attachDebris(site, mesos);
-
-  // Scan time: the product prints its volume-scan date as a Julian day
-  // (days since 1970-01-01, 1-based) plus seconds past midnight UTC.
-  let scanTime = null;
-  if (Number.isFinite(pd.volumeScanDate) && Number.isFinite(pd.volumeScanTime)) {
-    scanTime = new Date(((pd.volumeScanDate - 1) * 86400 + pd.volumeScanTime) * 1000).toISOString();
-  }
-
-  const value = {
-    available: true,
-    site,
-    key,
-    scanTime,
-    radar: { lat: radarLat, lon: radarLon },
-    cells,
-    mesos,
-    hail,
-    debris,
-    generatedAt: new Date().toISOString(),
-  };
-  tracksCache.set(site, { value, expires: Date.now() + TRACKS_TTL_MS });
-  recordServiceCall(SERVICE_NAME, 200, `${cells.length} cell(s) for ${site}`);
-  return value;
 }
 
 /**

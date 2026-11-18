@@ -38,5 +38,11 @@ test("homeWarnings: warnings only, no tests, nothing expired", () => {
     { eventType: "Winter Storm Warning" },
   ];
   assert.deepEqual(homeWarnings(list, now).map((a) => a.eventType), ["Tornado Warning", "Winter Storm Warning"]);
+  // ECCC sentence-case warnings ("Tornado warning") qualify; ECCC watches do not.
+  const eccc = [
+    { source: "ECCC", eventType: "Tornado warning", title_en: "Tornado warning", expiresAt: "2026-10-11T21:00:00Z" },
+    { source: "ECCC", eventType: "Tornado watch", title_en: "Tornado watch", expiresAt: "2026-10-11T21:00:00Z" },
+  ];
+  assert.deepEqual(homeWarnings(eccc, now).map((a) => a.eventType), ["Tornado warning"]);
   assert.deepEqual(homeWarnings(null, now), []);
 });

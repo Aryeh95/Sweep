@@ -187,13 +187,19 @@ function normalize(feature) {
     normalizeSeverity(p.impact_en),
     isWatchEvent(p.alert_name_en || p.alert_name_fr),
   );
+  const titleEn = capitalizeFirst(p.alert_name_en || p.alert_short_name_en || p.alert_code);
   return {
     source: "ECCC",
     id: p.id || feature.id || null,
     severity,
     tier: severityToTier(severity),
-    eventType: p.alert_code,
-    title_en: capitalizeFirst(p.alert_name_en || p.alert_short_name_en || p.alert_code),
+    // Carry the full English alert title ("Tornado warning", "Heat warning")
+    // rather than the bare `alert_code` slug ("tornado", "heat") so every
+    // downstream consumer of `eventType` (NowcastPanel's near-home warning
+    // line, the warnings-only nearby overlay filter, warningClass, nearHome,
+    // warningWake) sees the product type word just like NWS `p.event`.
+    eventType: titleEn,
+    title_en: titleEn,
     title_fr: capitalizeFirst(p.alert_name_fr || p.alert_short_name_fr || p.alert_code),
     // Dedupe consecutive identical paragraphs — defends against the
     // ECCC payload bug observed live 2026-05-28 on a Saskatoon heat

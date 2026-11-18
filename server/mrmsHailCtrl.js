@@ -29,6 +29,7 @@ const zlib = require("zlib");
 const { s3Get } = require("./s3Get");
 const { recordServiceCall } = require("./serviceStatus");
 const { increment } = require("./requestCounter");
+const { BoundedMap } = require("./boundedCache");
 
 const SERVICE_NAME = "MRMS (hail)";
 const BUCKET_BASE = "https://noaa-mrms-pds.s3.amazonaws.com";
@@ -55,8 +56,8 @@ const SAMPLE_RADIUS_KM = 10;
 // Below this the product is reporting graupel-sized noise; treat as none.
 const MIN_REPORT_MM = 5;
 
-const listCache = new Map();   // product → { value: key|null, expires }
-const fieldCache = new Map();  // product → { key, value: {points, validTime}, expires }
+const listCache = new BoundedMap(32); // `${product}/${YYYYMMDD}` → { value: keys, expires }
+const fieldCache = new BoundedMap(8); // product → { key, value: {points, validTime}, expires }
 // One decode per file even when several requests arrive together.
 const inflightByKey = new Map();
 const inflight = (key, fn) => {
@@ -175,15 +176,18 @@ async function keyNearest(product, epochMs, windowMs) {
  * @returns {{ni: Number, nj: Number, lat0: Number, lon0: Number, dLat: Number, dLon: Number, ref: Number, binScale: Number, decScale: Number, bits: Number, png: Buffer}} field description and the PNG payload
  */
 function parseGrib2(buf) {
-  if (buf.toString("ascii", 0, 4) !== "GRIB") throw new Error("not GRIB");
+  if (!buf || buf.length < 16 || buf.toString("ascii", 0, 4) !== "GRIB") throw new Error("not GRIB");
   if (buf[7] !== 2) throw new Error(`GRIB edition ${buf[7]}`);
   let p = 16;
   const out = {};
-  while (p < buf.length - 4) {
+  while (p <= buf.length - 4) {
     if (buf.toString("ascii", p, p + 4) === "7777") break;
+    if (p + 5 > buf.length) throw new Error("corrupt GRIB2 section");
     const len = buf.readUInt32BE(p);
+    if (len < 5 || p + len > buf.length) throw new Error("corrupt GRIB2 section");
     const sec = buf[p + 4];
     if (sec === 3) {
+      if (len < 72) throw new Error("corrupt GRIB2 section 3");
       const template = buf.readUInt16BE(p + 12);
       if (template !== 0) throw new Error(`grid template ${template}`);
       // Template 3.0 octets (1-based within the section): Ni 31-34,
@@ -197,6 +201,7 @@ function parseGrib2(buf) {
       out.dLat = buf.readUInt32BE(p + 67) / 1e6;
       out.scanMode = buf[p + 71];
     } else if (sec === 5) {
+      if (len < 20) throw new Error("corrupt GRIB2 section 5");
       const template = buf.readUInt16BE(p + 9);
       if (template !== 41) throw new Error(`packing template ${template}`);
       out.ref = buf.readFloatBE(p + 11);
@@ -208,7 +213,7 @@ function parseGrib2(buf) {
     }
     p += len;
   }
-  if (!out.png || !out.ni) throw new Error("incomplete GRIB2 message");
+  if (!out.png || !out.ni || !out.nj) throw new Error("incomplete GRIB2 message");
   return out;
 }
 
@@ -221,16 +226,21 @@ function parseGrib2(buf) {
  * @returns {Uint16Array} width × height samples, row-major
  */
 function decodePng16(png, width, height) {
-  if (png.readUInt32BE(0) !== 0x89504e47) throw new Error("not PNG");
+  if (!png || png.length < 8 || png.readUInt32BE(0) !== 0x89504e47 || png.readUInt32BE(4) !== 0x0d0a1a0a) {
+    throw new Error("not PNG");
+  }
   let p = 8;
   const idat = [];
   let bitDepth = 0;
   let colorType = 0;
   while (p < png.length) {
+    if (p + 8 > png.length) throw new Error("truncated PNG");
     const len = png.readUInt32BE(p);
+    if (len > 0x7fffffff || p + 12 + len > png.length) throw new Error("truncated PNG chunk");
     const type = png.toString("ascii", p + 4, p + 8);
     const data = png.subarray(p + 8, p + 8 + len);
     if (type === "IHDR") {
+      if (data.length < 10) throw new Error("corrupt PNG IHDR");
       if (data.readUInt32BE(0) !== width || data.readUInt32BE(4) !== height) {
         throw new Error("PNG size does not match grid");
       }
@@ -250,12 +260,15 @@ function decodePng16(png, width, height) {
     throw new Error(`PNG ${bitDepth}-bit type ${colorType}`);
   }
 
-  const raw = zlib.inflateSync(Buffer.concat(idat));
   const bpp = bitDepth / 8;
   const stride = width * bpp;
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  if (raw.length < height * (stride + 1)) {
+    throw new Error("truncated PNG IDAT");
+  }
   const out = new Uint16Array(width * height);
   let prev = Buffer.alloc(stride);
-  const cur = Buffer.alloc(stride);
+  let cur = Buffer.alloc(stride);
   for (let y = 0; y < height; y += 1) {
     const rowStart = y * (stride + 1);
     const filter = raw[rowStart];
@@ -283,7 +296,9 @@ function decodePng16(png, width, height) {
     } else {
       for (let x = 0; x < width; x += 1) out[base + x] = cur[x];
     }
-    prev = Buffer.from(cur);
+    const tmp = prev;
+    prev = cur;
+    cur = tmp;
   }
   return out;
 }

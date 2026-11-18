@@ -1,10 +1,11 @@
 const fs = require("fs");
+const os = require("os");
 const crypto = require("crypto");
-const { execSync, exec } = require("child_process");
+const { execFileSync, execFile } = require("child_process");
 const { promisify } = require("util");
 const path = require("path");
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // The check is entirely git-based (fetch + local ref comparison) as of
 // 2026-08-30 — it used to hit api.github.com / raw.githubusercontent.com
@@ -28,7 +29,12 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 //   - deployRel: path relative to repo root (used to fetch from GitHub)
 //   - installedPath: absolute path of the installed copy on this machine
 //   - platform: "linux" | "darwin" | null (null = applies on every platform)
-const HOME = process.env.HOME || "";
+const HOME = (typeof os.homedir === "function" && os.homedir()) || process.env.HOME || "";
+// Note: `com.pi-weather-station.plist` (macOS launchd) is deliberately NOT in
+// raw SHA-256 comparison here because `install.sh` rewrites `__INSTALL_DIR__`
+// and `EnvironmentVariables` via `plistlib` at install time, which made the
+// installed plist never match `deploy/com.pi-weather-station.plist` and caused
+// a permanent false-positive warning on every macOS update.
 const DEPLOY_ARTEFACTS = [
   {
     name: "pi-weather-server.service",
@@ -43,15 +49,26 @@ const DEPLOY_ARTEFACTS = [
     platform: "linux",
   },
   {
-    name: "com.pi-weather-station.plist",
-    deployRel: "deploy/com.pi-weather-station.plist",
-    installedPath: path.join(HOME, "Library/LaunchAgents/com.pi-weather-station.plist"),
-    platform: "darwin",
+    name: "detect-display-scale.sh",
+    deployRel: "deploy/detect-display-scale.sh",
+    installedPath: path.join(HOME, ".local/bin/detect-display-scale.sh"),
+    platform: "linux",
   },
 ];
 
 let _cache = null;
 let _cacheTime = 0;
+let _inflight = null;
+let _cacheGen = 0;
+
+function isSafeGitRefToken(token) {
+  return typeof token === "string"
+    && token.length > 0
+    && token.length <= 128
+    && !token.startsWith("-")
+    && !token.includes("..")
+    && /^[A-Za-z0-9._/-]+$/.test(token);
+}
 
 /**
  * Returns the local git commit SHA (full).
@@ -60,10 +77,11 @@ let _cacheTime = 0;
  */
 function getLocalSha() {
   try {
-    return execSync("git rev-parse HEAD", {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: path.join(__dirname, ".."),
       encoding: "utf8",
       timeout: 3000,
+      stdio: ["ignore", "pipe", "pipe"],
     }).trim();
   } catch {
     return null;
@@ -80,10 +98,11 @@ function getLocalSha() {
  */
 function getRepo() {
   try {
-    const remoteUrl = execSync("git remote get-url origin", {
+    const remoteUrl = execFileSync("git", ["remote", "get-url", "origin"], {
       cwd: path.join(__dirname, ".."),
       encoding: "utf8",
       timeout: 3000,
+      stdio: ["ignore", "pipe", "pipe"],
     }).trim();
     const match = remoteUrl.match(/github\.com[:/]([^/]+\/[^/.]+)(\.git)?$/);
     if (match) return match[1];
@@ -108,13 +127,14 @@ const NPM_INSTALL_FIX_SHA = "a1b8b78";
  * @returns {boolean|null}
  */
 function checkNeedsManualUpgrade(localSha) {
-  if (!localSha) return null;
+  if (!localSha || !/^[0-9a-f]{7,40}$/i.test(localSha)) return null;
   try {
     // `git merge-base --is-ancestor A B` exits 0 when A is an ancestor of B.
     // We want true when localSha is an ancestor of the parent of the fix
     // commit, i.e. older than the fix.
-    execSync(
-      `git merge-base --is-ancestor ${localSha} ${NPM_INSTALL_FIX_SHA}^`,
+    execFileSync(
+      "git",
+      ["merge-base", "--is-ancestor", localSha, `${NPM_INSTALL_FIX_SHA}^`],
       { cwd: path.join(__dirname, ".."), stdio: "pipe", timeout: 3000 }
     );
     return true;
@@ -126,15 +146,16 @@ function checkNeedsManualUpgrade(localSha) {
 }
 
 /**
- * Hash one deploy artefact against its upstream copy on origin/master.
- * Reads the upstream side from the already-fetched `origin/master` ref
- * via `git show` — works for private forks, unlike raw.githubusercontent.
+ * Hash one deploy artefact against its upstream copy on the tracked remote ref.
+ * Reads the upstream side from the already-fetched remote ref via `git show`
+ * — works for private forks, unlike raw.githubusercontent.
  *
  * @param {{name: string, deployRel: string, installedPath: string}} artefact
+ * @param {string} [upstreamRef]
  * @returns {Promise<{name: string, changed: boolean}|null>} null when comparison can't be made
  *   (installed file missing, git error, etc.) — caller treats null as "skip silently".
  */
-async function checkOneArtefact(artefact) {
+async function checkOneArtefact(artefact, upstreamRef = "origin/master") {
   let installed;
   try {
     installed = fs.readFileSync(artefact.installedPath);
@@ -144,10 +165,11 @@ async function checkOneArtefact(artefact) {
 
   let upstream;
   try {
-    const { stdout } = await execAsync(`git show origin/master:${artefact.deployRel}`, {
+    const { stdout } = await execFileAsync("git", ["show", `${upstreamRef}:${artefact.deployRel}`], {
       cwd: path.join(__dirname, ".."),
       timeout: 5_000,
       maxBuffer: 4 * 1024 * 1024,
+      encoding: "buffer",
     });
     upstream = stdout;
   } catch {
@@ -166,15 +188,16 @@ async function checkOneArtefact(artefact) {
  * an empty array when everything matches, or null when no comparison was
  * possible (no deploy/ artefacts installed, or all comparisons failed).
  *
+ * @param {string} [upstreamRef]
  * @returns {Promise<string[]|null>}
  */
-async function checkDeployArtefactsChanged() {
+async function checkDeployArtefactsChanged(upstreamRef = "origin/master") {
   const applicable = DEPLOY_ARTEFACTS.filter(
     (a) => !a.platform || a.platform === process.platform
   );
   if (applicable.length === 0) return null;
 
-  const results = await Promise.all(applicable.map((a) => checkOneArtefact(a)));
+  const results = await Promise.all(applicable.map((a) => checkOneArtefact(a, upstreamRef)));
   const checked = results.filter((r) => r !== null);
   if (checked.length === 0) return null; // Nothing was installed locally — no signal to surface
 
@@ -252,9 +275,12 @@ function parseCommitLine(firstLine) {
  */
 async function resolveUpstream(git) {
   try {
-    const ref = await git("git rev-parse --abbrev-ref --symbolic-full-name @{u}");
-    const m = /^([^/]+)\/(.+)$/.exec(ref.trim());
-    if (m) return { remote: m[1], branch: m[2], ref: ref.trim() };
+    const ref = await git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+    const trimmed = ref.trim();
+    const m = /^([^/]+)\/(.+)$/.exec(trimmed);
+    if (m && isSafeGitRefToken(m[1]) && isSafeGitRefToken(m[2])) {
+      return { remote: m[1], branch: m[2], ref: `${m[1]}/${m[2]}` };
+    }
   } catch {
     // Detached HEAD or no upstream configured — fall through.
   }
@@ -263,128 +289,107 @@ async function resolveUpstream(git) {
 
 /**
  * Checks the tracked remote branch (normally origin/master) for new
- * commits, entirely through local git.
- *
- * `git fetch` uses whatever credentials the checkout already has — the
- * same ones `/api/update`'s `git pull` needs — so this works for private
- * forks where the old unauthenticated GitHub API calls returned 404 and
- * silently disabled the whole update flow.
+ * commits, entirely through local git. Concurrent callers share one
+ * in-flight `git fetch`.
  *
  * @returns {Promise<object>} { updateAvailable, latestVersion, latestSha, localSha, checkedAt, upstream, error?, errorMessage? }
  */
 async function checkForUpdate() {
   const now = Date.now();
   if (_cache && now - _cacheTime < CACHE_TTL) return _cache;
+  if (_inflight) return _inflight;
 
-  const localSha = getLocalSha();
-  const projectRoot = path.join(__dirname, "..");
-  const git = (cmd, timeout = 5_000) =>
-    execAsync(cmd, { cwd: projectRoot, timeout, maxBuffer: 4 * 1024 * 1024 })
-      .then((r) => r.stdout.trim());
+  const gen = _cacheGen;
+  const run = (async () => {
+    const startedAt = Date.now();
+    const localSha = getLocalSha();
+    const projectRoot = path.join(__dirname, "..");
+    const git = (args, timeout = 5_000) =>
+      execFileAsync("git", args, { cwd: projectRoot, timeout, maxBuffer: 4 * 1024 * 1024 })
+        .then((r) => r.stdout.trim());
 
-  const upstream = await resolveUpstream(git);
-  try {
-    // Generous timeout for the network step: slow links (VPN'd Pi, mobile
-    // hotspot) routinely need tens of seconds — same reasoning as the
-    // 90 s pull timeout in /api/update.
-    await git(`git fetch ${upstream.remote} ${upstream.branch}`, 60_000);
+    const upstream = await resolveUpstream(git);
+    let nextResult;
+    try {
+      await git(["fetch", "--", upstream.remote, upstream.branch], 60_000);
 
-    const latestSha = await git(`git rev-parse ${upstream.ref}`);
-    const pkgJson = await git(`git show ${upstream.ref}:package.json`);
-    const latestVersion = JSON.parse(pkgJson).version;
-    const shasDiffer = Boolean(localSha && latestSha !== localSha);
+      const latestSha = await git(["rev-parse", upstream.ref]);
+      const pkgJson = await git(["show", `${upstream.ref}:package.json`]);
+      const latestVersion = JSON.parse(pkgJson).version;
+      const shasDiffer = Boolean(localSha && latestSha !== localSha);
 
-    // Everything between local and origin/master, newest first.
-    // Conventional-commit subjects get their typed badge via
-    // parseCommitLine; anything else falls back to a generic "update"
-    // badge with the subject verbatim. The fallback matters: this fork's
-    // commits are plain sentences, and the old behaviour of DROPPING
-    // non-conventional subjects meant `commits.length` stayed 0 and the
-    // update button never appeared at all.
-    let commits = [];
-    if (shasDiffer && localSha) {
-      try {
-        const log = await git(`git log --no-merges --pretty=%s ${localSha}..${latestSha}`);
-        commits = log
-          .split("\n")
-          .filter((line) => line.trim())
-          .map((line) => parseCommitLine(line) || { type: "update", message: line });
-      } catch {
-        // non-critical — commits stays empty
+      let commits = [];
+      if (shasDiffer && localSha && /^[0-9a-f]{7,40}$/i.test(localSha) && /^[0-9a-f]{7,40}$/i.test(latestSha)) {
+        try {
+          const log = await git(["log", "--no-merges", "--pretty=%s", `${localSha}..${latestSha}`]);
+          commits = log
+            .split("\n")
+            .filter((line) => line.trim())
+            .map((line) => parseCommitLine(line) || { type: "update", message: line });
+        } catch {
+          // non-critical — commits stays empty
+        }
       }
-    }
 
-    // Available whenever there is anything to pull AND something to show
-    // in "What's new" — with the fallback above, commits is only empty
-    // when the range genuinely contains nothing but merge commits.
-    const updateAvailable = shasDiffer && commits.length > 0;
+      const updateAvailable = shasDiffer && commits.length > 0;
 
-    // Detect deploy/ artefacts the in-app updater can't refresh on its own:
-    // pi-weather-server.service in systemd-user, start-server in ~/.local/bin,
-    // and the macOS launchd plist. The updater pulls new code into the
-    // working copy with `git pull`, but the installed copies under $HOME
-    // are owned by the user and aren't auto-overwritten. When any divergence
-    // is detected, the modal lists the affected files and points the user
-    // at `bash deploy/install.sh` for the targeted refresh.
-    const changedDeployFiles = updateAvailable
-      ? await checkDeployArtefactsChanged()
-      : [];
+      const changedDeployFiles = updateAvailable
+        ? await checkDeployArtefactsChanged(upstream.ref)
+        : [];
 
-    // Detect installations whose /api/update doesn't run npm install yet
-    // (pre-v2.4.1). The one-click upgrade would land new dependencies as
-    // missing-module crashes. The modal surfaces a warning and points the
-    // user at `bash deploy/install.sh` instead.
-    const needsManualUpgrade = updateAvailable
-      ? checkNeedsManualUpgrade(localSha)
-      : false;
+      const needsManualUpgrade = updateAvailable
+        ? checkNeedsManualUpgrade(localSha)
+        : false;
 
-    _cache = {
-      updateAvailable,
-      latestVersion,
-      latestSha: latestSha.slice(0, 7),
-      localSha: localSha ? localSha.slice(0, 7) : null,
-      checkedAt: new Date().toISOString(),
-      upstream: upstream.ref,
-      commits,
-      changedDeployFiles,
-      needsManualUpgrade,
-    };
-  } catch (err) {
-    // A failed check used to be swallowed without a trace, which made
-    // "the update button never shows up" undiagnosable from the logs —
-    // a private fork whose `git fetch` has no credentials under systemd
-    // looks exactly like an up-to-date kiosk. Log it, and carry the
-    // reason in the payload so /api/update-check and the debug panel
-    // show it. Keep the last known result when there is one (no false
-    // positives), but flag it.
-    const errorMessage = String(err && err.message ? err.message : err).slice(0, 200);
-    console.error(`[update-check] ${upstream.ref} check failed: ${errorMessage}`);
-    if (!_cache) {
-      _cache = {
-        updateAvailable: false,
-        latestVersion: null,
-        latestSha: null,
+      nextResult = {
+        updateAvailable,
+        latestVersion,
+        latestSha: latestSha.slice(0, 7),
         localSha: localSha ? localSha.slice(0, 7) : null,
         checkedAt: new Date().toISOString(),
         upstream: upstream.ref,
-        error: true,
-        errorMessage,
+        commits,
+        changedDeployFiles,
+        needsManualUpgrade,
       };
-    } else {
-      _cache = { ..._cache, error: true, errorMessage };
+    } catch (err) {
+      const errorMessage = String(err && err.message ? err.message : err).slice(0, 200);
+      console.error(`[update-check] ${upstream.ref} check failed: ${errorMessage}`);
+      nextResult = _cache
+        ? { ..._cache, error: true, errorMessage }
+        : {
+          updateAvailable: false,
+          latestVersion: null,
+          latestSha: null,
+          localSha: localSha ? localSha.slice(0, 7) : null,
+          checkedAt: new Date().toISOString(),
+          upstream: upstream.ref,
+          error: true,
+          errorMessage,
+        };
     }
-  }
 
-  _cacheTime = now;
-  return _cache;
+    if (gen === _cacheGen) {
+      _cache = nextResult;
+      _cacheTime = startedAt;
+    }
+    return nextResult;
+  })().finally(() => {
+    if (_inflight === run) _inflight = null;
+  });
+
+  _inflight = run;
+  return run;
 }
 
 /**
  * Clears the update cache, forcing the next checkForUpdate() call to hit GitHub.
  */
 function clearCache() {
+  _cacheGen += 1;
   _cache = null;
   _cacheTime = 0;
+  _inflight = null;
 }
 
 module.exports = {

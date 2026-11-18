@@ -55,8 +55,10 @@ function nearestFlash(flashes, home, { fetchedAt, nowMs, maxKm = NEAR_FLASH_KM }
 function homeWarnings(alerts, nowMs) {
   if (!Array.isArray(alerts)) return [];
   return alerts.filter((a) => {
-    if (!a || a.isTest || typeof a.eventType !== "string") return false;
-    if (!/\bWarning\b/.test(a.eventType)) return false;
+    if (!a || typeof a !== "object" || a.isTest) return false;
+    const ev = typeof a.eventType === "string" ? a.eventType : "";
+    const title = typeof a.title_en === "string" ? a.title_en : "";
+    if (!/\bwarning\b/i.test(ev) && !/\bwarning\b/i.test(title)) return false;
     const expires = Date.parse(a.expiresAt || "");
     return !(Number.isFinite(expires) && expires <= nowMs);
   });

@@ -44,6 +44,7 @@ const path = require("path");
 const { recordServiceCall, recordServiceRecovery } = require("./serviceStatus");
 const { increment } = require("./requestCounter");
 const { BoundedMap } = require("./boundedCache");
+const { createKeyedSingleFlight } = require("./singleFlight");
 const { listHourKeys } = require("./nexradBucket");
 const { fetchRadialByKey, keyForEpoch, CLASS_PRODUCT } = require("./radarRadialCtrl");
 const { PRODUCTS: MRMS_TYPE_PRODUCTS } = require("./mrmsPrecipTypeCtrl");
@@ -273,6 +274,7 @@ const VERIFY_PENDING_MAX_MS = 75 * 60 * 1000;
 const SKILL_FILE = path.join(typeof os.homedir === "function" ? os.homedir() : "", ".local", "state", "pi-weather-station", "nowcast-skill.json");
 
 const cache = new BoundedMap(16);
+const nowcastSingleFlight = createKeyedSingleFlight();
 const NOWCAST_TTL_MS = 60 * 1000;
 // Cache life of an answer computed with a scan held back for want of its
 // classification (see preferCleanScans).
@@ -280,12 +282,27 @@ const HELD_TTL_MS = 15 * 1000;
 // = the map's CLEAN_HOLD_MAX_MS (useRadarRadial): how long the newest
 // cleaned scan may lag the newest scan before raw scans are used instead.
 const CLEAN_HOLD_MAX_MS = 10 * 60 * 1000;
+// Maximum distance from the radar antenna at which a Level III N0B scan has
+// coverage (1840 × 0.25 km = 460 km). A pin beyond this is out of range,
+// never "dry".
+const MAX_RADAR_RANGE_KM = 460;
 // Previous nowcast per site+home, for the temporal ensemble members.
 const previousMotion = new BoundedMap(32);
-// The newest MRMS rate grid, decoded once per file and shared by every
-// home (a CONUS field is 49 MB decoded — one copy at a time).
+// The newest MRMS rate/flag grids, decoded once per file and shared by every
+// home (a CONUS field is 49 MB decoded — one copy at a time, auto-expired so
+// a single winter scan never pins 49–98 MB permanently).
+const MRMS_GRID_TTL_MS = MRMS_MAX_SKEW_MS;
 let mrmsLatest = null;
 let mrmsInflight = null;
+let mrmsCleanupTimer = null;
+
+function greatCircleKm(a, b) {
+  const p1 = (a.lat * Math.PI) / 180;
+  const p2 = (b.lat * Math.PI) / 180;
+  const dl = ((b.lon - a.lon) * Math.PI) / 180;
+  const x = Math.sin(p1) * Math.sin(p2) + Math.cos(p1) * Math.cos(p2) * Math.cos(dl);
+  return EARTH_RADIUS_KM * Math.acos(Math.max(-1, Math.min(1, x)));
+}
 
 /**
  * Feature switches. Everything on by default except DEFAULT_OFF;
@@ -1629,14 +1646,18 @@ function nowcastFromScans(scans, home, opts = {}) {
 // Live verification
 // ---------------------------------------------------------------------
 
+const MAX_VERIFICATION_PINS = 16;
+
 /**
  * Scores per pin. `pending` holds issued forecasts waiting for their
- * verifying scan; `scores` accumulates per lead.
+ * verifying scan; `scores` accumulates per lead. Bounded so arbitrary
+ * coordinate queries cannot grow memory or the skill file without limit.
  *
- * @type {Map<String, {pending: Array, scores: Object, updatedAt: Number}>}
+ * @type {BoundedMap<String, {pending: Array, scores: Object, updatedAt: Number}>}
  */
-const verification = new Map();
+const verification = new BoundedMap(MAX_VERIFICATION_PINS);
 let skillLoaded = false;
+let skillTmpSeq = 0;
 
 /**
  * Fresh per-lead score table.
@@ -1672,15 +1693,31 @@ function loadSkill() {
 }
 
 /**
- * Persist the live scores (best effort, never throws).
+ * Persist the live scores atomically via tmp + rename (best effort, never throws).
  */
 function saveSkill() {
+  let tmp = null;
   try {
     const out = {};
     for (const [key, v] of verification) out[key] = { scores: v.scores, updatedAt: v.updatedAt };
+    const json = JSON.stringify(out);
     fs.mkdirSync(path.dirname(SKILL_FILE), { recursive: true });
-    fs.writeFileSync(SKILL_FILE, JSON.stringify(out));
+    if (typeof fs.renameSync === "function") {
+      skillTmpSeq += 1;
+      const pid = typeof process !== "undefined" && process.pid ? process.pid : 0;
+      tmp = `${SKILL_FILE}.${pid}.${skillTmpSeq}.tmp`;
+      fs.writeFileSync(tmp, json);
+      fs.renameSync(tmp, SKILL_FILE);
+    } else {
+      fs.writeFileSync(SKILL_FILE, json);
+    }
   } catch {
+    if (tmp) {
+      try {
+        if (typeof fs.rmSync === "function") fs.rmSync(tmp, { force: true });
+        else if (typeof fs.unlinkSync === "function") fs.unlinkSync(tmp);
+      } catch { /* ignore */ }
+    }
     // Read-only or absent filesystem: in-memory only.
   }
 }
@@ -1726,7 +1763,9 @@ function liveSkillFor(v) {
 function verifyAndRecord(key, scanEpoch, newestGrid, series) {
   loadSkill();
   let v = verification.get(key);
-  if (!v) {
+  if (v) {
+    verification.set(key, v);
+  } else {
     v = { pending: [], scores: emptyScores(), updatedAt: 0 };
     verification.set(key, v);
   }
@@ -1808,9 +1847,25 @@ async function fetchClassification(site, scanEpoch) {
   }
 }
 
+let flagLatest = null;
+let flagInflight = null;
+
+function scheduleMrmsGridCleanup() {
+  if (mrmsCleanupTimer) return;
+  mrmsCleanupTimer = setTimeout(() => {
+    mrmsCleanupTimer = null;
+    const now = Date.now();
+    if (mrmsLatest && mrmsLatest.expiresAt <= now) mrmsLatest = null;
+    if (flagLatest && flagLatest.expiresAt <= now) flagLatest = null;
+    if (mrmsLatest || flagLatest) scheduleMrmsGridCleanup();
+  }, MRMS_GRID_TTL_MS + 1000);
+  mrmsCleanupTimer.unref?.();
+}
+
 /**
  * The MRMS PrecipRate field nearest a time, decoded and shared (one copy
- * resident). Null when none is close enough or the fetch fails.
+ * resident, evicted after MRMS_GRID_TTL_MS). Null when none is close enough
+ * or the fetch fails.
  *
  * @param {Number} epoch target time
  * @returns {Promise<{g: Object, samples: Uint16Array, validTime: String}|null>}
@@ -1827,11 +1882,15 @@ async function fetchMrmsRate(epoch) {
     const key = await keyNearest(MRMS_RATE_PRODUCT, epoch, MRMS_MAX_SKEW_MS);
     increment("mrms", "nowcast-rate-list");
     if (!key) return ok(null);
-    if (mrmsLatest && mrmsLatest.key === key) return ok(mrmsLatest);
+    if (mrmsLatest && mrmsLatest.key === key && mrmsLatest.expiresAt > Date.now()) {
+      mrmsLatest.expiresAt = Date.now() + MRMS_GRID_TTL_MS;
+      return ok(mrmsLatest);
+    }
     if (mrmsInflight && mrmsInflight.key === key) return ok(await mrmsInflight.promise);
     const promise = fetchGrid(key, "nowcast-rate").then((r) => {
-      mrmsLatest = r;
-      return r;
+      mrmsLatest = { ...r, expiresAt: Date.now() + MRMS_GRID_TTL_MS };
+      scheduleMrmsGridCleanup();
+      return mrmsLatest;
     }).finally(() => {
       if (mrmsInflight && mrmsInflight.key === key) mrmsInflight = null;
     });
@@ -1843,12 +1902,10 @@ async function fetchMrmsRate(epoch) {
   }
 }
 
-let flagLatest = null;
-let flagInflight = null;
-
 /**
  * The MRMS PrecipFlag field nearest a time (surface precipitation type),
- * decoded and shared like the rate. Null when none is fresh or on error.
+ * decoded and shared like the rate (auto-evicted after MRMS_GRID_TTL_MS so
+ * a single winter scan never holds 49 MB resident after the storm passes).
  *
  * @param {Number} epoch scan time
  * @returns {Promise<Object|null>} mrmsHailCtrl.fetchGrid result
@@ -1865,11 +1922,15 @@ async function fetchMrmsFlag(epoch) {
     const key = await keyNearest(MRMS_TYPE_PRODUCTS.flag, epoch, MRMS_MAX_SKEW_MS);
     increment("mrms", "nowcast-flag-list");
     if (!key) return ok(null);
-    if (flagLatest && flagLatest.key === key) return ok(flagLatest);
+    if (flagLatest && flagLatest.key === key && flagLatest.expiresAt > Date.now()) {
+      flagLatest.expiresAt = Date.now() + MRMS_GRID_TTL_MS;
+      return ok(flagLatest);
+    }
     if (flagInflight && flagInflight.key === key) return ok(await flagInflight.promise);
     const promise = fetchGrid(key, "nowcast-flag").then((r) => {
-      flagLatest = r;
-      return r;
+      flagLatest = { ...r, expiresAt: Date.now() + MRMS_GRID_TTL_MS };
+      scheduleMrmsGridCleanup();
+      return flagLatest;
     }).finally(() => {
       if (flagInflight && flagInflight.key === key) flagInflight = null;
     });
@@ -1950,66 +2011,79 @@ function preferCleanScans(scans) {
  * @returns {Promise<Object>} payload for /api/radar/nowcast
  */
 async function fetchNowcast(site, home) {
-  const keys = await recentKeys(site);
-  increment("nexrad-l3", "nowcast-list");
-  if (!keys.length) {
-    recordServiceCall(SERVICE_NAME, 200, `no recent scans for ${site}`);
-    return { available: false, site, reason: "no-recent-scans" };
-  }
-  const newestKey = keys[keys.length - 1];
   const pinKey = `${site}:${home.lat.toFixed(3)},${home.lon.toFixed(3)}`;
-  const cacheKey = `${pinKey}:${newestKey}`;
-  const hit = cache.get(cacheKey);
-  if (hit && hit.expires > Date.now()) return hit.value;
+  return nowcastSingleFlight(pinKey, async () => {
+    const keys = await recentKeys(site);
+    increment("nexrad-l3", "nowcast-list");
+    if (!keys.length) {
+      recordServiceCall(SERVICE_NAME, 200, `no recent scans for ${site}`);
+      return { available: false, site, reason: "no-recent-scans" };
+    }
+    const newestKey = keys[keys.length - 1];
+    const cacheKey = `${pinKey}:${newestKey}`;
+    const hit = cache.get(cacheKey);
+    if (hit && hit.expires > Date.now()) return hit.value;
 
-  const fetched = (await Promise.all(keys.map((k) => fetchRadialByKey(site, PRODUCT, k, true))))
-    .filter((p) => p && p.available && Number.isFinite(Date.parse(p.scanTime)));
-  const { scans, held } = preferCleanScans(fetched);
-  if (!scans.length) {
-    return { available: false, site, reason: "no-decodable-scans" };
-  }
-  const newest = scans[scans.length - 1];
-  const scanEpoch = Date.parse(newest.scanTime);
-  const features = featureSet();
-  const [classification, mrms, tracks] = await Promise.all([
-    features.ptype ? fetchClassification(site, scanEpoch) : null,
-    features.mrms ? fetchMrmsRate(scanEpoch) : null,
-    // Storm cells: the same cached product the storm-track layer polls;
-    // never fatal (a radar with no cells has no product, which is fine).
-    features.cells ? fetchTracks(site).catch(() => null) : null,
-  ]);
-  // The surface verdict is fetched only when the radar's says frozen
-  // somewhere in the disc — the one case it can change the wording.
-  const precipFlag = features.ptype && classificationHasFrozen(classification) ? await fetchMrmsFlag(scanEpoch) : null;
-  const t0 = Date.now();
-  const previous = previousMotion.get(pinKey) || null;
-  const core = nowcastFromScans(scans, home, {
-    classification, mrms, precipFlag, previous, cells: tracks && Array.isArray(tracks.cells) ? tracks.cells : null,
+    const fetched = (await Promise.all(keys.map((k) => fetchRadialByKey(site, PRODUCT, k, true))))
+      .filter((p) => p && p.available && Number.isFinite(Date.parse(p.scanTime)));
+    const { scans, held } = preferCleanScans(fetched);
+    if (!scans.length) {
+      return { available: false, site, reason: "no-decodable-scans" };
+    }
+    const newest = scans[scans.length - 1];
+    if (newest.radar && Number.isFinite(newest.radar.lat) && Number.isFinite(newest.radar.lon)) {
+      const maxRangeKm = Number.isFinite(newest.numBins) && Number.isFinite(newest.binKm)
+        ? (newest.firstBinKm || 0) + newest.numBins * newest.binKm
+        : MAX_RADAR_RANGE_KM;
+      if (greatCircleKm(home, newest.radar) > maxRangeKm) {
+        const outOfRange = { available: false, site, reason: "out-of-radar-range" };
+        cache.set(cacheKey, { value: outOfRange, expires: Date.now() + NOWCAST_TTL_MS });
+        recordServiceCall(SERVICE_NAME, 200, `${site} nowcast: pin outside ${Math.round(maxRangeKm)} km radar range`);
+        return outOfRange;
+      }
+    }
+    const scanEpoch = Date.parse(newest.scanTime);
+    const features = featureSet();
+    const [classification, mrms, tracks] = await Promise.all([
+      features.ptype ? fetchClassification(site, scanEpoch) : null,
+      features.mrms ? fetchMrmsRate(scanEpoch) : null,
+      // Storm cells: the same cached product the storm-track layer polls;
+      // never fatal (a radar with no cells has no product, which is fine).
+      features.cells ? fetchTracks(site).catch(() => null) : null,
+    ]);
+    // The surface verdict is fetched only when the radar's says frozen
+    // somewhere in the disc — the one case it can change the wording.
+    const precipFlag = features.ptype && classificationHasFrozen(classification) ? await fetchMrmsFlag(scanEpoch) : null;
+    const t0 = Date.now();
+    const previous = previousMotion.get(pinKey) || null;
+    const core = nowcastFromScans(scans, home, {
+      classification, mrms, precipFlag, previous, cells: tracks && Array.isArray(tracks.cells) ? tracks.cells : null,
+    });
+    if (core.motion) previousMotion.set(pinKey, { vx: core.motion.vx, vy: core.motion.vy, epoch: scanEpoch });
+    const liveSkill = verifyAndRecord(pinKey, scanEpoch, projectToGrid(newest, home), core.series);
+    const value = {
+      available: true,
+      site,
+      home,
+      scanTime: newest.scanTime,
+      scans: scans.map((p) => p.key),
+      cleaned: scans.every((p) => p.clean && p.clean.applied),
+      heldUncleaned: held,
+      ...core,
+      liveSkill,
+      computedIn: Date.now() - t0,
+    };
+    // Holding a scan back is temporary (its classification is usually ~30 s
+    // behind): recompute soon so the newest scan joins once it is cleaned.
+    cache.set(cacheKey, { value, expires: Date.now() + (held ? HELD_TTL_MS : NOWCAST_TTL_MS) });
+    const m = value.motion ? `${value.motion.speedKmh} km/h toward ${value.motion.towardDeg}° (ncc ${value.motion.quality})` : "motion unknown";
+    const what = value.now.raining
+      ? `${value.now.ptype} now`
+      : (value.arrival ? `${value.arrival.ptype} in ${value.arrival.leadMin} min (p ${value.arrival.prob})` : "dry");
+    const cellNote = value.cells.length ? `, cell ${value.cells.map((c) => `${c.id}@${c.arrivalMin}min`).join("/")}` : "";
+    recordServiceCall(SERVICE_NAME, 200, `${site} nowcast: ${what}, ${m}${cellNote}${value.mrms && value.mrms.weight ? ", +MRMS" : ""}`);
+    return value;
   });
-  if (core.motion) previousMotion.set(pinKey, { vx: core.motion.vx, vy: core.motion.vy, epoch: scanEpoch });
-  const liveSkill = verifyAndRecord(pinKey, scanEpoch, projectToGrid(newest, home), core.series);
-  const value = {
-    available: true,
-    site,
-    home,
-    scanTime: newest.scanTime,
-    scans: scans.map((p) => p.key),
-    cleaned: scans.every((p) => p.clean && p.clean.applied),
-    heldUncleaned: held,
-    ...core,
-    liveSkill,
-    computedIn: Date.now() - t0,
-  };
-  // Holding a scan back is temporary (its classification is usually ~30 s
-  // behind): recompute soon so the newest scan joins once it is cleaned.
-  cache.set(cacheKey, { value, expires: Date.now() + (held ? HELD_TTL_MS : NOWCAST_TTL_MS) });
-  const m = value.motion ? `${value.motion.speedKmh} km/h toward ${value.motion.towardDeg}° (ncc ${value.motion.quality})` : "motion unknown";
-  const what = value.now.raining
-    ? `${value.now.ptype} now`
-    : (value.arrival ? `${value.arrival.ptype} in ${value.arrival.leadMin} min (p ${value.arrival.prob})` : "dry");
-  const cellNote = value.cells.length ? `, cell ${value.cells.map((c) => `${c.id}@${c.arrivalMin}min`).join("/")}` : "";
-  recordServiceCall(SERVICE_NAME, 200, `${site} nowcast: ${what}, ${m}${cellNote}${value.mrms && value.mrms.weight ? ", +MRMS" : ""}`);
-  return value;
 }
 
 /**

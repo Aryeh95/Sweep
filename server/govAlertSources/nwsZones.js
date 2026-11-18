@@ -21,6 +21,8 @@
 // a disk-backed variant can drop in behind the same get/set API.
 
 const axios = require("axios").default;
+const { BoundedMap } = require("../boundedCache");
+const { createKeyedSingleFlight } = require("../singleFlight");
 
 // 24h TTL — forecast zones change very rarely
 const ZONE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -33,8 +35,9 @@ const ZONE_FETCH_TIMEOUT_MS = 5000;
 // sends so any rate-limit / contact policy applies uniformly.
 const USER_AGENT = "sweep-radar (https://github.com/Aryeh95/sweep)";
 
-// Map<zoneUrl, { geometry, expiresAt }>
-const _zoneCache = new Map();
+// BoundedMap<zoneUrl, { geometry, expiresAt }>
+const _zoneCache = new BoundedMap(500);
+const zoneSingleFlight = createKeyedSingleFlight();
 
 /**
  * Defense-in-depth SSRF guard. The zone URLs we fetch come from the NWS
@@ -83,52 +86,57 @@ async function getZoneGeometry(url) {
   // Cache hit (fresh): return immediately. Cache hit (expired):
   // fall through to refetch — same semantics as a miss but we
   // already know the URL is one we've seen before.
-  const now = Date.now();
   const cached = _zoneCache.get(url);
-  if (cached && now < cached.expiresAt) return cached.geometry;
+  if (cached && Date.now() < cached.expiresAt) return cached.geometry;
 
-  let resp;
-  try {
-    resp = await axios.get(url, {
-      timeout: ZONE_FETCH_TIMEOUT_MS,
-      headers: { "User-Agent": USER_AGENT, Accept: "application/geo+json" },
-      // Don't follow redirects: isAllowedZoneUrl validates the initial URL
-      // (https + api.weather.gov), but a 3xx Location is NOT re-checked by
-      // axios and could steer the fetch to an arbitrary host. A legitimate
-      // api.weather.gov zone endpoint answers 200 directly, so refusing
-      // redirects rejects nothing real while closing the SSRF redirect gap.
-      maxRedirects: 0,
-    });
-  } catch {
-    // Network error, timeout, 4xx/5xx. Don't cache a failure — the
-    // next caller may catch the upstream coming back. The geometry
-    // remains null and the alert renders without the "Voir sur la
-    // carte" button (graceful degradation).
-    return null;
-  }
+  return zoneSingleFlight(url, async () => {
+    const hit = _zoneCache.get(url);
+    if (hit && Date.now() < hit.expiresAt) return hit.geometry;
 
-  let geometry = resp.data && resp.data.geometry;
-  // NWS occasionally serves a zone as a GeometryCollection mixing Polygon
-  // + MultiPolygon members (e.g. forecast zone TXZ213 "Inland Harris" over
-  // Houston) rather than a single polygonal geometry. Flatten it to a
-  // MultiPolygon so it survives the polygonal-only guard below — otherwise
-  // the zone is dropped and the alert's rendered footprint has a hole
-  // exactly over it (the 2026-06-14 Houston Flood Watch case).
-  if (geometry && geometry.type === "GeometryCollection") {
-    geometry = mergeAsMultiPolygon([geometry]);
-  }
-  // Some zones return without a (usable) geometry (rare administrative
-  // zones, marine zones offshore that aren't polygonal). Treat as a soft
-  // failure — cache the null result so we don't refetch every alert
-  // cycle, but the TTL is the same so a future zone update would
-  // pick up if NWS ever populates the geometry.
-  if (!geometry || (geometry.type !== "Polygon" && geometry.type !== "MultiPolygon")) {
-    _zoneCache.set(url, { geometry: null, expiresAt: now + ZONE_CACHE_TTL_MS });
-    return null;
-  }
+    let resp;
+    try {
+      resp = await axios.get(url, {
+        timeout: ZONE_FETCH_TIMEOUT_MS,
+        headers: { "User-Agent": USER_AGENT, Accept: "application/geo+json" },
+        // Don't follow redirects: isAllowedZoneUrl validates the initial URL
+        // (https + api.weather.gov), but a 3xx Location is NOT re-checked by
+        // axios and could steer the fetch to an arbitrary host. A legitimate
+        // api.weather.gov zone endpoint answers 200 directly, so refusing
+        // redirects rejects nothing real while closing the SSRF redirect gap.
+        maxRedirects: 0,
+      });
+    } catch {
+      // Network error, timeout, 4xx/5xx. Don't cache a failure — the
+      // next caller may catch the upstream coming back. The geometry
+      // remains null and the alert renders without the "Voir sur la
+      // carte" button (graceful degradation).
+      return null;
+    }
 
-  _zoneCache.set(url, { geometry, expiresAt: now + ZONE_CACHE_TTL_MS });
-  return geometry;
+    const now = Date.now();
+    let geometry = resp.data && resp.data.geometry;
+    // NWS occasionally serves a zone as a GeometryCollection mixing Polygon
+    // + MultiPolygon members (e.g. forecast zone TXZ213 "Inland Harris" over
+    // Houston) rather than a single polygonal geometry. Flatten it to a
+    // MultiPolygon so it survives the polygonal-only guard below — otherwise
+    // the zone is dropped and the alert's rendered footprint has a hole
+    // exactly over it (the 2026-06-14 Houston Flood Watch case).
+    if (geometry && geometry.type === "GeometryCollection") {
+      geometry = mergeAsMultiPolygon([geometry]);
+    }
+    // Some zones return without a (usable) geometry (rare administrative
+    // zones, marine zones offshore that aren't polygonal). Treat as a soft
+    // failure — cache the null result so we don't refetch every alert
+    // cycle, but the TTL is the same so a future zone update would
+    // pick up if NWS ever populates the geometry.
+    if (!geometry || (geometry.type !== "Polygon" && geometry.type !== "MultiPolygon")) {
+      _zoneCache.set(url, { geometry: null, expiresAt: now + ZONE_CACHE_TTL_MS });
+      return null;
+    }
+
+    _zoneCache.set(url, { geometry, expiresAt: now + ZONE_CACHE_TTL_MS });
+    return geometry;
+  });
 }
 
 /**

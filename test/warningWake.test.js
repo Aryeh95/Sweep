@@ -40,3 +40,15 @@ test("activeWakeWarning: quiet hours and the tornado level keep only the urgent 
   assert.equal(activeWakeWarning([svr], { level: "tornado", quietHours: "off", now: at(15) }), null);
   assert.equal(activeWakeWarning([tor], { level: "off", quietHours: "off", now: at(15) }), null);
 });
+
+test("activeWakeWarning: ECCC Canadian warnings qualify while ECCC watches/statements do not", () => {
+  const ecccTor = warn("Tornado warning", { source: "ECCC", title_en: "Tornado warning" });
+  const ecccLegacy = warn("tornado", { source: "ECCC", title_en: "Tornado warning" });
+  const ecccSquall = warn("Snow squall warning", { source: "ECCC", title_en: "Snow squall warning" });
+  const ecccWatch = warn("Tornado watch", { source: "ECCC", title_en: "Tornado watch" });
+  assert.equal(activeWakeWarning([ecccTor], { level: "tornado", quietHours: "off", now: at(3) }), ecccTor);
+  assert.equal(activeWakeWarning([ecccLegacy], { level: "tornado", quietHours: "off", now: at(3) }), ecccLegacy);
+  assert.equal(activeWakeWarning([ecccSquall], { level: "severe", quietHours: "off", now: at(14) }), ecccSquall);
+  assert.equal(activeWakeWarning([ecccSquall], { level: "tornado", quietHours: "off", now: at(14) }), null);
+  assert.equal(activeWakeWarning([ecccWatch], { level: "severe", quietHours: "off", now: at(14) }), null);
+});

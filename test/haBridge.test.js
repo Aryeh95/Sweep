@@ -87,7 +87,9 @@ test("map whitelist: the map's reads only — never writes, keys-per-call, comma
     assert.equal(bridge.isMapPath(p), true, p);
   }
   for (const p of ["/setting", "/api/update-check", "/api/update", "/api/reverse-geocode", "/api/brightness",
-    "/api/home-assistant", "/api/health", "/api/relaunch-kiosk", "/debug", "/api/tiles/../settings", "/x/y.js"]) {
+    "/api/home-assistant", "/api/health", "/api/relaunch-kiosk", "/debug", "/api/tiles/../settings",
+    "/api/radar/%2e%2e/settings", "/api/tiles/%2e%2e%2f%2e%2e/manifest.json", "/api/radar/nowcast/skill",
+    "/api/radar/%ZZ", "/x/y.js"]) {
     assert.equal(bridge.isMapPath(p), false, p);
   }
 });

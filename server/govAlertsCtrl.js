@@ -42,7 +42,12 @@ function sortBySeverity(alerts) {
     const sa = SEVERITY_RANK[a.severity] || 0;
     const sb = SEVERITY_RANK[b.severity] || 0;
     if (sb !== sa) return sb - sa;
-    return String(b.expiresAt || "").localeCompare(String(a.expiresAt || ""));
+    const ta = Date.parse(a.expiresAt || "");
+    const tb = Date.parse(b.expiresAt || "");
+    if (Number.isFinite(ta) && Number.isFinite(tb)) return tb - ta;
+    if (Number.isFinite(tb)) return 1;
+    if (Number.isFinite(ta)) return -1;
+    return 0;
   });
 }
 

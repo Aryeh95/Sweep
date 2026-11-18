@@ -2,7 +2,7 @@ const fs = require("fs");
 const net = require("net");
 const os = require("os");
 const path = require("path");
-const { execSync } = require("child_process");
+const { execFileSync } = require("child_process");
 const dns = require("dns").promises;
 const axios = require("axios").default;
 const { checkForUpdate, getRepo } = require("./updateChecker");
@@ -10,6 +10,7 @@ const { getServiceStatus } = require("./serviceStatus");
 const { getCounters } = require("./requestCounter");
 const { getResponseTimeStats } = require("./responseTimer");
 const { getRemoteClients } = require("./clientTracker");
+const { BoundedMap } = require("./boundedCache");
 
 const PROVIDER_STATUS_TTL = 30 * 60 * 1000;
 
@@ -288,65 +289,67 @@ function getAppVersion() {
   let commit = "unknown";
   let branch = null;
   try {
-    commit = execSync("git rev-parse --short HEAD", {
+    commit = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
       cwd: path.join(__dirname, ".."),
       encoding: "utf8",
       timeout: 3000,
+      stdio: ["ignore", "pipe", "pipe"],
     }).trim();
-    const b = execSync("git rev-parse --abbrev-ref HEAD", {
+    const b = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd: path.join(__dirname, ".."),
       encoding: "utf8",
       timeout: 3000,
+      stdio: ["ignore", "pipe", "pipe"],
     }).trim();
     if (b && b !== "master") branch = b;
   } catch { /* git not available */ }
   return { name, version, commit, branch };
 }
 
+let _staticSystemInfo = null;
+
 function getSystemInfo() {
-  let hardware = "Unknown";
-  let osName = "Unknown";
-
-  try {
-    hardware = fs.readFileSync("/proc/device-tree/model", "utf8").replace(/\0/g, "").trim();
-  } catch { /* not a Pi or file not available */ }
-
-  try {
-    const osRelease = fs.readFileSync("/etc/os-release", "utf8");
-    const match = osRelease.match(/^PRETTY_NAME="(.+)"$/m);
-    if (match) osName = match[1];
-  } catch { /* not Linux — try macOS */ }
-
-  if (osName === "Unknown" && process.platform === "darwin") {
-    try {
-      const productName = execSync("sw_vers -productName", { encoding: "utf8", timeout: 3000 }).trim();
-      const productVersion = execSync("sw_vers -productVersion", { encoding: "utf8", timeout: 3000 }).trim();
-      osName = `${productName} ${productVersion}`;
-    } catch { /* sw_vers not available */ }
+  if (!_staticSystemInfo) {
+    let hardware = "Unknown";
+    let osName = "Unknown";
 
     try {
-      hardware = execSync("sysctl -n hw.model", { encoding: "utf8", timeout: 3000 }).trim();
-    } catch { /* sysctl not available */ }
+      hardware = fs.readFileSync("/proc/device-tree/model", "utf8").replace(/\0/g, "").trim();
+    } catch { /* not a Pi or file not available */ }
+
+    try {
+      const osRelease = fs.readFileSync("/etc/os-release", "utf8");
+      const match = osRelease.match(/^PRETTY_NAME="(.+)"$/m);
+      if (match) osName = match[1];
+    } catch { /* not Linux — try macOS */ }
+
+    if (osName === "Unknown" && process.platform === "darwin") {
+      try {
+        const productName = execFileSync("sw_vers", ["-productName"], { encoding: "utf8", timeout: 3000, stdio: ["ignore", "pipe", "pipe"] }).trim();
+        const productVersion = execFileSync("sw_vers", ["-productVersion"], { encoding: "utf8", timeout: 3000, stdio: ["ignore", "pipe", "pipe"] }).trim();
+        osName = `${productName} ${productVersion}`;
+      } catch { /* sw_vers not available */ }
+
+      try {
+        hardware = execFileSync("sysctl", ["-n", "hw.model"], { encoding: "utf8", timeout: 3000, stdio: ["ignore", "pipe", "pipe"] }).trim();
+      } catch { /* sysctl not available */ }
+    }
+
+    if (hardware === "Unknown") {
+      try {
+        const cpu = os.cpus()?.[0]?.model;
+        if (cpu) hardware = cpu;
+      } catch { /* highly unusual platform — leave as Unknown */ }
+    }
+
+    _staticSystemInfo = { hardware, os: osName };
   }
 
-  // Last-resort hardware fallback for x86 Linux (VMware / Ubuntu desktop /
-  // openSUSE etc. where /proc/device-tree/model doesn't exist and the
-  // macOS branch above doesn't apply). os.cpus()[0].model is built-in,
-  // works on every Node platform, and returns a meaningful identifier
-  // ("Intel(R) Core(TM) i7-...") that's actually more useful than the
-  // generic "Unknown" the panel used to show.
-  if (hardware === "Unknown") {
-    try {
-      const cpu = os.cpus()?.[0]?.model;
-      if (cpu) hardware = cpu;
-    } catch { /* highly unusual platform — leave as Unknown */ }
-  }
-
-  return { hardware, os: osName, hostname: os.hostname() };
+  return { ..._staticSystemInfo, hostname: os.hostname() };
 }
 
-// Hostname reverse-DNS cache (5 min TTL)
-const _hostnameCache = new Map();
+// Hostname reverse-DNS cache (5 min TTL, bounded)
+const _hostnameCache = new BoundedMap(256);
 const HOSTNAME_CACHE_TTL = 5 * 60 * 1000;
 
 /**
@@ -384,9 +387,10 @@ async function resolveHostname(ip) {
 function getPowerStatus() {
   if (process.platform !== "linux") return null;
   try {
-    const output = execSync("vcgencmd get_throttled", {
+    const output = execFileSync("vcgencmd", ["get_throttled"], {
       encoding: "utf8",
       timeout: 2000,
+      stdio: ["ignore", "pipe", "pipe"],
     }).trim();
     const match = output.match(/throttled=(0x[0-9a-fA-F]+)/);
     if (!match) return { available: false };
@@ -499,6 +503,27 @@ function getFanRpm() {
 const securityEvents = [];
 const MAX_SECURITY_EVENTS = 50;
 const LOG_LINES = 100;
+const LOG_TAIL_BYTES = 64 * 1024;
+
+function readLogTailLines(logPath) {
+  const fd = fs.openSync(logPath, "r");
+  try {
+    const { size } = fs.fstatSync(fd);
+    if (size <= 0) return [];
+    const readLen = Math.min(size, LOG_TAIL_BYTES);
+    const offset = size - readLen;
+    const buf = Buffer.alloc(readLen);
+    const bytesRead = fs.readSync(fd, buf, 0, readLen, offset);
+    let text = buf.subarray(0, bytesRead).toString("utf8");
+    if (offset > 0) {
+      const nl = text.indexOf("\n");
+      if (nl !== -1) text = text.slice(nl + 1);
+    }
+    return text.trim().split("\n").filter(Boolean).slice(-LOG_LINES);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
 
 /**
  * Log a blocked request event (REMOTE_SECURITY)
@@ -535,8 +560,7 @@ async function getDebugInfo(req, res) {
   let logFound = false;
   for (const logPath of LOG_PATHS) {
     try {
-      const content = fs.readFileSync(logPath, "utf8");
-      logs = content.trim().split("\n").filter(Boolean).slice(-LOG_LINES);
+      logs = readLogTailLines(logPath);
       logFound = true;
       break;
     } catch {

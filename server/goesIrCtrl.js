@@ -40,21 +40,26 @@ const API_TIMEOUT_MS = 30000;
 const LIST_TTL_MS = 60 * 1000;
 const MAX_MINUTES = 180;
 const DEFAULT_MINUTES = 60;
-// Cached encoded frames: ~2.6 MB each. Enough for a full loop (the client
-// asks for at most 12) plus a scrub or two.
-const FRAME_CACHE_MAX = 16;
+// Cached encoded frames: ~2.6 MB each. Enough for a full loop on the kiosk
+// (the client asks for at most 12) plus a scrub or two; tighter in the
+// Android WebView where the standalone API shares the renderer's heap.
+const FRAME_CACHE_MAX = typeof window !== "undefined" ? 6 : 16;
 
 const listCache = new Map(); // hour prefix → { keys, expires }
 const frameCache = new Map(); // stamp → payload (insertion order = LRU)
 const inflight = new Map(); // stamp → Promise
 
-// h5wasm loads once (WASM init is not free); the promise is shared.
+// h5wasm loads once (WASM init is not free); reset on failure so a
+// transient load error does not poison the controller for the session.
 let h5wasmReady = null;
 function getH5() {
   if (!h5wasmReady) {
     h5wasmReady = import("h5wasm/node").then(async (mod) => {
       await mod.ready;
       return mod;
+    }).catch((err) => {
+      h5wasmReady = null;
+      throw err;
     });
   }
   return h5wasmReady;

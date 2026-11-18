@@ -56,13 +56,14 @@ async function reverseGeocode(req, res) {
     return res.status(500).json("Could not read settings").end();
   }
 
-  if (!settings.reverseGeoApiKey) {
+  const apiKey = typeof settings.reverseGeoApiKey === "string" ? settings.reverseGeoApiKey.trim() : "";
+  if (!apiKey) {
     return res.status(503).json("Reverse geocoding API key not configured").end();
   }
 
   try {
     const result = await axios.get(
-      `https://us1.locationiq.com/v1/reverse.php?key=${settings.reverseGeoApiKey}&lat=${lat}&lon=${lon}&format=json`,
+      `https://us1.locationiq.com/v1/reverse.php?key=${encodeURIComponent(apiKey)}&lat=${lat}&lon=${lon}&format=json`,
       { timeout: API_TIMEOUT_MS }
     );
     increment("locationiq", "geocode");
@@ -107,11 +108,19 @@ async function mapTile(req, res) {
     return res.status(400).json("Invalid map style").end();
   }
 
+  if (!/^\d+$/.test(z) || !/^\d+$/.test(x) || !/^\d+$/.test(y)) {
+    return res.status(400).json("Invalid tile coordinates").end();
+  }
+
   const zNum = parseInt(z, 10);
   const xNum = parseInt(x, 10);
   const yNum = parseInt(y, 10);
 
   if ([zNum, xNum, yNum].some(isNaN) || zNum < 0 || zNum > 22) {
+    return res.status(400).json("Invalid tile coordinates").end();
+  }
+  const maxTile = 2 ** zNum;
+  if (xNum < 0 || xNum >= maxTile || yNum < 0 || yNum >= maxTile) {
     return res.status(400).json("Invalid tile coordinates").end();
   }
 
@@ -122,15 +131,17 @@ async function mapTile(req, res) {
     return res.status(500).json("Could not read settings").end();
   }
 
-  if (!settings.mapApiKey) {
+  const apiKey = typeof settings.mapApiKey === "string" ? settings.mapApiKey.trim() : "";
+  if (!apiKey) {
     return res.status(503).json("Map API key not configured").end();
   }
 
   const stylePath = CUSTOM_STYLES[style] ?? `mapbox/${style}`;
+  const encodedKey = encodeURIComponent(apiKey);
   // Custom styles require an explicit tile size; built-in mapbox styles work without it.
   const tileUrl = CUSTOM_STYLES[style]
-    ? `https://api.mapbox.com/styles/v1/${stylePath}/tiles/256/${zNum}/${xNum}/${yNum}?access_token=${settings.mapApiKey}`
-    : `https://api.mapbox.com/styles/v1/${stylePath}/tiles/${zNum}/${xNum}/${yNum}?access_token=${settings.mapApiKey}`;
+    ? `https://api.mapbox.com/styles/v1/${stylePath}/tiles/256/${zNum}/${xNum}/${yNum}?access_token=${encodedKey}`
+    : `https://api.mapbox.com/styles/v1/${stylePath}/tiles/${zNum}/${xNum}/${yNum}?access_token=${encodedKey}`;
 
   try {
     const result = await axios.get(
@@ -140,7 +151,10 @@ async function mapTile(req, res) {
 
     const contentType = result.headers["content-type"];
     const cacheControl = result.headers["cache-control"];
-    if (contentType) res.setHeader("Content-Type", contentType);
+    res.setHeader(
+      "Content-Type",
+      typeof contentType === "string" && /^image\//i.test(contentType) ? contentType : "image/png"
+    );
     if (cacheControl) res.setHeader("Cache-Control", cacheControl);
 
     increment("mapbox", "tiles");
@@ -192,10 +206,19 @@ async function sunriseSunset(req, res) {
   // "today UTC" means that for users west of UTC during evening hours the
   // answer is already the next UTC day, which skips today's local sunset and
   // flips auto dark-mode early. Strict regex so junk cannot reach the maths.
-  const todayDate = typeof req.query.date === "string"
-    && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
-    ? req.query.date
-    : new Date().toISOString().slice(0, 10);
+  let todayDate;
+  if (req.query.date !== undefined && req.query.date !== "") {
+    if (typeof req.query.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(req.query.date)) {
+      return res.status(400).json("Invalid date").end();
+    }
+    const d = new Date(`${req.query.date}T12:00:00Z`);
+    if (!Number.isFinite(d.getTime()) || d.toISOString().slice(0, 10) !== req.query.date) {
+      return res.status(400).json("Invalid date").end();
+    }
+    todayDate = req.query.date;
+  } else {
+    todayDate = new Date().toISOString().slice(0, 10);
+  }
 
   const results = sunTimesFor(todayDate, lat, lon);
   const payload = { results: results || null, status: results ? "OK" : "NO_CROSSING" };

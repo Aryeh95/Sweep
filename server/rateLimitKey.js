@@ -50,6 +50,7 @@ const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
  * @returns {Boolean} true when the request should not be counted
  */
 function skipLoopbackPeer(req) {
+  if (req?.fromHaBridge) return false;
   return LOOPBACK.has(req?.socket?.remoteAddress);
 }
 
