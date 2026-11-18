@@ -28,7 +28,7 @@ Pourquoi deux fichiers ? Firefox 150 applique strictement RFC 5280 et rejette un
 
 Le serveur régénère uniquement le leaf quand la configuration réseau change (nouvelle IP DHCP, hostname différent, second interface), gardant `ca-cert.pem` intact — les clients qui ont déjà installé la CA restent automatiquement de confiance pour le nouveau leaf.
 
-`GET /api/cert.pem` sert `ca-cert.pem` (l'artéfact à installer dans le trust store), pas le leaf.
+`GET /api/cert.pem` sert `ca-cert.pem` (sous le nom `sweep-cert.pem` — l'artéfact à installer dans le trust store), pas le leaf.
 
 ---
 
@@ -98,13 +98,13 @@ démarrage il évalue séparément deux conditions :
 
 **Régénération de la CA** (`caNeedsRegen`) — déclenchée si :
 - `ca-cert.pem` ou `ca-key.pem` est manquant
-- Le subject CN de la CA ne correspond pas à `Pi Weather Station - <hostname>` (changement d'hostname machine)
+- Le subject CN de la CA ne correspond pas à `Sweep CA - <hostname>` (ou `Sweep CA` si le hostname est vide/`localhost`)
 
 **Régénération du leaf** (`leafNeedsRegen`) — déclenchée si :
 - `cert.pem` ou `key.pem` est manquant
 - Le cert expire dans moins de 30 jours
 - Le SAN du cert ne couvre plus toutes les IPs LAN actuelles (changement DHCP, nouvel interface)
-- Le subject CN du leaf ne correspond pas à `localhost`
+- Le subject CN du leaf ne correspond pas à `Sweep - <hostname>` (ou `Sweep`)
 - Le cert est un ancien format pré-V3 (single self-signed root avec `CA:TRUE`)
 - La CA vient d'être régénérée (alors il faut re-signer le leaf)
 
@@ -165,8 +165,8 @@ la clé dans le `<dict>` qui suit `<key>EnvironmentVariables</key>` :
 Puis recharger :
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.pi-weather-station.plist
-launchctl load   ~/Library/LaunchAgents/com.pi-weather-station.plist
+launchctl bootout   "gui/$(id -u)" ~/Library/LaunchAgents/com.pi-weather-station.plist 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.pi-weather-station.plist
 ```
 
 ### Vérification
@@ -222,5 +222,5 @@ curl -v https://<pi-ip>:8443/api/is-local
 ```
 
 La commande `openssl s_client` doit afficher l'`issuer` correspondant à
-votre CA (au lieu de `CN=localhost` pour le self-signed) et les dates
+votre CA (au lieu de `CN=Sweep CA - <hostname>` pour la chaîne auto-signée) et les dates
 de validité que vous attendez.

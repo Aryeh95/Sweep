@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- allowBackup="false": WebView localStorage holds the user's home
+         coordinates, saved places, and optional Mapbox pk. token, which should
+         stay on the device rather than uploading to cloud backups.
+         usesCleartextTraffic="false": enforces HTTPS across API 24-27 devices
+         where cleartext traffic is otherwise allowed by default. -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -23,16 +29,6 @@
             </intent-filter>
 
         </activity>
-
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths"></meta-data>
-        </provider>
     </application>
 
     <!-- Permissions -->

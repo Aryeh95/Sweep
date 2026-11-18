@@ -10,23 +10,25 @@ CORS-open. Verified 2026-09-03, all answering `Access-Control-Allow-Origin: *`:
 
 | Upstream | Serves |
 | --- | --- |
-| `mesonet.agron.iastate.edu` | IEM radar JSON API, mosaic + single-site tiles |
-| `api.weather.gov` | radar station, alerts, place name |
-| `unidata-nexrad-level3.s3.amazonaws.com` | raw N0B / N0G radials, storm tracks |
-| `noaa-mrms-pds.s3.amazonaws.com` | MRMS MESH hail |
-| `noaa-goes19.s3.amazonaws.com` | GLM lightning |
-| `server.arcgisonline.com` | basemap (Esri Canvas) |
+| `mesonet.agron.iastate.edu` | IEM radar JSON API, fallback N0Q mosaic + single-site tiles, GOES visible tiles + metadata |
+| `api.weather.gov` | radar station fallback, WSR-88D operational status, alerts, place name |
+| `unidata-nexrad-level3.s3.amazonaws.com` | raw N0B / N0G / N0C / N0H radials, DAA / DU3 / DTA accumulation, STI storm tracks + NMD mesos, nowcast scans |
+| `noaa-mrms-pds.s3.amazonaws.com` | MRMS RALA reflectivity mosaic, MESH hail, surface precip type + rate, 1 h / 3 h radar-only QPE |
+| `noaa-goes19.s3.amazonaws.com` | GLM lightning, GOES-19 channel-13 CMIP infrared scans (live + loop) |
+| `server.arcgisonline.com` / `api.mapbox.com` | basemap: keyless Esri Canvas by default, or 512 px Mapbox raster tiles with an optional per-device `pk.` token |
 
 ## How the server runs inside the app
 
 `client/src/standalone/` is the whole of it:
 
 - **`api.js`** imports the real controllers (`server/iemRadarCtrl.js`,
-  `radarRadialCtrl.js`, `stormTracksCtrl.js`, `glmLightningCtrl.js`,
+  `radarStatusCtrl.js`, `goesIrCtrl.js`, `radarRadialCtrl.js`,
+  `mrmsReflCtrl.js`, `mrmsPrecipTypeCtrl.js`, `mrmsQpeCtrl.js`,
+  `stormTracksCtrl.js`, `nowcastCtrl.js`, `glmLightningCtrl.js`,
   `govAlertsCtrl.js`) and runs them **verbatim** behind an Express-shaped
   `req`/`res` pair. They were already portable: `axios` works in a browser and
-  the only Node built-ins in the set are two `zlib` calls plus `fs`/`path` in
-  two best-effort caches.
+  the only Node built-ins in the set are `zlib` calls plus `fs`/`path` in
+  best-effort caches.
 - **`install.js`** swaps the axios *adapter*, so every existing
   `axios.get("/api/...")` in the hooks is answered in-process with no hook or
   component changed. The controllers' own upstream calls use absolute URLs and
@@ -57,16 +59,16 @@ are hardest to observe. The server test suite covers the app's data path.
 | | Kiosk | App |
 | --- | --- | --- |
 | Data | `server/index.js` over LAN | in-process, direct to upstreams |
-| Basemap | Mapbox via server proxy (key) | Esri Canvas, keyless |
+| Basemap | Mapbox via server proxy (key) | Esri Canvas (keyless), or optional user `pk.` Mapbox token |
 | Place name | LocationIQ (key) | `api.weather.gov` point metadata |
-| Position | server IP lookup | device GPS, IP fallback |
-| Controls | dock along the bottom | left sidebar rail |
-| Header | place + clock + date | place only |
+| Position | server IP lookup / map picker | device GPS (locate + follow), map picker, IP fallback |
+| Controls | dock along the bottom | collapsible left sidebar rail + hamburger drawer |
+| Header | place + clock + date | hamburger + place + one-shot locate button |
 | Zoom buttons | shown | hidden (pinch) |
-| Settings | 3 sections incl. API keys | 2 sections; no keys, no cert, no sleep |
-| Settings store | `settings.json` on the server | this device's storage |
+| Settings | 3 sections (Local, server API & coords, Advanced) | 3 sections (Local + Location picker, optional `pk.` Mapbox token, Advanced) |
+| Settings store | `settings.json` on the server | this device's `localStorage` |
 
-No API keys are needed, and none ship in the APK.
+No API keys are required, and none ship in the APK.
 
 ### A caution about "keyless"
 
@@ -79,25 +81,34 @@ with `maxNativeZoom: 16` and upscales beyond it.
 
 Whenever a tile source is swapped, look at the tiles.
 
-### What the Settings panel drops in the app
+### How the 3 Settings sections adapt in the app
 
-Removed because there is no server or no pointer behind them: the whole API
-section (Mapbox / LocationIQ keys, starting coordinates), "Trust this Pi"
-(downloads the server's CA), "Hide mouse pointer", the Mapbox basemap-style
-pickers, the entire Sleep group (it dims an always-on panel through the
-server's brightness endpoint; a phone has its own screen timeout, and the
-night-red palette it also gathers is on the dock), and the Diagnostic row
-(it reports whether the *service* was started with `DEBUG=true`).
-
-What remains is everything that acts on this device: language, font size,
-clock, units, alert display toggles, radar opacity and alert radius.
+1. **Local** — language, font size, dark mode, clock, units, alert display
+   toggles, keep-screen-on (`keepScreenAwake`), **Location** with the
+   interactive **"Choose on map"** modal picker (`LocationPicker`, alongside
+   pinned-readout "Set home here", one-shot locate, and follow mode), and the
+   manual radar-site override.
+2. **API (Mapbox Basemap)** — instead of server `settings.json` keys, holds an
+   **optional device-local public Mapbox token** (`pk.` only, `styles:tiles`
+   scope; `sk.` secret tokens are refused). When set, the app switches from
+   256 px Esri Canvas tiles to 512 px Mapbox raster tiles.
+3. **Advanced** — radar opacity, reflectivity palette (`radarscope` / `nws`),
+   alert survey radius, and — once a usable `pk.` Mapbox token is entered —
+   the light and dark **Mapbox basemap style pickers**. Kiosk-only controls
+   with no meaning on a phone ("Trust this Pi", mouse-pointer hiding,
+   display-scale/brightness, the Sleep/screensaver group, the Home Assistant
+   bridge, and the server Diagnostics row) stay hidden.
 
 ## Building
 
+Because `webpack.app.config.js` bundles `server/*` controllers directly, both
+the root and `client/` dependencies must be installed before building the APK:
+
 ```bash
-cd app
-npm install          # once
-npm run apk          # builds the web bundle, syncs it, assembles the APK
+npm ci               # root deps (nexrad-level-3-data, h5wasm, axios, …)
+cd client && npm ci  # client + webpack deps
+cd ../app && npm ci  # Capacitor CLI + Android platform
+npm run apk          # builds client/dist-app, syncs Capacitor, assembles debug APK
 ```
 
 The APK lands at `app/android/app/build/outputs/apk/debug/app-debug.apk`.

@@ -1,16 +1,17 @@
 # Sweep — API Reference
 
-*Current as of the September 2026 radar build.*
+*Current as of the November 2026 radar build.*
 
 All endpoints are served by the Express server on port **8443 (HTTPS)**, or
 **8080 (HTTP, loopback only)** when no certificate can be produced.
 Endpoints prefixed with `/api/` are rate limited unless noted otherwise.
 
 **Rate limits** (per connection socket peer — `req.socket.remoteAddress`,
-not the header-spoofable `req.ip`):
+not the header-spoofable `req.ip`; loopback peers are exempt via
+`skipLoopbackPeer` so the on-device kiosk never throttles itself):
 
-- General `/api/*` JSON routes: **120 req / min**
-- Map tiles (`/api/tiles/*`): **600 req / min**
+- General `/api/*` JSON routes: **120 req / min** (remote peers)
+- Map tiles (`/api/tiles/*`): **600 req / min** (remote peers)
 - `/api/nearby-alerts` additionally caps a remote peer at **3 in-flight
   requests** (HTTP 429, `reason: "nearby-alerts-busy"`)
 
@@ -18,7 +19,8 @@ not the header-spoofable `req.ip`):
 
 - 🌐 **Public** — any client (localhost, and remote when `ALLOW_REMOTE=true`)
 - 🔒 **Localhost only** — the kiosk itself (`127.0.0.1` / `::1`), regardless
-  of `ALLOW_REMOTE`
+  of `ALLOW_REMOTE`. State-changing routes also enforce `Host` +
+  `Origin`/`Sec-Fetch-Site` checks against CSRF and DNS rebinding.
 
 **Security response headers:** every response carries
 `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
@@ -56,7 +58,8 @@ Returns the current settings.
 
 ### `POST /settings`
 
-Creates or overwrites `settings.json`.
+Creates a new `settings.json` (HTTP `201`). Returns **HTTP `409`**
+(`"settings file already exists"`) if `settings.json` already exists on disk.
 
 - **Access:** 🔒 Localhost only
 - **Body:** JSON object with any subset of known keys (unknown keys are
@@ -64,15 +67,21 @@ Creates or overwrites `settings.json`.
 - **Allow-listed top-level keys:** `mapApiKey`, `reverseGeoApiKey`,
   `startingLat`, `startingLon`, `radarSite` (manual NEXRAD site override:
   `LWX` or `KLWX`, stored as `LWX`; empty = nearest radar to the map
-  location), `favorites`, `advanced`. The keys of removed features
-  (`weatherApiKey`, `anthropicApiKey`, `airNowApiKey`, `openAqApiKey`, the
-  `indoorTemperature` block) are rejected like any unknown key, so an old
-  `settings.json` loses them on its next write.
+  location), `homeAssistant` (`{enabled, map, port}` — shape-validated; port
+  `1024..65535` excluding `8080`/`8443`, default `8099`), `favorites`,
+  `advanced`. The keys of removed features (`weatherApiKey`,
+  `anthropicApiKey`, `airNowApiKey`, `openAqApiKey`, the `indoorTemperature`
+  block) are rejected/stripped like any unknown key, so an old `settings.json`
+  loses them on its next write.
 - **`advanced` sub-object** — opaque, grouped by feature area:
   - `advanced.display.lightModeStyle` (string) — Mapbox basemap style in
     light mode: `light-v10`, `light-v11`, `streets-v12` (default).
   - `advanced.display.darkModeStyle` (string) — `dark-v10` (default) or
     `dark-v11`.
+  - `advanced.display.defaultMapZoom` (number) — persisted map zoom level
+    (supports fractional zoom, rounded to 2 decimals).
+  - `advanced.display.radarPalette` (string) — `"radarscope"` (default) or
+    `"nws"`.
   - `advanced.display.radarOpacityLight` / `radarOpacityDark` (number,
     0.05–1.0) — opacity of the radar layers over each basemap. Defaults 0.7
     / 0.3.
@@ -89,18 +98,29 @@ Creates or overwrites `settings.json`.
     with the anti-burn-in dot, after a further delay.
   - `advanced.sleep.nightMode` (boolean, default `true`) — red-on-black
     stage-1 palette in dark mode.
+  - `advanced.sleep.wakeWarnings` (`"severe"` | `"tornado"` | `"off"`) —
+    wakes and holds the display awake while a matching active warning covers
+    the home pin (`server/warningWake.js`).
+  - `advanced.sleep.quietHours` (`{enabled, start, end}`) — optional window
+    during which wake-for-warnings narrows to tornado warnings only.
 
 ### `PUT /settings`
 
-Replaces `settings.json` entirely. 🔒 Localhost only. Same allow-list.
+Updates `settings.json` by **merging** sanitized allow-listed keys from the
+request body over any existing allow-listed top-level keys (`advanced`,
+`favorites`, `radarSite`, `homeAssistant`, etc.) omitted from the body
+(`200` when updating an existing file, `201` when creating). 🔒 Localhost
+only. Same allow-list.
 
 ### `PATCH /setting`
 
-Updates a single key.
+Updates a single key (creating `settings.json` with `201` if absent, `200`
+otherwise).
 
 - **Access:** 🔒 Localhost only
-- **Body:** `{ "key": "<name>", "value": <value> }`
-- **Errors:** HTTP 400 if the key is not allow-listed
+- **Body:** `{ "key": "<name>", "val": <value> }`
+- **Errors:** HTTP 400 if `key`/`val` is missing (`null`/`undefined`) or the
+  key is not allow-listed
 
 #### `favorites`
 
@@ -158,14 +178,14 @@ Proxies Mapbox raster tiles so the key never reaches the browser.
 Resolves the NEXRAD site covering a coordinate.
 
 - **Access:** 🌐 Public — rate limited
-- **Source:** `api.weather.gov/points/{lat},{lon}` → `radarStation`
-  (`KDIX`), normalised to IEM's 3-letter form (`DIX`). Falls back to IEM's
-  `operation=available` (NEXRAD entries only, nearest first) when NWS is
-  unreachable.
-- **Cached:** 24 h per coordinate (rounded to ~1 km)
+- **Resolution order:**
+  1. Manual `radarSite` override in `settings.json` (`source: "override"`), if set;
+  2. Nearest NEXRAD from IEM's `operation=available` list ranked by distance (`source: "iem"`), normalised to 3-letter form (`DIX`);
+  3. Fallback to `api.weather.gov/points/{lat},{lon}` → `radarStation` (`KDIX` → `DIX`, `source: "nws"`) when IEM is unreachable.
+- **Cached:** 24 h per coordinate (rounded to ~1 km; manual override read live)
 
 ```json
-{ "available": true, "site": "DIX", "name": null, "source": "nws" }
+{ "available": true, "site": "DIX", "name": "Philadelphia", "source": "iem" }
 ```
 
 A location with no NEXRAD coverage returns HTTP 200 with
@@ -303,7 +323,7 @@ gate-level picture, not IEM's pre-smoothed raster of it.
 | Parameter | Default | Description |
 |---|---|---|
 | `site` | — | 3-letter NEXRAD id (required) |
-| `product` | `N0B` | `N0B` super-res base reflectivity (product 153), `N0G` super-res base velocity (product 154), `N0C` correlation coefficient (product 161, see below), or `PTYPE` precipitation type (N0H classification × N0B intensity, see below) |
+| `product` | `N0B` | `N0B` super-res base reflectivity (153), `N0G` super-res base velocity (154), `N0C` correlation coefficient (161), `PTYPE` precipitation type (`N0H` × `N0B`), or rainfall accumulation `DAA` (1 h, 170), `DU3` (3 h, 173), `DTA` (storm total, 172) |
 | `stamp` | — | `YYYYMMDDHHMM` UTC frame stamp: the historical scan matching that IEM frame instead of the newest (sharp loop playback) |
 | `clean` | — | `1` blanks the gates the scan's dual-pol classification calls non-meteorological (reflectivity only; ignored for `N0G`) |
 
@@ -750,9 +770,10 @@ scan that arrives 15, 30 and 60 min later, per pin, and the running hit /
 miss / false-alarm counts and Brier score are kept (persisted to
 `~/.local/state/pi-weather-station/nowcast-skill.json` on the kiosk, in
 memory in the app). The debug panel's Server bucket shows it; the card
-quotes the pin's own hit rate once it has 20 verified calls.
+quotes the pin's own hit rate once it has 20 verified calls (carried inline
+on `GET /api/radar/nowcast` as `liveSkill`).
 
-- **Access:** 🌐 Public — rate limited
+- **Access:** 🔒 Localhost only (keys in `pins` contain exact coordinates)
 
 ```json
 { "leads": [15, 30, 60], "pins": { "DIX:39.950,-75.170": { "leads": { "15": { "n": 42, "hit": 9, "miss": 3, "falseAlarm": 6, "correctNegative": 24, "pod": 0.75, "far": 0.4, "csi": 0.5, "brier": 0.11 } }, "updatedAt": 1790000000000, "pending": 3 } }, "hindcast": { } }
@@ -894,7 +915,7 @@ only pick the badge type). When the check fails the payload carries
 that cannot authenticate under systemd otherwise looks exactly like an
 up-to-date kiosk.
 
-### `GET|POST /api/update-check/force`
+### `POST /api/update-check/force`
 
 Same response, cache cleared first. 🔒 Localhost only.
 
@@ -903,12 +924,14 @@ Same response, cache cleared first. 🔒 Localhost only.
 Pulls the latest code, installs dependencies, restarts the service.
 
 - **Access:** 🔒 Localhost only
-- **Pre-flight (HTTP 409 with `reason`):** `detached-head`, `wrong-branch`
-  (not on `master`), `local-changes`, `git-status-failed`,
-  `update-in-progress`
-- **Flow:** `git pull --ff-only` → `npm install --omit=dev --no-audit
-  --no-fund` → scheduled restart. HTTP 500 with `reason: "pull-failed" |
-  "npm-install-failed"` on error.
+- **Pre-flight & conflict errors (HTTP 409 with `reason`):** `detached-head`,
+  `wrong-branch` (not on `master`), `local-changes`, `git-status-failed`,
+  `update-in-progress`, `permission-denied` (tracked files owned by `root`)
+- **Flow:** `git pull --ff-only` (90 s timeout) → `npm ci --omit=dev
+  --no-audit --no-fund` → scheduled restart.
+- **Other errors:** HTTP 504 with `reason: "pull-timeout"` when `git pull`
+  exceeds 90 s; HTTP 500 with `reason: "pull-failed" | "npm-install-failed"`
+  on other pull or `npm ci` errors.
 - **Success:** `{ "ok": true, "isSystemd": true }`
 
 ---

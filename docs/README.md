@@ -6,6 +6,10 @@ forecast dashboard lives in [`archive/`](archive/).
 ## Reference
 
 - [`api.md`](api.md) — every HTTP endpoint, with sources, caches and errors
+- [`android-app.md`](android-app.md) — standalone Android app architecture,
+  ported controllers, settings layout, and APK build / signing
+- [`home-assistant.md`](home-assistant.md) — opt-in `:8099` Home Assistant
+  `/summary` sensor bridge and `/embed` map iframe
 - [`../architecture.md`](../architecture.md) — system view, modules, data
   flows, decision records
 - [`../CLAUDE.md`](../CLAUDE.md) — engineering notes from the radar rework

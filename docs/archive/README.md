@@ -20,5 +20,6 @@ maintained; links inside these files may be broken.
 | `ui-layout_en.md`, `ui-layout_fr.md`, `ui-layout_v2_*.md` | Layout references for the v3 and v2 interfaces |
 | `investigation-drag-scroll-2026-04.md` | Touch-scroll investigation on the v2 panels |
 | `react19-migration-handoff.md`, `react19-reference-fixes.patch` | The React 18 → 19 migration record |
+| `what-we-improved.md` | Narrative overview of v2.x forecast-dashboard improvements |
 | `design-references/` | Claude Design HTML mockups for roadmap items |
 | `screenshots/` | Screenshots of the v2 / v3 forecast interface |

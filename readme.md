@@ -149,7 +149,9 @@ else to dismiss. A second finger always means pinch-to-zoom.
 
 **Setting the location.** Tapping the map does not move the home pin.
 Use Settings → Location → **Choose on map** (drag the map under the pin,
-then Set location), the locate button, or follow mode.
+then Set location), **Set home here** on a pinned map readout (press-and-hold
+on touch or right-click with a mouse, then tap the button), the locate
+button, or follow mode.
 
 **Frame age for every layer.** A stack in the top-left spells out, in
 minutes, how old the on-screen site scan, the mosaic composite, the storm
@@ -205,8 +207,14 @@ RadarScope. ECCC (Canada) alerts are also polled for locations in Canada.
 - Light / dark map styles with auto-switching on sunrise/sunset, plus a
   melatonin-friendly **night-red palette**.
 - Opt-in two-stage **sleep mode / screensaver** (dimmed clock, then black with
-  an anti-burn-in dot). **Every poller pauses** while the screensaver is up
-  or the window is hidden, and resumes instantly on wake.
+  an anti-burn-in dot), with optional **wake-for-warnings** (wakes and holds
+  the display awake during active Severe Thunderstorm or Tornado Warnings at
+  home, with optional quiet hours). **Every other poller pauses** while the
+  screensaver is up or the window is hidden, and resumes instantly on wake.
+- Opt-in **Home Assistant bridge** (`:8099`, Settings → Advanced → Home
+  Assistant) serving a flat `/summary` JSON sensor feed and an optional
+  frameless `/embed` radar map for dashboards — see
+  [`docs/home-assistant.md`](docs/home-assistant.md).
 - Hardware **brightness control** (sysfs backlight or DDC/CI where available)
   and a **display-scale override** for panels whose EDID misreports size.
 - **Favorite places** (up to 6) to jump the map around, and a **Recenter**
@@ -263,8 +271,9 @@ Then open `https://localhost:8443` and go full screen (`F11` in Chromium).
 | `reverseGeoApiKey` | no | LocationIQ token for the place name in the header |
 | `startingLat` / `startingLon` | no | Home coordinates. Falls back to IP geolocation when absent. Also set by Settings → Location → Choose on map |
 | `radarSite` | no | Pin the single-site layer to one NEXRAD (`LWX` or `KLWX`). Empty = nearest radar. Also set by tapping a chip in the map's site picker |
+| `homeAssistant` | no | Opt-in Home Assistant HTTP bridge (`{enabled, map, port}`, default port `8099`) — see [`docs/home-assistant.md`](docs/home-assistant.md) |
 | `favorites` | no | Managed from the UI (Places button) |
-| `advanced` | no | Managed from the Settings panel (map styles, radar opacity, radar palette, sleep mode, nearby-alerts radius) |
+| `advanced` | no | Managed from the Settings panel (map styles, default zoom, radar opacity, radar palette, sleep + wake-for-warnings, nearby-alerts radius) |
 
 The **Settings** panel is reachable from the gear button in the bottom dock.
 On a fresh install with no Mapbox key the panel opens automatically.
@@ -325,6 +334,7 @@ mkdir -p ~/.config/systemd/user/pi-weather-server.service.d
 mkdir -p ~/.local/state/pi-weather-station
 cat > ~/.config/systemd/user/pi-weather-server.service.d/override.conf << EOF
 [Service]
+WorkingDirectory=$PWD
 StandardOutput=append:$HOME/.local/state/pi-weather-station/server.log
 StandardError=append:$HOME/.local/state/pi-weather-station/server.log
 EOF
@@ -338,8 +348,8 @@ systemctl --user enable pi-weather-server
 systemctl --user start pi-weather-server
 loginctl enable-linger $USER
 mkdir -p ~/.local/bin
-cp deploy/start-server ~/.local/bin/start-server
-chmod +x ~/.local/bin/start-server
+cp deploy/start-server deploy/detect-display-scale.sh ~/.local/bin/
+chmod +x ~/.local/bin/start-server ~/.local/bin/detect-display-scale.sh
 ```
 
 > **Bullseye 32-bit with nvm:** systemd does not load the shell profile where
@@ -349,7 +359,7 @@ chmod +x ~/.local/bin/start-server
 > cat > ~/.config/systemd/user/pi-weather-server.service.d/nvm.conf << 'EOF'
 > [Service]
 > ExecStart=
-> ExecStart=/bin/bash -c '. $HOME/.config/nvm/nvm.sh && exec npm start'
+> ExecStart=/bin/bash -c '. "$HOME/.config/nvm/nvm.sh" && exec npm start'
 > EOF
 > systemctl --user daemon-reload
 > ```
@@ -359,13 +369,13 @@ detects whether it came up on 8443 (HTTPS) or 8080 (HTTP), and launches the
 configured browser in kiosk mode.
 
 - **labwc** (Trixie): `cp deploy/autostart ~/.config/labwc/autostart`
-- **wayfire** (Bookworm): add `start-server = start-server` under
+- **wayfire** (Bookworm): add `start-server = /home/<user>/.local/bin/start-server` under
   `[autostart]` in `~/.config/wayfire.ini`
 - **X11/LXDE** (Bullseye):
   ```bash
   [ ! -f ~/.config/lxsession/LXDE-pi/autostart ] && \
     cp /etc/xdg/lxsession/LXDE-pi/autostart ~/.config/lxsession/LXDE-pi/autostart
-  echo "@start-server" >> ~/.config/lxsession/LXDE-pi/autostart
+  echo "@$HOME/.local/bin/start-server" >> ~/.config/lxsession/LXDE-pi/autostart
   ```
 
 Logs: `tail -f ~/.local/state/pi-weather-station/server.log`. Then `sudo reboot`.
@@ -507,6 +517,10 @@ API keys and preferences live in `settings.json`, not in the environment.
 ## Documentation
 
 - [`docs/api.md`](docs/api.md) — every HTTP endpoint the server exposes
+- [`docs/android-app.md`](docs/android-app.md) — standalone Android app design,
+  build, and APK signing
+- [`docs/home-assistant.md`](docs/home-assistant.md) — Home Assistant `:8099`
+  `/summary` sensor bridge and `/embed` dashboard map
 - [`architecture.md`](architecture.md) — system view, server modules, radar
   data flow, deployment layout, decision records
 - [`CLAUDE.md`](CLAUDE.md) — engineering notes from the radar rework:

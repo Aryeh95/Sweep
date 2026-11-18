@@ -4,11 +4,11 @@
      Regenerate with: node tools/gen-localization-glossary.js
      Validation marks (☑) in the first column ARE preserved across runs. -->
 
-**Generated** by `tools/gen-localization-glossary.js` on 2026-10-11. Re-run it after
+**Generated** by `tools/gen-localization-glossary.js` on 2026-11-17. Re-run it after
 touching a locale file or an inline `lbl()` string — every row below is derived, so a
 hand edit will be overwritten. The one exception is the **Validé** column: it is human
 review state and the generator carries existing `☑` marks forward, matching on the key
-(locale rows) or on the EN string (inline rows).
+(locale rows) or on the (section, EN, FR, ES) tuple (inline rows).
 
 Replace `☐` with `☑` when a native speaker has confirmed the FR and ES wording of a row.
 
@@ -16,8 +16,8 @@ Replace `☐` with `☑` when a native speaker has confirmed the FR and ES wordi
 
 | Source | Rows | Notes |
 |---|---|---|
-| `client/src/i18n/locales/{en,fr,es}.json` | 600 translated + 28 identical | Every kiosk-visible surface. 628 leaf keys total. |
-| `client/src/components/ambient/SettingsPanel/index.js` | 120 (+4 non-literal, not listed) | Settings overlay — the user-facing configuration surface. |
+| `client/src/i18n/locales/{en,fr,es}.json` | 607 translated + 28 identical | Every kiosk-visible surface. 635 leaf keys total. |
+| `client/src/components/ambient/SettingsPanel/index.js` | 130 (+7 non-literal, not listed) | Settings overlay — the user-facing configuration surface. |
 | `client/src/components/ambient/DebugPanel/index.js` | 70 | Debug overlay — localhost-only, reached from a desktop browser or an SSH tunnel. |
 
 Inline `lbl(lang, en, fr, es)` is a **codified exception** (see CLAUDE.md), permitted in
@@ -330,7 +330,9 @@ reported here as a gap table, so an empty check means the three files are aligne
 
 | Validé | EN | FR | ES | Clé |
 |--------|----|----|-----|-----|
+| ☐ | Could not load debug data | Impossible de charger les données de débogage | No se pudieron cargar los datos de depuración | `debug.fetchError` |
 | ☐ | LOADING... | CHARGEMENT... | CARGANDO... | `debug.loading` |
+| ☐ | Press a tab to view a section. Press again to hide it. Multiple sections can stack. | Appuyez sur un onglet pour afficher une section, puis à nouveau pour la masquer. Plusieurs sections peuvent s'empiler. | Pulsa una pestaña para ver una sección y otra vez para ocultarla. Se pueden apilar varias secciones. | `debug.pickBucket` |
 | ☐ | REFRESH | ACTUALISER | ACTUALIZAR | `debug.refresh` |
 | ☐ | DEBUG | DÉBOGAGE | DEPURACIÓN | `debug.title` |
 
@@ -417,6 +419,7 @@ reported here as a gap table, so an empty check means the three files are aligne
 | ☐ | Postal code | Code postal | Código postal | `location.postcode` |
 | ☐ | State / Region | Province / Région | Estado / Región | `location.region` |
 | ☐ | Source: LocationIQ | Source : LocationIQ | Fuente: LocationIQ | `location.source` |
+| ☐ | Source: NOAA / NWS | Source : NOAA / NWS | Fuente: NOAA / NWS | `location.sourceNws` |
 
 ## map (`map.*`)
 
@@ -465,6 +468,9 @@ reported here as a gap table, so an empty check means the three files are aligne
 | ☐ | Radar data delayed | Données radar en retard | Datos de radar retrasados | `nowcast.delayed` |
 | ☐ | No new {{site}} scan for {{min}} min — the nowcast resumes when scans arrive again. | Aucun nouveau balayage de {{site}} depuis {{min}} min — la prévision reprendra à leur arrivée. | Sin escaneos nuevos de {{site}} desde hace {{min}} min — el pronóstico se reanudará cuando lleguen. | `nowcast.delayedDetail` |
 | ☐ | ending around {{time}} | fin vers {{time}} | termina hacia las {{time}} | `nowcast.endsAround` |
+| ☐ | The server is busy — retrying in a few seconds | Le serveur est occupé ; nouvel essai dans quelques secondes | El servidor está ocupado; se reintentará en unos segundos | `nowcast.error.busy` |
+| ☐ | Can't reach the server — retrying in a few seconds | Serveur injoignable ; nouvel essai dans quelques secondes | No se puede conectar con el servidor; se reintentará en unos segundos | `nowcast.error.offline` |
+| ☐ | The radar feed did not answer — retrying in a few seconds | Le radar n'a pas répondu ; nouvel essai dans quelques secondes | El radar no respondió; se reintentará en unos segundos | `nowcast.error.server` |
 | ☐ | Rain {{dist}} to the {{dir}} is not heading this way | La pluie à {{dist}} au {{dir}} ne se dirige pas vers ici | La lluvia a {{dist}} al {{dir}} no viene hacia aquí | `nowcast.farRainAway` |
 | ☐ | Rain {{dist}} to the {{dir}} is heading this way · about {{eta}} out | La pluie à {{dist}} au {{dir}} se dirige vers ici · à environ {{eta}} | Lluvia a {{dist}} al {{dir}} viene hacia aquí · a unos {{eta}} | `nowcast.farRainClosing` |
 | ☐ | Rain {{dist}} to the {{dir}} · too little echo within {{core}} to track it | Pluie à {{dist}} au {{dir}} · trop peu d'écho à moins de {{core}} pour la suivre | Lluvia a {{dist}} al {{dir}} · demasiado poco eco en {{core}} para seguirla | `nowcast.farRainUntracked` |
@@ -527,6 +533,7 @@ reported here as a gap table, so an empty check means the three files are aligne
 | ☐ | Infrared {{temp}} | Infrarouge {{temp}} | Infrarrojo {{temp}} | `probe.infrared` |
 | ☐ | No echo here | Aucun écho ici | Sin eco aquí | `probe.nothing` |
 | ☐ | {{amount}} rain | {{amount}} de pluie | {{amount}} de lluvia | `probe.rain` |
+| ☐ | Set home here | Définir comme domicile | Fijar casa aquí | `probe.setHome` |
 | ☐ | {{speed}} toward radar | {{speed}} vers le radar | {{speed}} hacia el radar | `probe.toward` |
 
 ## Radar — legend + timeline (`radar.*`)
@@ -765,133 +772,143 @@ reported here as a gap table, so an empty check means the three files are aligne
 
 Settings overlay — the user-facing configuration surface. Source: `client/src/components/ambient/SettingsPanel/index.js`.
 
-> 4 further `lbl()` calls in this file build
+> 7 further `lbl()` calls in this file build
 > at least one label from a template or a variable rather than a plain string literal,
 > so there is no fixed wording to tabulate. They are counted here rather than dropped
 > silently — a translation pass has to read those call sites directly.
 
 | Validé | EN | FR | ES | Ligne |
 |--------|----|----|-----|-------|
-| ☐ | Local | Préf. | Local | `:54` |
-| ☐ | Advanced | Avancé | Avanzado | `:56` |
-| ☐ | Settings sections | Sections des paramètres | Secciones de ajustes | `:163` |
-| ☐ | Close settings and return to the map | Fermer les paramètres et revenir à la carte | Cerrar los ajustes y volver al mapa | `:195` |
-| ☐ | Close | Fermer | Cerrar | `:201` |
-| ☐ | Choose your location | Choisir votre position | Elegir su ubicación | `:265` |
-| ☐ | Move the map until the pin is on your spot, or tap a spot to centre it. | Déplacez la carte jusqu'à ce que l'épingle soit sur votre lieu, ou touchez un endroit pour le centrer. | Mueva el mapa hasta que el marcador esté en su lugar, o toque un punto para centrarlo. | `:266` |
-| ☐ | Cancel | Annuler | Cancelar | `:270` |
-| ☐ | Set location | Définir la position | Fijar ubicación | `:271` |
-| ☐ | Local preferences | Préférences locales | Preferencias locales | `:284` |
-| ☐ | Stored in the browser. No restart required. | Stockées dans le navigateur. Pas de redémarrage requis. | Almacenadas en el navegador. Sin reinicio. | `:285` |
-| ☐ | Location | Localisation | Ubicación | `:291` |
-| ☐ | Choose on map | Choisir sur la carte | Elegir en el mapa | `:300` |
-| ☐ | Tapping the radar map does not move the pin — choose the location here. It becomes the default the map returns to. | Toucher la carte radar ne déplace pas l'épingle — choisissez la position ici. Elle devient la position par défaut. | Tocar el mapa de radar no mueve el marcador — elija la ubicación aquí. Se convierte en la ubicación predeterminada. | `:305` |
-| ☐ | Language | Langue | Idioma | `:314` |
-| ☐ | Clock | Horloge | Reloj | `:338` |
-| ☐ | Units | Unités | Unidades | `:344` |
-| ☐ | Metric | Métrique | Métrico | `:353` |
-| ☐ | Imperial | Impérial | Imperial | `:354` |
-| ☐ | Speed | Vent | Viento | `:375` |
-| ☐ | Hail | Grêle | Granizo | `:381` |
-| ☐ | Keep screen on | Garder l'écran allumé | Mantener la pantalla encendida | `:400` |
-| ☐ | Stops the display sleeping while Sweep is open. For watching radar on a mount — it does keep the screen lit, so it costs battery. Off by default. | Empêche l'écran de s'éteindre pendant que Sweep est ouvert. Pour suivre le radar sur un support — l'écran reste allumé, ce qui consomme de la batterie. Désactivé par défaut. | Evita que la pantalla se apague mientras Sweep está abierto. Para seguir el radar en un soporte — la pantalla permanece encendida, lo que consume batería. Desactivado por defecto. | `:401` |
-| ☐ | Hide mouse pointer | Masquer le pointeur de la souris | Ocultar puntero del ratón | `:415` |
-| ☐ | Show advisory alerts | Afficher les avis | Mostrar avisos | `:434` |
-| ☐ | Also surface advisory-level alerts (Flood / Heat / Wind Advisory). Off by default. | Affiche aussi les alertes de niveau « avis » (avis de crue, de chaleur, de vent). Désactivé par défaut. | Muestra también las alertas de nivel « aviso » (aviso de inundación, calor, viento). Desactivado por defecto. | `:435` |
-| ☐ | Show test alerts | Afficher les alertes de test | Mostrar alertas de prueba | `:456` |
-| ☐ | Reveal NWS test/exercise alerts (non-Actual status) on this device. Maintainer / R&D — hidden by default, never sent to remote viewers. | Affiche les alertes de test/exercice NWS (statut non « Actual ») sur cet appareil. Mainteneur / R&D — masquées par défaut, jamais envoyées aux clients distants. | Muestra las alertas de prueba/ejercicio de NWS (estado no « Actual ») en este dispositivo. Mantenedor / I+D — ocultas por defecto, nunca enviadas a clientes remotos. | `:457` |
-| ☐ | Show alert radius ring | Afficher l'anneau du rayon d'alerte | Mostrar el anillo del radio de alerta | `:475` |
-| ☐ | Draws the dashed circle at the alert radius. Turn off to keep only the alert polygons. On by default. | Trace le cercle pointillé au rayon d'alerte. Désactiver pour ne garder que les polygones d'alerte. Activé par défaut. | Dibuja el círculo punteado en el radio de alerta. Desactívalo para conservar solo los polígonos de alerta. Activado por defecto. | `:476` |
-| ☐ | Trust this Pi on this device | Faire confiance à ce Pi sur cet appareil | Confiar en este Pi en este dispositivo | `:506` |
-| ☐ | Installs the Pi's certificate as a trusted profile. Fixes the home-screen icon on iOS and dismisses the security warning. See the guide for per-platform steps. | Installe le certificat du Pi comme profil de confiance. Corrige l'icône d'écran d'accueil sur iOS et fait disparaître l'avertissement de sécurité. Voir le guide pour les étapes par plateforme. | Instala el certificado del Pi como perfil de confianza. Corrige el icono de la pantalla de inicio en iOS y elimina la advertencia de seguridad. Vea la guía para los pasos por plataforma. | `:512` |
-| ☐ | Download cert | Télécharger le cert | Descargar cert | `:519` |
-| ☐ | Read the guide | Lire le guide | Leer la guía | `:531` |
-| ☐ | Basemap | Fond de carte | Mapa base | `:600` |
-| ☐ | Optional. Stored on this device only. | Facultatif. Stocké sur cet appareil uniquement. | Opcional. Almacenado solo en este dispositivo. | `:601` |
-| ☐ | KEYLESS | SANS CLÉ | SIN CLAVE | `:607` |
-| ☐ | Mapbox token | Jeton Mapbox | Token de Mapbox | `:613` |
-| ☐ | Public access token | Jeton d'accès public | Token de acceso público | `:616` |
-| ☐ | In use | Actif | En uso | `:617` |
-| ☐ | Remove | Retirer | Quitar | `:623` |
-| ☐ | That is a SECRET token (sk.). Never put one in an app — anyone with the APK can read it. Create a public token instead. | Ceci est un jeton SECRET (sk.). N'en placez jamais dans une application — quiconque possède l'APK peut le lire. Créez plutôt un jeton public. | Ese es un token SECRETO (sk.). Nunca lo pongas en una app — cualquiera con el APK puede leerlo. Crea un token público. | `:625` |
-| ☐ | A Mapbox public token starts with « pk. ». | Un jeton public Mapbox commence par « pk. ». | Un token público de Mapbox empieza por « pk. ». | `:630` |
-| ☐ | Empty = Esri's keyless basemap. With a public token (pk.) the app draws Mapbox instead, and the style pickers in Advanced apply. The token needs the styles:tiles scope — that is the one the raster tile endpoint checks, and it is on by default for a new public token. A freshly created token can take a few minutes to start working. Use one separate from any the kiosk uses, so it can be revoked on its own. | Vide = fond de carte Esri sans clé. Avec un jeton public (pk.), l'application affiche Mapbox et les styles du volet Avancé s'appliquent. Le jeton doit avoir la portée styles:tiles — c'est celle que vérifie le point d'accès des tuiles raster, active par défaut sur un nouveau jeton public. Un jeton tout juste créé peut mettre quelques minutes à fonctionner. Utilisez-en un distinct de celui du kiosque, pour pouvoir le révoquer seul. | Vacío = mapa base de Esri sin clave. Con un token público (pk.) la app dibuja Mapbox y se aplican los estilos de Avanzado. El token necesita el ámbito styles:tiles — es el que comprueba el endpoint de teselas ráster, activo por defecto en un token público nuevo. Un token recién creado puede tardar unos minutos en funcionar. Usa uno distinto del que use el quiosco, para poder revocarlo por separado. | `:634` |
-| ☐ | ✓ Saved | ✓ Enregistré | ✓ Guardado | `:648` |
-| ☐ | Save token | Enregistrer le jeton | Guardar token | `:649` |
-| ☐ | Map tiles + styles | Tuiles de carte + styles | Teselas y estilos de mapa | `:786` |
-| ☐ | Reverse geocoding · place name | Géocodage inverse · nom de lieu | Geocodificación inversa · nombre del lugar | `:788` |
-| ☐ | Configuration & API keys | Configuration & clés API | Configuración y claves API | `:795` |
-| ☐ | Server-side settings.json. Local writes only. | settings.json côté serveur. Écriture locale uniquement. | settings.json del servidor. Escritura local únicamente. | `:796` |
-| ☐ | READ-ONLY | LECTURE SEULE | SOLO LECTURA | `:803` |
-| ☐ | EDITABLE | MODIFIABLE | EDITABLE | `:804` |
-| ☐ | API keys | Clés API | Claves API | `:812` |
-| ☐ | Location & hardware | Localisation & matériel | Ubicación y hardware | `:823` |
-| ☐ | Latitude | Latitude | Latitud | `:834` |
-| ☐ | Latitude | Latitude | Latitud | `:842` |
-| ☐ | Override | Manuel | Manual | `:843` |
-| ☐ | Auto | Auto | Auto | `:850` |
-| ☐ | Empty = automatic geolocation. « Auto » clears the field to fall back to detection. Never sent to an external service. | Vide = géolocalisation automatique. « Auto » efface le champ pour revenir à la détection. Jamais transmis à un service externe. | Vacío = geolocalización automática. « Auto » borra el campo para volver a la detección. Nunca se envía a un servicio externo. | `:851` |
-| ☐ | Override | Manuel | Manual | `:868` |
-| ☐ | Auto | Auto | Auto | `:875` |
-| ☐ | Empty = automatic geolocation. | Vide = géolocalisation automatique. | Vacío = geolocalización automática. | `:876` |
-| ☐ | Radar site | Site radar | Sitio de radar | `:884` |
-| ☐ | Auto (nearest) | Auto (le plus proche) | Auto (más cercano) | `:885` |
-| ☐ | Radar site | Site radar | Sitio de radar | `:891` |
-| ☐ | Override | Manuel | Manual | `:892` |
-| ☐ | Auto | Auto | Auto | `:898` |
-| ☐ | NEXRAD id, e.g. LWX or KLWX. Empty = the radar nearest the map location. | Identifiant NEXRAD, p. ex. LWX ou KLWX. Vide = le radar le plus proche de la position de la carte. | Id NEXRAD, p. ej. LWX o KLWX. Vacío = el radar más cercano a la ubicación del mapa. | `:899` |
-| ☐ | Brightness | Luminosité | Brillo | `:907` |
-| ☐ | Display scale | Échelle d'affichage | Escala de pantalla | `:919` |
-| ☐ | Auto | Auto | Auto | `:923` |
-| ☐ | Settable only from the kiosk. | Réglable seulement depuis le kiosque. | Solo ajustable desde el quiosco. | `:934` |
-| ☐ | Saving… | Enregistrement… | Guardando… | `:959` |
-| ☐ | ✓ Saved | ✓ Enregistré | ✓ Guardado | `:961` |
-| ☐ | Save changes | Enregistrer | Guardar cambios | `:962` |
-| ☐ | Advanced | Avancé | Avanzado | `:1042` |
-| ☐ | Display · alerts | Affichage · alertes | Pantalla · alertas | `:1044` |
-| ☐ | Display · alerts · sleep | Affichage · alertes · veille | Pantalla · alertas · suspensión | `:1045` |
-| ☐ | Display | Affichage | Pantalla | `:1050` |
-| ☐ | Map · light | Carte · clair | Mapa · claro | `:1061` |
-| ☐ | Map · dark | Carte · sombre | Mapa · oscuro | `:1072` |
-| ☐ | Radar palette | Palette radar | Paleta del radar | `:1088` |
-| ☐ | Radar opacity · light | Opacité radar · clair | Opacidad radar · claro | `:1097` |
-| ☐ | Radar opacity · dark | Opacité radar · sombre | Opacidad radar · oscuro | `:1107` |
-| ☐ | Nearby alerts | Alertes à proximité | Alertas cercanas | `:1120` |
-| ☐ | Alert radius | Rayon d'alerte | Radio de alerta | `:1126` |
-| ☐ | Sleep | Veille | Suspensión | `:1149` |
-| ☐ | Enable sleep | Activer la veille | Activar suspensión | `:1167` |
-| ☐ | Red text at night | Texte rouge nuit | Texto rojo de noche | `:1173` |
-| ☐ | Soft sleep · delay | Veille douce · délai | Suspensión suave · retraso | `:1181` |
-| ☐ | Soft sleep · brightness | Veille douce · lum. | Suspensión suave · brillo | `:1190` |
-| ☐ | Soft sleep · brightness | Veille douce · lum. | Suspensión suave · brillo | `:1200` |
-| ☐ | Deep sleep · enabled | Veille profonde · activée | Suspensión profunda · activada | `:1211` |
-| ☐ | Deep sleep · +delay | Veille profonde · +délai | Suspensión profunda · +retraso | `:1223` |
-| ☐ | Wake for warnings at home | Réveil pour les avertissements | Despertar por avisos en casa | `:1237` |
-| ☐ | Severe | Violents | Severos | `:1239` |
-| ☐ | Tornado only | Tornade seul. | Solo tornado | `:1240` |
-| ☐ | Off | Non | No | `:1241` |
-| ☐ | Quiet hours · tornado only | Heures calmes · tornade seul. | Horas de silencio · solo tornado | `:1248` |
-| ☐ | Off | Non | No | `:1250` |
-| ☐ | When a warning covers your location the screen wakes and stays on until it ends. Severe: tornado, severe thunderstorm, flash flood, extreme wind, snow squall and tsunami warnings. During quiet hours only tornado, extreme wind and tsunami warnings wake it. | Quand un avertissement couvre votre position, l'écran se réveille et reste allumé jusqu'à sa fin. Violents : tornade, orage violent, crue éclair, vents extrêmes, bourrasques de neige et tsunami. Pendant les heures calmes, seuls tornade, vents extrêmes et tsunami le réveillent. | Cuando un aviso cubre su ubicación, la pantalla se enciende y sigue encendida hasta que termine. Severos: tornado, tormenta severa, inundación repentina, viento extremo, ráfagas de nieve y tsunami. En horas de silencio solo tornado, viento extremo y tsunami la despiertan. | `:1261` |
-| ☐ | Diagnostic | Diagnostic | Diagnóstico | `:1270` |
-| ☐ | Debug panel | Panneau Débogage | Panel depuración | `:1274` |
-| ☐ | (set via DEBUG=true on the service) | (défini par DEBUG=true au service) | (definido por DEBUG=true en el servicio) | `:1277` |
-| ☐ | disabled | désactivée | desactivada | `:1383` |
-| ☐ | On | Allumé | Encendido | `:1393` |
-| ☐ | Soft sleep | Veille douce | Suspensión suave | `:1397` |
-| ☐ | Deep sleep | Veille profonde | Suspensión profunda | `:1401` |
-| ☐ | Tap again — screen blacks ~15 s | Encore — écran noir ~15 s | Otra vez — pantalla negra ~15 s | `:1548` |
-| ☐ | Relaunch kiosk to apply | Relancer le kiosque pour appliquer | Reiniciar el quiosco para aplicar | `:1549` |
-| ☐ | Applied live · stored on this device | Appliqué en direct · stocké sur cet appareil | Aplicado en vivo · guardado en este dispositivo | `:1605` |
-| ☐ | Optional · stored on this device, never in the app | Facultatif · stocké sur cet appareil, jamais dans l'application | Opcional · guardado en este dispositivo, nunca en la app | `:1612` |
-| ☐ | Keys & coordinates saved together via Save | Clés et coordonnées enregistrées ensemble via Enregistrer | Claves y coordenadas guardadas juntas con Guardar | `:1616` |
-| ☐ | Each setting saved on this device on change | Chaque réglage enregistré sur cet appareil au changement | Cada ajuste se guarda en este dispositivo al cambiar | `:1623` |
-| ☐ | Each setting saved to settings.json on change | Chaque réglage enregistré dans settings.json au changement | Cada ajuste se guarda en settings.json al cambiar | `:1627` |
-| ☐ | Remote connection detected. To change these settings, open an SSH tunnel from your local machine and reload the app from https://localhost:8443. | Connexion distante détectée. Pour modifier ces paramètres, ouvrez un tunnel SSH depuis votre poste local et rechargez l'application depuis https://localhost:8443. | Conexión remota detectada. Para modificar estos ajustes, abra un túnel SSH desde su equipo local y recargue la app desde https://localhost:8443. | `:1661` |
-| ☐ | Copy command | Copier la commande | Copiar comando | `:1672` |
-| ☐ | Copy command | Copier la commande | Copiar comando | `:1673` |
-| ☐ | Copied! | Copié ! | ¡Copiado! | `:1676` |
-| ☐ | Copy | Copier | Copiar | `:1677` |
+| ☐ | Local | Préf. | Local | `:61` |
+| ☐ | Advanced | Avancé | Avanzado | `:63` |
+| ☐ | Settings | Paramètres | Ajustes | `:169` |
+| ☐ | Settings sections | Sections des paramètres | Secciones de ajustes | `:183` |
+| ☐ | Close settings and return to the map | Fermer les paramètres et revenir à la carte | Cerrar los ajustes y volver al mapa | `:215` |
+| ☐ | Close | Fermer | Cerrar | `:221` |
+| ☐ | Choose your location | Choisir votre position | Elegir su ubicación | `:292` |
+| ☐ | Move the map until the pin is on your spot, or tap a spot to centre it. | Déplacez la carte jusqu'à ce que l'épingle soit sur votre lieu, ou touchez un endroit pour le centrer. | Mueva el mapa hasta que el marcador esté en su lugar, o toque un punto para centrarlo. | `:293` |
+| ☐ | Cancel | Annuler | Cancelar | `:297` |
+| ☐ | Set location | Définir la position | Fijar ubicación | `:298` |
+| ☐ | Local preferences | Préférences locales | Preferencias locales | `:311` |
+| ☐ | Stored in the browser. No restart required. | Stockées dans le navigateur. Pas de redémarrage requis. | Almacenadas en el navegador. Sin reinicio. | `:312` |
+| ☐ | Location | Localisation | Ubicación | `:318` |
+| ☐ | Choose on map | Choisir sur la carte | Elegir en el mapa | `:327` |
+| ☐ | Tapping the radar map does not move the pin — choose the location here. It becomes the default the map returns to. | Toucher la carte radar ne déplace pas l'épingle — choisissez la position ici. Elle devient la position par défaut. | Tocar el mapa de radar no mueve el marcador — elija la ubicación aquí. Se convierte en la ubicación predeterminada. | `:332` |
+| ☐ | Language | Langue | Idioma | `:341` |
+| ☐ | Clock | Horloge | Reloj | `:365` |
+| ☐ | Units | Unités | Unidades | `:371` |
+| ☐ | Metric | Métrique | Métrico | `:380` |
+| ☐ | Imperial | Impérial | Imperial | `:381` |
+| ☐ | Speed | Vent | Viento | `:402` |
+| ☐ | Hail | Grêle | Granizo | `:408` |
+| ☐ | Keep screen on | Garder l'écran allumé | Mantener la pantalla encendida | `:427` |
+| ☐ | Stops the display sleeping while Sweep is open. For watching radar on a mount — it does keep the screen lit, so it costs battery. Off by default. | Empêche l'écran de s'éteindre pendant que Sweep est ouvert. Pour suivre le radar sur un support — l'écran reste allumé, ce qui consomme de la batterie. Désactivé par défaut. | Evita que la pantalla se apague mientras Sweep está abierto. Para seguir el radar en un soporte — la pantalla permanece encendida, lo que consume batería. Desactivado por defecto. | `:428` |
+| ☐ | Hide mouse pointer | Masquer le pointeur de la souris | Ocultar puntero del ratón | `:442` |
+| ☐ | Show advisory alerts | Afficher les avis | Mostrar avisos | `:461` |
+| ☐ | Also surface advisory-level alerts (Flood / Heat / Wind Advisory). Off by default. | Affiche aussi les alertes de niveau « avis » (avis de crue, de chaleur, de vent). Désactivé par défaut. | Muestra también las alertas de nivel « aviso » (aviso de inundación, calor, viento). Desactivado por defecto. | `:462` |
+| ☐ | Show test alerts | Afficher les alertes de test | Mostrar alertas de prueba | `:483` |
+| ☐ | Reveal NWS test/exercise alerts (non-Actual status) on this device. Maintainer / R&D — hidden by default, never sent to remote viewers. | Affiche les alertes de test/exercice NWS (statut non « Actual ») sur cet appareil. Mainteneur / R&D — masquées par défaut, jamais envoyées aux clients distants. | Muestra las alertas de prueba/ejercicio de NWS (estado no « Actual ») en este dispositivo. Mantenedor / I+D — ocultas por defecto, nunca enviadas a clientes remotos. | `:484` |
+| ☐ | Show alert radius ring | Afficher l'anneau du rayon d'alerte | Mostrar el anillo del radio de alerta | `:502` |
+| ☐ | Draws the dashed circle at the alert radius. Turn off to keep only the alert polygons. On by default. | Trace le cercle pointillé au rayon d'alerte. Désactiver pour ne garder que les polygones d'alerte. Activé par défaut. | Dibuja el círculo punteado en el radio de alerta. Desactívalo para conservar solo los polígonos de alerta. Activado por defecto. | `:503` |
+| ☐ | Trust this Pi on this device | Faire confiance à ce Pi sur cet appareil | Confiar en este Pi en este dispositivo | `:533` |
+| ☐ | Installs the Pi's certificate as a trusted profile. Fixes the home-screen icon on iOS and dismisses the security warning. See the guide for per-platform steps. | Installe le certificat du Pi comme profil de confiance. Corrige l'icône d'écran d'accueil sur iOS et fait disparaître l'avertissement de sécurité. Voir le guide pour les étapes par plateforme. | Instala el certificado del Pi como perfil de confianza. Corrige el icono de la pantalla de inicio en iOS y elimina la advertencia de seguridad. Vea la guía para los pasos por plataforma. | `:539` |
+| ☐ | Download cert | Télécharger le cert | Descargar cert | `:546` |
+| ☐ | Read the guide | Lire le guide | Leer la guía | `:558` |
+| ☐ | Basemap | Fond de carte | Mapa base | `:632` |
+| ☐ | Optional. Stored on this device only. | Facultatif. Stocké sur cet appareil uniquement. | Opcional. Almacenado solo en este dispositivo. | `:633` |
+| ☐ | KEYLESS | SANS CLÉ | SIN CLAVE | `:639` |
+| ☐ | Mapbox token | Jeton Mapbox | Token de Mapbox | `:645` |
+| ☐ | Public access token | Jeton d'accès public | Token de acceso público | `:648` |
+| ☐ | In use | Actif | En uso | `:649` |
+| ☐ | Remove | Retirer | Quitar | `:655` |
+| ☐ | That is a SECRET token (sk.). Never put one in an app — anyone with the APK can read it. Create a public token instead. | Ceci est un jeton SECRET (sk.). N'en placez jamais dans une application — quiconque possède l'APK peut le lire. Créez plutôt un jeton public. | Ese es un token SECRETO (sk.). Nunca lo pongas en una app — cualquiera con el APK puede leerlo. Crea un token público. | `:657` |
+| ☐ | A Mapbox public token starts with « pk. ». | Un jeton public Mapbox commence par « pk. ». | Un token público de Mapbox empieza por « pk. ». | `:662` |
+| ☐ | Empty = Esri's keyless basemap. With a public token (pk.) the app draws Mapbox instead, and the style pickers in Advanced apply. The token needs the styles:tiles scope — that is the one the raster tile endpoint checks, and it is on by default for a new public token. A freshly created token can take a few minutes to start working. Use one separate from any the kiosk uses, so it can be revoked on its own. | Vide = fond de carte Esri sans clé. Avec un jeton public (pk.), l'application affiche Mapbox et les styles du volet Avancé s'appliquent. Le jeton doit avoir la portée styles:tiles — c'est celle que vérifie le point d'accès des tuiles raster, active par défaut sur un nouveau jeton public. Un jeton tout juste créé peut mettre quelques minutes à fonctionner. Utilisez-en un distinct de celui du kiosque, pour pouvoir le révoquer seul. | Vacío = mapa base de Esri sin clave. Con un token público (pk.) la app dibuja Mapbox y se aplican los estilos de Avanzado. El token necesita el ámbito styles:tiles — es el que comprueba el endpoint de teselas ráster, activo por defecto en un token público nuevo. Un token recién creado puede tardar unos minutos en funcionar. Usa uno distinto del que use el quiosco, para poder revocarlo por separado. | `:666` |
+| ☐ | ✓ Saved | ✓ Enregistré | ✓ Guardado | `:680` |
+| ☐ | Save token | Enregistrer le jeton | Guardar token | `:681` |
+| ☐ | Map tiles + styles | Tuiles de carte + styles | Teselas y estilos de mapa | `:841` |
+| ☐ | Reverse geocoding · place name | Géocodage inverse · nom de lieu | Geocodificación inversa · nombre del lugar | `:843` |
+| ☐ | Configuration & API keys | Configuration & clés API | Configuración y claves API | `:850` |
+| ☐ | Server-side settings.json. Local writes only. | settings.json côté serveur. Écriture locale uniquement. | settings.json del servidor. Escritura local únicamente. | `:851` |
+| ☐ | READ-ONLY | LECTURE SEULE | SOLO LECTURA | `:858` |
+| ☐ | EDITABLE | MODIFIABLE | EDITABLE | `:859` |
+| ☐ | API keys | Clés API | Claves API | `:867` |
+| ☐ | Location & hardware | Localisation & matériel | Ubicación y hardware | `:878` |
+| ☐ | Latitude | Latitude | Latitud | `:889` |
+| ☐ | Latitude | Latitude | Latitud | `:897` |
+| ☐ | Override | Manuel | Manual | `:898` |
+| ☐ | Auto | Auto | Auto | `:905` |
+| ☐ | Empty = automatic geolocation. « Auto » clears the field to fall back to detection. Never sent to an external service. | Vide = géolocalisation automatique. « Auto » efface le champ pour revenir à la détection. Jamais transmis à un service externe. | Vacío = geolocalización automática. « Auto » borra el campo para volver a la detección. Nunca se envía a un servicio externo. | `:906` |
+| ☐ | Override | Manuel | Manual | `:923` |
+| ☐ | Auto | Auto | Auto | `:930` |
+| ☐ | Empty = automatic geolocation. | Vide = géolocalisation automatique. | Vacío = geolocalización automática. | `:931` |
+| ☐ | Radar site | Site radar | Sitio de radar | `:939` |
+| ☐ | Auto (nearest) | Auto (le plus proche) | Auto (más cercano) | `:940` |
+| ☐ | Radar site | Site radar | Sitio de radar | `:946` |
+| ☐ | Override | Manuel | Manual | `:947` |
+| ☐ | Auto | Auto | Auto | `:953` |
+| ☐ | NEXRAD id, e.g. LWX or KLWX. Empty = the radar nearest the map location. | Identifiant NEXRAD, p. ex. LWX ou KLWX. Vide = le radar le plus proche de la position de la carte. | Id NEXRAD, p. ej. LWX o KLWX. Vacío = el radar más cercano a la ubicación del mapa. | `:954` |
+| ☐ | Brightness | Luminosité | Brillo | `:962` |
+| ☐ | Display scale | Échelle d'affichage | Escala de pantalla | `:974` |
+| ☐ | Auto | Auto | Auto | `:978` |
+| ☐ | Settable only from the kiosk. | Réglable seulement depuis le kiosque. | Solo ajustable desde el quiosco. | `:989` |
+| ☐ | Saving… | Enregistrement… | Guardando… | `:1014` |
+| ☐ | ✓ Saved | ✓ Enregistré | ✓ Guardado | `:1016` |
+| ☐ | Save changes | Enregistrer | Guardar cambios | `:1017` |
+| ☐ | Advanced | Avancé | Avanzado | `:1097` |
+| ☐ | Display · alerts | Affichage · alertes | Pantalla · alertas | `:1099` |
+| ☐ | Display · alerts · sleep | Affichage · alertes · veille | Pantalla · alertas · suspensión | `:1100` |
+| ☐ | Display | Affichage | Pantalla | `:1105` |
+| ☐ | Map · light | Carte · clair | Mapa · claro | `:1116` |
+| ☐ | Map · dark | Carte · sombre | Mapa · oscuro | `:1127` |
+| ☐ | Radar palette | Palette radar | Paleta del radar | `:1143` |
+| ☐ | Radar opacity · light | Opacité radar · clair | Opacidad radar · claro | `:1152` |
+| ☐ | Radar opacity · dark | Opacité radar · sombre | Opacidad radar · oscuro | `:1162` |
+| ☐ | Nearby alerts | Alertes à proximité | Alertas cercanas | `:1175` |
+| ☐ | Alert radius | Rayon d'alerte | Radio de alerta | `:1181` |
+| ☐ | Sleep | Veille | Suspensión | `:1204` |
+| ☐ | Enable sleep | Activer la veille | Activar suspensión | `:1222` |
+| ☐ | Red text at night | Texte rouge nuit | Texto rojo de noche | `:1228` |
+| ☐ | Soft sleep · delay | Veille douce · délai | Suspensión suave · retraso | `:1236` |
+| ☐ | Soft sleep · brightness | Veille douce · lum. | Suspensión suave · brillo | `:1245` |
+| ☐ | Soft sleep · brightness | Veille douce · lum. | Suspensión suave · brillo | `:1255` |
+| ☐ | Deep sleep · enabled | Veille profonde · activée | Suspensión profunda · activada | `:1266` |
+| ☐ | Deep sleep · +delay | Veille profonde · +délai | Suspensión profunda · +retraso | `:1278` |
+| ☐ | Wake for warnings at home | Réveil pour les avertissements | Despertar por avisos en casa | `:1292` |
+| ☐ | Severe | Violents | Severos | `:1294` |
+| ☐ | Tornado only | Tornade seul. | Solo tornado | `:1295` |
+| ☐ | Off | Non | No | `:1296` |
+| ☐ | Quiet hours · tornado only | Heures calmes · tornade seul. | Horas de silencio · solo tornado | `:1303` |
+| ☐ | Off | Non | No | `:1305` |
+| ☐ | When a warning covers your location the screen wakes and stays on until it ends. Severe: tornado, severe thunderstorm, flash flood, extreme wind, snow squall and tsunami warnings. During quiet hours only tornado, extreme wind and tsunami warnings wake it. | Quand un avertissement couvre votre position, l'écran se réveille et reste allumé jusqu'à sa fin. Violents : tornade, orage violent, crue éclair, vents extrêmes, bourrasques de neige et tsunami. Pendant les heures calmes, seuls tornade, vents extrêmes et tsunami le réveillent. | Cuando un aviso cubre su ubicación, la pantalla se enciende y sigue encendida hasta que termine. Severos: tornado, tormenta severa, inundación repentina, viento extremo, ráfagas de nieve y tsunami. En horas de silencio solo tornado, viento extremo y tsunami la despiertan. | `:1316` |
+| ☐ | Diagnostic | Diagnostic | Diagnóstico | `:1327` |
+| ☐ | Debug panel | Panneau Débogage | Panel depuración | `:1331` |
+| ☐ | (set via DEBUG=true on the service) | (défini par DEBUG=true au service) | (definido por DEBUG=true en el servicio) | `:1334` |
+| ☐ | disabled | désactivée | desactivada | `:1440` |
+| ☐ | On | Allumé | Encendido | `:1450` |
+| ☐ | Soft sleep | Veille douce | Suspensión suave | `:1454` |
+| ☐ | Deep sleep | Veille profonde | Suspensión profunda | `:1458` |
+| ☐ | Tap again — screen blacks ~15 s | Encore — écran noir ~15 s | Otra vez — pantalla negra ~15 s | `:1611` |
+| ☐ | Relaunch kiosk to apply | Relancer le kiosque pour appliquer | Reiniciar el quiosco para aplicar | `:1612` |
+| ☐ | Rain and lightning sensors | Capteurs pluie et foudre | Sensores de lluvia y rayos | `:1660` |
+| ☐ | On | Oui | Sí | `:1662` |
+| ☐ | Off | Non | No | `:1663` |
+| ☐ | Radar map for dashboards | Carte radar pour tableaux de bord | Mapa de radar para paneles | `:1671` |
+| ☐ | On | Oui | Sí | `:1673` |
+| ☐ | Off | Non | No | `:1674` |
+| ☐ | Radar map (Webpage card): | Carte radar (carte Page web) : | Mapa de radar (tarjeta Página web): | `:1691` |
+| ☐ | Can only be changed on the kiosk itself. | Modifiable uniquement sur le kiosque. | Solo se puede cambiar en el propio quiosco. | `:1700` |
+| ☐ | Lets Home Assistant on your network read this kiosk's nowcast for your saved location: raining now, minutes until rain, and the nearest lightning. The radar map adds Sweep's map alone, without buttons, for a dashboard; it shows where home is to anyone on your network. Read-only, nothing else is shared. Setup: docs/home-assistant.md. | Permet à Home Assistant sur votre réseau de lire la prévision immédiate de ce kiosque pour votre position : pluie en cours, minutes avant la pluie, foudre la plus proche. La carte radar ajoute la carte de Sweep seule, sans boutons, pour un tableau de bord ; elle montre votre position à tout appareil du réseau. Lecture seule, rien d'autre n'est partagé. Configuration : docs/home-assistant.md. | Permite que Home Assistant en su red lea el pronóstico inmediato de este quiosco para su ubicación: lluvia ahora, minutos hasta la lluvia y el rayo más cercano. El mapa de radar añade el mapa de Sweep solo, sin botones, para un panel; muestra dónde está su casa a cualquiera en su red. Solo lectura, no se comparte nada más. Configuración: docs/home-assistant.md. | `:1701` |
+| ☐ | Applied live · stored on this device | Appliqué en direct · stocké sur cet appareil | Aplicado en vivo · guardado en este dispositivo | `:1763` |
+| ☐ | Optional · stored on this device, never in the app | Facultatif · stocké sur cet appareil, jamais dans l'application | Opcional · guardado en este dispositivo, nunca en la app | `:1770` |
+| ☐ | Keys & coordinates saved together via Save | Clés et coordonnées enregistrées ensemble via Enregistrer | Claves y coordenadas guardadas juntas con Guardar | `:1774` |
+| ☐ | Each setting saved on this device on change | Chaque réglage enregistré sur cet appareil au changement | Cada ajuste se guarda en este dispositivo al cambiar | `:1781` |
+| ☐ | Each setting saved to settings.json on change | Chaque réglage enregistré dans settings.json au changement | Cada ajuste se guarda en settings.json al cambiar | `:1785` |
+| ☐ | Remote connection detected. To change these settings, open an SSH tunnel from your local machine and reload the app from https://localhost:8443. | Connexion distante détectée. Pour modifier ces paramètres, ouvrez un tunnel SSH depuis votre poste local et rechargez l'application depuis https://localhost:8443. | Conexión remota detectada. Para modificar estos ajustes, abra un túnel SSH desde su equipo local y recargue la app desde https://localhost:8443. | `:1819` |
+| ☐ | Copy command | Copier la commande | Copiar comando | `:1830` |
+| ☐ | Copy command | Copier la commande | Copiar comando | `:1831` |
+| ☐ | Copied! | Copié ! | ¡Copiado! | `:1834` |
+| ☐ | Copy | Copier | Copiar | `:1835` |
 
 ## DebugPanel
 
@@ -899,76 +916,76 @@ Debug overlay — localhost-only, reached from a desktop browser or an SSH tunne
 
 | Validé | EN | FR | ES | Ligne |
 |--------|----|----|-----|-------|
-| ☐ | Shown | Affiché | Visible | `:275` |
-| ☐ | Update available | Mise à jour disponible | Actualización disponible | `:304` |
-| ☐ | UPD | MAJ | ACT | `:306` |
-| ☐ | Close | Fermer | Cerrar | `:336` |
-| ☐ | Updated | Actualisé | Actualizado | `:349` |
-| ☐ | ON | ACTIF | ACTIVO | `:425` |
-| ☐ | OFF | INACTIF | INACTIVO | `:426` |
-| ☐ | NONE | AUCUN | NINGUNO | `:433` |
-| ☐ | MINOR | MINEUR | MENOR | `:434` |
-| ☐ | MAJOR | MAJEUR | MAYOR | `:435` |
-| ☐ | CRITICAL | CRITIQUE | CRÍTICO | `:436` |
-| ☐ | MAINTENANCE | MAINTENANCE | MANTENIMIENTO | `:437` |
-| ☐ | Server | Serveur | Servidor | `:522` |
-| ☐ | Client | Client | Cliente | `:523` |
-| ☐ | Services | Services | Servicios | `:524` |
-| ☐ | About | À propos | Acerca de | `:525` |
-| ☐ | Server config | Configuration serveur | Configuración servidor | `:741` |
-| ☐ | version | version | versión | `:743` |
-| ☐ | branch | branche | rama | `:747` |
-| ☐ | Network | Réseau | Red | `:760` |
-| ☐ | Server KPI | KPI serveur | KPI servidor | `:773` |
-| ☐ | Power status | État alimentation | Estado de alimentación | `:790` |
-| ☐ | Response times | Temps de réponse | Tiempos de respuesta | `:797` |
-| ☐ | avg | moy | prom | `:803` |
-| ☐ | Nowcast skill (live) | Fiabilité prévision immédiate (direct) | Acierto del pronóstico inmediato (en vivo) | `:812` |
-| ☐ | Recent logs | Journaux récents | Registros recientes | `:833` |
-| ☐ | Offline — check the connection | Hors ligne — vérifiez la connexion | Sin conexión — compruebe la conexión | `:877` |
-| ☐ | Online · degraded network | En ligne · réseau dégradé | En línea · red degradada | `:879` |
-| ☐ | Online · slow network | En ligne · réseau lent | En línea · red lenta | `:881` |
-| ☐ | Online · fast network | En ligne · réseau rapide | En línea · red rápida | `:882` |
-| ☐ | No logs to show. | Aucun journal à afficher. | Sin registros para mostrar. | `:969` |
-| ☐ | Client KPI | KPI client | KPI cliente | `:1080` |
-| ☐ | Current position | Position actuelle | Posición actual | `:1102` |
-| ☐ | API calls (session) | Appels API (session) | Llamadas API (sesión) | `:1120` |
-| ☐ | avg | moy | prom | `:1129` |
-| ☐ | Remote clients | Clients distants | Clientes remotos | `:1135` |
-| ☐ | No remote clients tracked yet. | Aucun client distant suivi. | Ningún cliente remoto rastreado. | `:1137` |
-| ☐ | Security events | Événements de sécurité | Eventos de seguridad | `:1154` |
-| ☐ | No security events. | Aucun événement de sécurité. | Ningún evento de seguridad. | `:1156` |
-| ☐ | BLOCKED | BLOQUÉ | BLOQUEADO | `:1161` |
-| ☐ | Provider statuspages | Statut fournisseurs | Estado de proveedores | `:1184` |
-| ☐ | last fetch | dernière requête | última consulta | `:1186` |
-| ☐ | No provider status available. | Aucun statut fournisseur disponible. | Estado del proveedor no disponible. | `:1190` |
-| ☐ | Recent service calls | Appels de service récents | Llamadas de servicio recientes | `:1207` |
-| ☐ | No service activity yet. | Aucune activité de service. | Sin actividad de servicio. | `:1209` |
-| ☐ | API quotas | Quotas API | Cuotas API | `:1226` |
-| ☐ | No quota data tracked yet. | Aucune donnée de quota suivie. | Sin datos de cuota rastreados. | `:1227` |
-| ☐ | Checking… | Vérification… | Comprobando… | `:1379` |
-| ☐ | Check for updates | Vérifier les mises à jour | Buscar actualizaciones | `:1380` |
-| ☐ | Checking… | Vérification… | Comprobando… | `:1384` |
-| ☐ | Check for updates | Vérifier les mises à jour | Buscar actualizaciones | `:1385` |
-| ☐ | Export CSV | Exporter CSV | Exportar CSV | `:1391` |
-| ☐ | Export CSV | Exporter CSV | Exportar CSV | `:1394` |
-| ☐ | About this build | À propos de cette version | Acerca de esta versión | `:1398` |
-| ☐ | name | nom | nombre | `:1400` |
-| ☐ | version | version | versión | `:1401` |
-| ☐ | branch | branche | rama | `:1403` |
-| ☐ | license | licence | licencia | `:1405` |
-| ☐ | Update check | Vérification MAJ | Comprobación actualización | `:1412` |
-| ☐ | This install is too old for the in-app updater. Run | Cette installation est trop ancienne pour la mise à jour in-app. Lancez | Esta instalación es demasiado antigua para el actualizador in-app. Ejecuta | `:1424` |
-| ☐ | on the device to upgrade. | sur l'appareil pour mettre à jour. | en el dispositivo para actualizar. | `:1430` |
-| ☐ | Install update… | Installer la mise à jour… | Instalar actualización… | `:1450` |
-| ☐ | latest ver | dernière ver | última ver | `:1459` |
-| ☐ | available | disponible | disponible | `:1460` |
-| ☐ | YES | OUI | SÍ | `:1461` |
-| ☐ | UP-TO-DATE | À JOUR | AL DÍA | `:1462` |
-| ☐ | Vulnerability scan | Analyse vulnérabilités | Análisis vulnerabilidades | `:1469` |
-| ☐ | Vulnerability scanning + automatic security PRs now live on GitHub via Dependabot — see the alerts dashboard for the live source of truth. | L'analyse des vulnérabilités et les PR de sécurité automatiques vivent maintenant sur GitHub via Dependabot — voir le tableau d'alertes pour la source en temps réel. | El análisis de vulnerabilidades y los PR de seguridad automáticos viven ahora en GitHub vía Dependabot — consulta el panel de alertas para la fuente en tiempo real. | `:1472` |
-| ☐ | Check security alerts on GitHub | Vérifier les alertes de sécurité sur GitHub | Ver las alertas de seguridad en GitHub | `:1493` |
-| ☐ | POWER OK | ALIMENTATION OK | ALIMENTACIÓN OK | `:1560` |
+| ☐ | Shown | Affiché | Visible | `:292` |
+| ☐ | Update available | Mise à jour disponible | Actualización disponible | `:321` |
+| ☐ | UPD | MAJ | ACT | `:323` |
+| ☐ | Close | Fermer | Cerrar | `:353` |
+| ☐ | Updated | Actualisé | Actualizado | `:366` |
+| ☐ | ON | ACTIF | ACTIVO | `:442` |
+| ☐ | OFF | INACTIF | INACTIVO | `:443` |
+| ☐ | NONE | AUCUN | NINGUNO | `:450` |
+| ☐ | MINOR | MINEUR | MENOR | `:451` |
+| ☐ | MAJOR | MAJEUR | MAYOR | `:452` |
+| ☐ | CRITICAL | CRITIQUE | CRÍTICO | `:453` |
+| ☐ | MAINTENANCE | MAINTENANCE | MANTENIMIENTO | `:454` |
+| ☐ | Server | Serveur | Servidor | `:539` |
+| ☐ | Client | Client | Cliente | `:540` |
+| ☐ | Services | Services | Servicios | `:541` |
+| ☐ | About | À propos | Acerca de | `:542` |
+| ☐ | Server config | Configuration serveur | Configuración servidor | `:758` |
+| ☐ | version | version | versión | `:760` |
+| ☐ | branch | branche | rama | `:764` |
+| ☐ | Network | Réseau | Red | `:777` |
+| ☐ | Server KPI | KPI serveur | KPI servidor | `:790` |
+| ☐ | Power status | État alimentation | Estado de alimentación | `:807` |
+| ☐ | Response times | Temps de réponse | Tiempos de respuesta | `:814` |
+| ☐ | avg | moy | prom | `:820` |
+| ☐ | Nowcast skill (live) | Fiabilité prévision immédiate (direct) | Acierto del pronóstico inmediato (en vivo) | `:829` |
+| ☐ | Recent logs | Journaux récents | Registros recientes | `:850` |
+| ☐ | Offline — check the connection | Hors ligne — vérifiez la connexion | Sin conexión — compruebe la conexión | `:894` |
+| ☐ | Online · degraded network | En ligne · réseau dégradé | En línea · red degradada | `:896` |
+| ☐ | Online · slow network | En ligne · réseau lent | En línea · red lenta | `:898` |
+| ☐ | Online · fast network | En ligne · réseau rapide | En línea · red rápida | `:899` |
+| ☐ | No logs to show. | Aucun journal à afficher. | Sin registros para mostrar. | `:986` |
+| ☐ | Client KPI | KPI client | KPI cliente | `:1098` |
+| ☐ | Current position | Position actuelle | Posición actual | `:1120` |
+| ☐ | API calls (session) | Appels API (session) | Llamadas API (sesión) | `:1138` |
+| ☐ | avg | moy | prom | `:1147` |
+| ☐ | Remote clients | Clients distants | Clientes remotos | `:1153` |
+| ☐ | No remote clients tracked yet. | Aucun client distant suivi. | Ningún cliente remoto rastreado. | `:1155` |
+| ☐ | Security events | Événements de sécurité | Eventos de seguridad | `:1172` |
+| ☐ | No security events. | Aucun événement de sécurité. | Ningún evento de seguridad. | `:1174` |
+| ☐ | BLOCKED | BLOQUÉ | BLOQUEADO | `:1179` |
+| ☐ | Provider statuspages | Statut fournisseurs | Estado de proveedores | `:1202` |
+| ☐ | last fetch | dernière requête | última consulta | `:1204` |
+| ☐ | No provider status available. | Aucun statut fournisseur disponible. | Estado del proveedor no disponible. | `:1208` |
+| ☐ | Recent service calls | Appels de service récents | Llamadas de servicio recientes | `:1225` |
+| ☐ | No service activity yet. | Aucune activité de service. | Sin actividad de servicio. | `:1227` |
+| ☐ | API quotas | Quotas API | Cuotas API | `:1244` |
+| ☐ | No quota data tracked yet. | Aucune donnée de quota suivie. | Sin datos de cuota rastreados. | `:1245` |
+| ☐ | Checking… | Vérification… | Comprobando… | `:1399` |
+| ☐ | Check for updates | Vérifier les mises à jour | Buscar actualizaciones | `:1400` |
+| ☐ | Checking… | Vérification… | Comprobando… | `:1404` |
+| ☐ | Check for updates | Vérifier les mises à jour | Buscar actualizaciones | `:1405` |
+| ☐ | Export CSV | Exporter CSV | Exportar CSV | `:1411` |
+| ☐ | Export CSV | Exporter CSV | Exportar CSV | `:1414` |
+| ☐ | About this build | À propos de cette version | Acerca de esta versión | `:1418` |
+| ☐ | name | nom | nombre | `:1420` |
+| ☐ | version | version | versión | `:1421` |
+| ☐ | branch | branche | rama | `:1423` |
+| ☐ | license | licence | licencia | `:1425` |
+| ☐ | Update check | Vérification MAJ | Comprobación actualización | `:1432` |
+| ☐ | This install is too old for the in-app updater. Run | Cette installation est trop ancienne pour la mise à jour in-app. Lancez | Esta instalación es demasiado antigua para el actualizador in-app. Ejecuta | `:1444` |
+| ☐ | on the device to upgrade. | sur l'appareil pour mettre à jour. | en el dispositivo para actualizar. | `:1450` |
+| ☐ | Install update… | Installer la mise à jour… | Instalar actualización… | `:1470` |
+| ☐ | latest ver | dernière ver | última ver | `:1479` |
+| ☐ | available | disponible | disponible | `:1480` |
+| ☐ | YES | OUI | SÍ | `:1481` |
+| ☐ | UP-TO-DATE | À JOUR | AL DÍA | `:1482` |
+| ☐ | Vulnerability scan | Analyse vulnérabilités | Análisis vulnerabilidades | `:1489` |
+| ☐ | Vulnerability scanning + automatic security PRs now live on GitHub via Dependabot — see the alerts dashboard for the live source of truth. | L'analyse des vulnérabilités et les PR de sécurité automatiques vivent maintenant sur GitHub via Dependabot — voir le tableau d'alertes pour la source en temps réel. | El análisis de vulnerabilidades y los PR de seguridad automáticos viven ahora en GitHub vía Dependabot — consulta el panel de alertas para la fuente en tiempo real. | `:1492` |
+| ☐ | Check security alerts on GitHub | Vérifier les alertes de sécurité sur GitHub | Ver las alertas de seguridad en GitHub | `:1513` |
+| ☐ | POWER OK | ALIMENTATION OK | ALIMENTACIÓN OK | `:1580` |
 
 ---
 

@@ -27,7 +27,7 @@ Why two files? Firefox 150 enforces RFC 5280 strictly and rejects a cert with `C
 
 The server regenerates only the leaf when network configuration changes (new DHCP IP, hostname change, second interface), keeping `ca-cert.pem` intact — clients that already installed the CA stay trusted automatically for the new leaf.
 
-`GET /api/cert.pem` serves `ca-cert.pem` (the artefact to install in the trust store), not the leaf.
+`GET /api/cert.pem` serves `ca-cert.pem` (as `sweep-cert.pem` — the artefact to install in the trust store), not the leaf.
 
 ---
 
@@ -96,13 +96,13 @@ independently:
 
 **CA regeneration** (`caNeedsRegen`) — triggered when:
 - `ca-cert.pem` or `ca-key.pem` is missing
-- The CA subject CN does not match `Pi Weather Station - <hostname>` (machine hostname changed)
+- The CA subject CN does not match `Sweep CA - <hostname>` (or `Sweep CA` when hostname is empty/`localhost`)
 
 **Leaf regeneration** (`leafNeedsRegen`) — triggered when:
 - `cert.pem` or `key.pem` is missing
 - The cert expires in less than 30 days
 - The cert SAN no longer covers every current LAN IP (DHCP change, new interface)
-- The leaf subject CN does not match `localhost`
+- The leaf subject CN does not match `Sweep - <hostname>` (or `Sweep`)
 - The cert is in the old pre-V3 format (single self-signed root with `CA:TRUE`)
 - The CA was just regenerated (the leaf must then be re-signed)
 
@@ -162,8 +162,8 @@ key inside the `<dict>` that follows `<key>EnvironmentVariables</key>`:
 Then reload:
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.pi-weather-station.plist
-launchctl load   ~/Library/LaunchAgents/com.pi-weather-station.plist
+launchctl bootout   "gui/$(id -u)" ~/Library/LaunchAgents/com.pi-weather-station.plist 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.pi-weather-station.plist
 ```
 
 ### Verifying
@@ -219,5 +219,5 @@ curl -v https://<pi-ip>:8443/api/is-local
 ```
 
 The `openssl s_client` command should report the `issuer` matching your
-CA (instead of `CN=localhost` for the self-signed) and the validity
+CA (instead of `CN=Sweep CA - <hostname>` for the self-signed chain) and the validity
 dates you expect.

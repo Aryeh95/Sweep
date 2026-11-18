@@ -2,7 +2,6 @@
   "name": "sweep-app",
   "version": "2.2.0",
   "description": "Android shell for Sweep \u2014 loads the standalone client bundle in a WebView.",
-  "main": "index.js",
   "scripts": {
     "build:web": "npm --prefix ../client run app:build",
     "sync": "npm run build:web && cap sync android",
@@ -11,7 +10,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "@capacitor/android": "^8.5.1",
     "@capacitor/cli": "^8.5.1",

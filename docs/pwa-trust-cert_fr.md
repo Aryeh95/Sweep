@@ -16,7 +16,7 @@ L'installation la plus rapide. Fonctionne sur iOS, Android, macOS, Windows et Li
 1. Sur l'appareil à configurer, ouvrez l'URL du kiosque (p. ex. `https://<ip-du-pi>:8443`) et tapez sur **Continuer** malgré l'avertissement de sécurité du navigateur. (C'est précisément cet avertissement que ce guide fait disparaître — mais pour l'instant il faut l'accepter une fois pour charger la page.)
 2. Ouvrez **Paramètres** dans l'app (icône engrenage dans le dock du bas).
 3. Section 1 (Préférences locales) → descendez jusqu'au bloc **« Faire confiance à ce Pi sur cet appareil »** en bas.
-4. Tapez sur **Télécharger le certificat**. Le fichier `pi-weather-cert.pem` est enregistré sur votre appareil.
+4. Tapez sur **Télécharger le certificat**. Le fichier `sweep-cert.pem` est enregistré sur votre appareil.
 5. Poursuivez avec les étapes spécifiques à la plateforme ci-dessous.
 
 Le lien « Télécharger le certificat » pointe vers `/api/cert.pem` qui sert le fichier avec `Content-Type: application/x-x509-ca-cert` — iOS, Android et macOS reconnaissent tous ce type MIME et proposent d'installer le certificat en tant que profil / racine système.
@@ -25,7 +25,7 @@ Le lien « Télécharger le certificat » pointe vers `/api/cert.pem` qui sert l
 
 ## iOS / iPadOS (Safari + tout autre navigateur iOS)
 
-1. Après avoir téléchargé `pi-weather-cert.pem`, iOS affiche une bannière : **« Profil téléchargé »**. Tapez dessus.
+1. Après avoir téléchargé `sweep-cert.pem`, iOS affiche une bannière : **« Profil téléchargé »**. Tapez dessus.
    - Si vous avez raté la bannière : **Réglages → Général → VPN et gestion des appareils → Profil téléchargé**.
 2. Tapez **Installer** en haut à droite. Saisissez le code de l'appareil.
 3. Confirmez tout avertissement « ce profil n'est pas signé par une AC reconnue » — c'est justement le but (le Pi est l'AC).
@@ -52,7 +52,7 @@ Le processus d'installation d'AC d'Android est plus verrouillé que celui d'iOS 
 
 1. Après le téléchargement, ouvrez **Paramètres → Sécurité → Paramètres de sécurité avancés → Chiffrement et identifiants → Installer un certificat → Certificat d'autorité de certification**.
 2. Tapez **Installer quand même** sur l'avertissement concernant les AC qui réduisent la sécurité.
-3. Sélectionnez le fichier `pi-weather-cert.pem` téléchargé.
+3. Sélectionnez le fichier `sweep-cert.pem` téléchargé.
 4. Confirmez le nom du certificat et **Installer**.
 
 > Note : sur Android 7+ les apps doivent explicitement opter pour les AC ajoutées par l'utilisateur via leur configuration de sécurité réseau. Chrome et Firefox optent pour cela ; certaines apps non. Pour notre cas d'usage (installation PWA via navigateur), c'est l'opt-in de Chrome qui compte.
@@ -75,7 +75,7 @@ Après l'installation :
 
 ## macOS (Trousseau d'accès)
 
-1. Double-cliquez sur le `pi-weather-cert.pem` téléchargé — **Trousseau d'accès** s'ouvre.
+1. Double-cliquez sur le `sweep-cert.pem` téléchargé — **Trousseau d'accès** s'ouvre.
 2. Confirmez l'ajout au trousseau **Système** (ou **login**, si vous ne voulez la confiance que pour votre utilisateur).
 3. Trouvez le certificat dans la liste. Il porte le nom d'hôte du Pi ou `localhost`.
 4. Double-cliquez dessus. Dans la section **Confiance**, définissez **« Lors de l'utilisation de ce certificat »** sur **« Toujours approuver »**.
@@ -91,7 +91,7 @@ Edge et Chrome utilisent le magasin de certificats Windows ; Firefox a son propr
 
 ### Edge / Chrome / IE
 
-1. Double-cliquez sur le `pi-weather-cert.pem` téléchargé.
+1. Double-cliquez sur le `sweep-cert.pem` téléchargé.
 2. Cliquez sur **Installer le certificat**.
 3. Choisissez **Ordinateur local** (à l'échelle du système) ou **Utilisateur actuel** (juste pour vous). Cliquez sur **Suivant**.
 4. Choisissez **« Placer tous les certificats dans le magasin suivant »** → **Parcourir** → sélectionnez **« Autorités de certification racines de confiance »** → **OK** → **Suivant** → **Terminer**.
@@ -103,7 +103,7 @@ Firefox a son propre magasin de confiance indépendant de Windows.
 
 1. **Préférences → Vie privée et sécurité → Certificats → Afficher les certificats**.
 2. Onglet **Autorités** → **Importer**.
-3. Sélectionnez `pi-weather-cert.pem`.
+3. Sélectionnez `sweep-cert.pem`.
 4. Cochez **« Confirmer cette AC pour identifier des sites Web »**. Cliquez sur **OK**.
 
 > **Si Firefox 150+ refuse d'importer le certificat en tant qu'autorité** avec `MOZILLA_PKIX_ERROR_CA_CERT_USED_AS_END_ENTITY` : ton Pi roule encore le code de génération de certificat antérieur à v2.16.x qui utilisait un seul cert auto-signé comme racine ET cert serveur. Tire la dernière version du code serveur, puis force la régénération (efface `server/cert.pem` + `server/key.pem` et redémarre). Le serveur génère maintenant une vraie chaîne AC racine + leaf que Firefox accepte. Voir la section « Quand refaire cette opération » en bas pour le reste de l'histoire.
@@ -118,9 +118,9 @@ La plupart des navigateurs de bureau sous Linux utilisent la base NSS partagée 
 sudo apt install libnss3-tools     # Debian / Ubuntu
 sudo dnf install nss-tools         # Fedora / RHEL
 
-certutil -A -n "Pi Weather Station" \
+certutil -A -n "Sweep" \
   -t "C,," \
-  -i pi-weather-cert.pem \
+  -i sweep-cert.pem \
   -d sql:$HOME/.pki/nssdb
 ```
 
@@ -132,8 +132,8 @@ Firefox a sa propre base ; utilisez soit l'interface Firefox (voir la section Wi
 
 Depuis le refactor en chaîne de certificats v2.16.x, le Pi utilise **deux** certificats qui travaillent ensemble :
 
-- **AC racine** (`ca-cert.pem`) — celui que tu installes dans le magasin de confiance. **Validité 10 ans**, CN `Pi Weather Station CA - <hostname>`. Le kiosque ne le régénère que si le hostname change — en pratique, jamais. C'est ce que sert `/api/cert.pem` et la seule chose à installer sur chaque appareil.
-- **Cert serveur (leaf)** (`cert.pem`) — celui que le Pi présente dans la poignée de main TLS. **Validité 825 jours**, CN `Pi Weather Station - <hostname>`, signé par l'AC racine. Régénération automatique quand l'expiration < 30 jours ou que la configuration LAN change (nouvelle IP, nouveau hostname). Comme le leaf est signé par l'AC à laquelle tu fais déjà confiance, la rotation du leaf est **transparente** — aucune re-confiance par appareil nécessaire.
+- **AC racine** (`ca-cert.pem`) — celui que tu installes dans le magasin de confiance. **Validité 10 ans**, CN `Sweep CA - <hostname>` (ou `Sweep CA`). Le kiosque ne le régénère que si le hostname change — en pratique, jamais. C'est ce que sert `/api/cert.pem` et la seule chose à installer sur chaque appareil.
+- **Cert serveur (leaf)** (`cert.pem`) — celui que le Pi présente dans la poignée de main TLS. **Validité 825 jours**, CN `Sweep - <hostname>` (ou `Sweep`), signé par l'AC racine. Régénération automatique quand l'expiration < 30 jours ou que la configuration LAN change (nouvelle IP, nouveau hostname). Comme le leaf est signé par l'AC à laquelle tu fais déjà confiance, la rotation du leaf est **transparente** — aucune re-confiance par appareil nécessaire.
 
 Concrètement : installe l'AC une fois par appareil. Le leaf peut tourner en arrière-plan sans casser ta confiance. La fenêtre de 10 ans de l'AC rend cela essentiellement « set and forget » pour la durée de vie du Pi.
 
