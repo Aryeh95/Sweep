@@ -1,6 +1,6 @@
 import React, { useContext } from "react";
 import PropTypes from "prop-types";
-import { AppContext } from "~/AppContext";
+import { LocationContext } from "~/AppContext";
 import { InlineIcon } from "@iconify/react";
 import locationIcon from "@iconify/icons-ion/location-sharp";
 import styles from "./styles.css";
@@ -22,7 +22,7 @@ import styles from "./styles.css";
  * @returns {JSX.Element} Location name
  */
 const LocationName = ({ stacked = false }) => {
-  const { mapGeo, reverseGeoResult } = useContext(AppContext);
+  const { mapGeo, reverseGeoResult } = useContext(LocationContext);
 
   // Three-state read on `reverseGeoResult` (see AppContext for the
   // sentinel meanings):
@@ -96,10 +96,14 @@ const getName = (res) => {
   // LocationIQ's address payload uses snake_case (country_code); rename
   // on destructure to avoid bleeding upstream conventions through the
   // rest of the function and to keep camelcase clean in our own code.
-  const { city, country, state, country_code: countryCode, county, region } = res.address;
+  const {
+    city, town, village, municipality, hamlet,
+    country, state, country_code: countryCode, county, region,
+  } = res.address;
+  const locality = city || town || village || municipality || hamlet;
   if (countryCode === "us") {
-    if (city) {
-      return `${city}, ${state}`;
+    if (locality) {
+      return `${locality}, ${state}`;
     } else if (county) {
       return `${county}, ${state}`;
     } else if (state) {
@@ -108,8 +112,8 @@ const getName = (res) => {
       return `${country}`;
     }
   } else {
-    if (city) {
-      return `${city}, ${country}`;
+    if (locality) {
+      return `${locality}, ${country}`;
     } else {
       return `${
         county

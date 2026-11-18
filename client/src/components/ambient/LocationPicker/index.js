@@ -12,7 +12,7 @@ import React, { useCallback, useContext, useEffect, useState } from "react";
 import PropTypes from "prop-types";
 import { MapContainer, TileLayer } from "react-leaflet";
 import useStableMapEvents from "../../WeatherMap/useStableMapEvents";
-import { AppContext } from "~/AppContext";
+import { LocationContext, UiPrefsContext } from "~/AppContext";
 import { mapTileUrl, mapAttribution, mapMaxNativeZoom, isUsableMapboxToken } from "~/standalone/upstream";
 import styles from "./styles.css";
 
@@ -55,16 +55,22 @@ const coord = (v, pos, neg) => `${Math.abs(v).toFixed(4)}° ${v >= 0 ? pos : neg
  * @returns {JSX.Element} the dialog
  */
 const LocationPicker = ({ onClose, label }) => {
-  const ctx = useContext(AppContext);
-  const { mapGeo, browserGeo, setHomeLocation, darkMode, lightModeStyle, darkModeStyle, appMapboxToken } = ctx;
+  const { mapGeo, browserGeo, setHomeLocation } = useContext(LocationContext);
+  const { darkMode, lightModeStyle, darkModeStyle, appMapboxToken } = useContext(UiPrefsContext);
   const start = mapGeo || browserGeo || { latitude: 39.5, longitude: -98.35 };
   const [center, setCenter] = useState({ lat: start.latitude, lng: start.longitude });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
   const onSet = useCallback(() => {

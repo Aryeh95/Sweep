@@ -19,7 +19,13 @@ import clientIcon from "@iconify/icons-carbon/screen";
 import servicesIcon from "@iconify/icons-carbon/network-3";
 import aboutIcon from "@iconify/icons-carbon/information";
 import axios from "axios";
-import { AppContext } from "~/AppContext";
+import {
+  AppActionsContext,
+  LocationContext,
+  RadarStateContext,
+  SystemContext,
+  UiPrefsContext,
+} from "~/AppContext";
 import { getPalette } from "~/ui/tokens";
 import { useTimeOfDay } from "~/ui/hybrid";
 import { resolvePanelFontSizeZoom } from "~/ui/fontSize";
@@ -95,15 +101,15 @@ const DebugPanel = () => {
   const lang = (i18n.language || "en").slice(0, 2);
   const {
     debugMenuOpen,
-    setDebugMenuOpen,
     isLocal,
     debugEnabled,
     // updateAvailable drives the "MAJ" discoverability badge on the
     // About rail entry (Phase 7). The check + install actions
     // themselves now live inside BucketAbout, not the toolbar.
     updateAvailable,
-    fontSize,
-  } = useContext(AppContext);
+  } = useContext(SystemContext);
+  const { setDebugMenuOpen } = useContext(AppActionsContext);
+  const { fontSize } = useContext(UiPrefsContext);
   // Multi-select buckets: each rail tab is a push-button. Press to
   // pin its section on screen; press again to unpin. Multiple
   // sections can stack vertically — handy for cross-bucket
@@ -222,6 +228,17 @@ const DebugPanel = () => {
   useEffect(() => {
     if (debugMenuOpen) fetchDebug();
   }, [debugMenuOpen, fetchDebug]);
+
+  useEffect(() => {
+    if (!debugMenuOpen || !isLocal || !debugEnabled) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        setDebugMenuOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [debugMenuOpen, isLocal, debugEnabled, setDebugMenuOpen]);
 
   // The panel renders nothing when closed, when the user isn't on a
   // local client, or when DEBUG=true isn't set on the service. The v2
@@ -1070,7 +1087,8 @@ const BucketClient = ({ data, lang, gridTwoWide }) => {
   // The Settings panel shows the *default* coords (`customLat`/`customLon`);
   // this row shows the *currently selected* coords the user navigated
   // to — same distinction v2 Debug surfaces in its Client KPI block.
-  const { mapGeo, currentMapZoom } = useContext(AppContext);
+  const { mapGeo } = useContext(LocationContext);
+  const { currentMapZoom } = useContext(RadarStateContext);
   const { pageLoad, heap, apiCalls, screen, fps } = useClientMetrics();
   const coordsString = mapGeo
     ? `${mapGeo.latitude.toFixed(6)}, ${mapGeo.longitude.toFixed(6)}`
@@ -1340,10 +1358,12 @@ const BucketAbout = ({ data, lang, gridTwoWide, fetchDebug }) => {
     latestVersion,
     updateCommits,
     needsManualUpgrade,
+  } = useContext(SystemContext);
+  const {
     setUpdateModalOpen,
     setDebugMenuOpen,
     refreshUpdateCheck,
-  } = useContext(AppContext);
+  } = useContext(AppActionsContext);
   const commitCount = Array.isArray(updateCommits) ? updateCommits.length : 0;
   // Phase 7: the "Check for updates" and "Export CSV" actions moved out
   // of the persistent toolbar into here — About is the panel's

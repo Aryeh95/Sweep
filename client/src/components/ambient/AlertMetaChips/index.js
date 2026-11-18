@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useContext } from "react";
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
 import { InlineIcon } from "@iconify/react";
 import calendarIcon from "@iconify/icons-carbon/calendar";
 import timeIcon from "@iconify/icons-carbon/time";
+import { LocationContext } from "~/AppContext";
 import styles from "./styles.css";
 
 /**
@@ -39,24 +40,38 @@ function formatIssued(sentAt, t) {
 }
 
 /**
- * Format the expiration timestamp into a short localized form.
- * Same-day → "HH:MM", different day → "<weekday> HH:MM".
+ * Format the expiration timestamp into a short localized form in the map's
+ * timezone. Same-day → "HH:MM", different day → "<weekday> HH:MM".
  *
  * @param {string|null} expiresAt - ISO timestamp
  * @param {string} lang - 'en' | 'fr' | 'es'
  * @param {Function} t - i18next translator (for the "tomorrow" word)
+ * @param {string} [timeZone] - IANA timezone for the map location
  * @returns {string|null} short localized "Expires" body, or null
  */
-function formatExpires(expiresAt, lang, t) {
+function formatExpires(expiresAt, lang, t, timeZone) {
   if (!expiresAt) return null;
   const d = new Date(expiresAt);
   if (Number.isNaN(d.getTime())) return null;
   const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
-  const isTomorrow = d.toDateString() === tomorrow.toDateString();
+  let tzOpts = {};
+  if (timeZone) {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone });
+      tzOpts = { timeZone };
+    } catch {
+      tzOpts = {};
+    }
+  }
+  const dayFmt = new Intl.DateTimeFormat("en-CA", {
+    ...tzOpts, year: "numeric", month: "2-digit", day: "2-digit",
+  });
+  const dDay = dayFmt.format(d);
+  const sameDay = dDay === dayFmt.format(now);
+  const tomorrow = new Date(now.getTime() + 86_400_000);
+  const isTomorrow = dDay === dayFmt.format(tomorrow);
   const hhmm = d.toLocaleTimeString(lang === "en" ? "en-US" : `${lang}-CA`, {
-    hour: "2-digit", minute: "2-digit", hour12: lang === "en",
+    hour: "2-digit", minute: "2-digit", hour12: lang === "en", ...tzOpts,
   });
   if (sameDay) return hhmm;
   if (isTomorrow) {
@@ -68,7 +83,7 @@ function formatExpires(expiresAt, lang, t) {
   }
   // > 2 days out — show the weekday short form ("Wed 14:30")
   const weekday = d.toLocaleDateString(lang === "en" ? "en-US" : `${lang}-CA`, {
-    weekday: "short",
+    weekday: "short", ...tzOpts,
   });
   return `${weekday} ${hhmm}`;
 }
@@ -100,11 +115,12 @@ function formatExpires(expiresAt, lang, t) {
  */
 const AlertMetaChips = ({ source, senderName, sentAt, expiresAt }) => {
   const { t, i18n } = useTranslation();
+  const { mapTimezone } = useContext(LocationContext);
   const lang = (i18n.language || "en").slice(0, 2);
 
   const sourceLabel = senderName || source;
   const issuedLabel = formatIssued(sentAt, t);
-  const expiresLabel = formatExpires(expiresAt, lang, t);
+  const expiresLabel = formatExpires(expiresAt, lang, t, mapTimezone);
 
   if (!sourceLabel && !issuedLabel && !expiresLabel) return null;
 

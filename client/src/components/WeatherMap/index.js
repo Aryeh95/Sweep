@@ -1352,7 +1352,10 @@ const WeatherMap = ({ zoom, dark }) => {
   const reflLoopEntry = (mosaicFromMrms && iemFromEnd > 0 && currentMosaicFrame)
     ? reflLoop.byStamp[currentMosaicFrame.stamp] || null
     : null;
-  const reflLoopField = useMemo(() => (reflLoopEntry ? decodeReflPayload(reflLoopEntry) : null), [reflLoopEntry]);
+  const reflLoopField = useMemo(
+    () => (reflLoopEntry ? decodeReflPayload(reflLoopEntry, { lazy: true }) : null),
+    [reflLoopEntry],
+  );
   const reflDisplayField = iemFromEnd === 0 ? mrmsMosaic.field : reflLoopField;
 
   // Point readout (MapProbe): the value of every layer drawn under a
@@ -1462,15 +1465,28 @@ const WeatherMap = ({ zoom, dark }) => {
   }, [wantedPrecipStamps]);
   const precipCurrentStamp = (iemFromEnd > 0 && currentMosaicFrame) ? stampOf(currentMosaicFrame.epoch) : null;
   const precipLoopEntry = precipCurrentStamp ? precipLoop.byStamp[precipCurrentStamp] : null;
-  // Decoded on demand, one frame at a time (~6 MB), rather than keeping
-  // eleven decoded CONUS fields resident.
-  const precipLoopField = useMemo(() => (precipLoopEntry ? {
-    key: precipLoopEntry.key,
-    grid: precipLoopEntry.grid,
-    cells: rleDecode(precipLoopEntry.rle, precipLoopEntry.grid.ni * precipLoopEntry.grid.nj),
-    validTime: precipLoopEntry.validTime,
-    rateAvailable: precipLoopEntry.rateAvailable,
-  } : null), [precipLoopEntry]);
+  // Decoded on demand when `cells` is actually read (~6 MB), so cached
+  // loop passes in PrecipMosaicLayer allocate 0 bytes per animation tick.
+  const precipLoopField = useMemo(() => {
+    if (!precipLoopEntry) return null;
+    let cells = null;
+    const field = {
+      key: precipLoopEntry.key,
+      grid: precipLoopEntry.grid,
+      validTime: precipLoopEntry.validTime,
+      rateAvailable: precipLoopEntry.rateAvailable,
+    };
+    Object.defineProperty(field, "cells", {
+      enumerable: true,
+      get() {
+        if (!cells) {
+          cells = rleDecode(precipLoopEntry.rle, precipLoopEntry.grid.ni * precipLoopEntry.grid.nj);
+        }
+        return cells;
+      },
+    });
+    return field;
+  }, [precipLoopEntry]);
   const precipDisplayField = iemFromEnd === 0 ? precipMosaic.field : precipLoopField;
   const precipMosaicShown = showRadar && radarPrecipType && iemVisible.mosaic && Boolean(precipDisplayField);
   // The QPE mosaic is newest-only: while the playhead is on history it

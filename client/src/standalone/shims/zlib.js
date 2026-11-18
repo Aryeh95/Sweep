@@ -36,13 +36,14 @@ export function gunzipSync(buf) {
 }
 
 /**
- * zlib-wrapped DEFLATE (satellite loop frame payloads).
+ * zlib-wrapped DEFLATE (satellite and mosaic frame payloads).
  *
  * @param {Uint8Array|Buffer} buf bytes to compress
+ * @param {object} [opts] pako deflate options (e.g. `{ level: 1 }`)
  * @returns {Buffer} deflated bytes
  */
-export function deflateSync(buf) {
-  return Buffer.from(deflate(buf));
+export function deflateSync(buf, opts) {
+  return Buffer.from(deflate(buf, opts));
 }
 
 export default { inflateSync, gunzipSync, deflateSync };

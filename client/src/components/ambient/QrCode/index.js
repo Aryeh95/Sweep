@@ -1,7 +1,7 @@
 import React, { useContext } from "react";
 import PropTypes from "prop-types";
 import { QRCodeSVG } from "qrcode.react";
-import { AppContext } from "~/AppContext";
+import { UiPrefsContext } from "~/AppContext";
 import { getPalette } from "~/ui/tokens";
 import { useTimeOfDay } from "~/ui/hybrid";
 import styles from "./styles.css";
@@ -28,7 +28,7 @@ import styles from "./styles.css";
  * @returns {JSX.Element} QR SVG wrapped in a flex container
  */
 const QrCode = ({ value, size = 96, title }) => {
-  const { darkMode } = useContext(AppContext);
+  const { darkMode } = useContext(UiPrefsContext);
   const tod = useTimeOfDay();
   const palette = getPalette(tod);
 

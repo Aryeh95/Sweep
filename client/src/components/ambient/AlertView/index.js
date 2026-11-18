@@ -5,7 +5,7 @@ import closeIcon from "@iconify/icons-carbon/close";
 import warningAltIcon from "@iconify/icons-carbon/warning-alt";
 import timeIcon from "@iconify/icons-carbon/time";
 import { RestoreIcon } from "~/components/WeatherMap/icons";
-import { AppActionsContext, SystemContext } from "~/AppContext";
+import { AppActionsContext, LocationContext, SystemContext } from "~/AppContext";
 import { parseAlertText } from "~/ui/alertParser";
 import useEligibleGovAlerts from "~/hooks/useEligibleGovAlerts";
 import useDismissedAlerts from "~/hooks/useDismissedAlerts";
@@ -46,6 +46,7 @@ const DOT_CLASS = { red: "dotRed", orange: "dotOrange", yellow: "dotYellow" };
 const AlertView = () => {
   const { setPiLayoutState, selectGovAlert } = useContext(AppActionsContext);
   const { piLayoutState } = useContext(SystemContext);
+  const { mapTimezone } = useContext(LocationContext);
   const { dismiss } = useDismissedAlerts();
   const { i18n, t } = useTranslation();
   const { eligibleGovAlerts, safeIdx, currentAlert } = useEligibleGovAlerts();
@@ -107,7 +108,20 @@ const AlertView = () => {
             <InlineIcon icon={timeIcon} aria-hidden="true" />
             {t("alert.view.until", {
               defaultValue: "Until {{time}}",
-              time: new Date(currentAlert.expiresAt).toLocaleTimeString(i18n.language, { hour: "numeric", minute: "2-digit" }),
+              time: (() => {
+                try {
+                  return new Date(currentAlert.expiresAt).toLocaleTimeString(i18n.language, {
+                    hour: "numeric",
+                    minute: "2-digit",
+                    ...(mapTimezone ? { timeZone: mapTimezone } : {}),
+                  });
+                } catch {
+                  return new Date(currentAlert.expiresAt).toLocaleTimeString(i18n.language, {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  });
+                }
+              })(),
             })}
             {currentAlert.senderName ? ` · ${currentAlert.senderName}` : ""}
           </div>

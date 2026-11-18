@@ -107,7 +107,8 @@ export function useUpdateChecker() {
    */
   const refreshUpdateCheck = useCallback((force) => {
     const url = force ? "/api/update-check/force" : "/api/update-check";
-    return axios.get(url).then((res) => {
+    const req = force ? axios.post(url) : axios.get(url);
+    return req.then((res) => {
       setUpdateAvailable(res.data.updateAvailable ?? false);
       setLatestVersion(res.data.latestVersion ?? null);
       setLatestSha(res.data.latestSha ?? null);

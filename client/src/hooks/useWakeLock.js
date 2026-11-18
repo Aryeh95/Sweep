@@ -28,7 +28,12 @@ export default function useWakeLock(enabled) {
     const acquire = async () => {
       if (released || document.visibilityState !== "visible") return;
       try {
-        sentinel = await navigator.wakeLock.request("screen");
+        const s = await navigator.wakeLock.request("screen");
+        if (released) {
+          s.release().catch(() => undefined);
+          return;
+        }
+        sentinel = s;
       } catch {
         // Denied, or the device is in a battery-saver state that refuses it.
       }

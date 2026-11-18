@@ -14,9 +14,7 @@ module.exports = (env) => {
   const STANDALONE = !!(env && env.STANDALONE);
 
   const definePlugin = new webpack.DefinePlugin({
-    __PRODUCTION__: JSON.stringify(
-      JSON.parse(env ? env.BUILD_PRODUCTION || "false" : "false")
-    ),
+    __PRODUCTION__: JSON.stringify(PRODUCTION),
     __STANDALONE__: JSON.stringify(STANDALONE),
   });
 
@@ -78,7 +76,9 @@ module.exports = (env) => {
                     esModule: false,
                     modules: {
                       exportLocalsConvention: "camelCase",
-                      localIdentName: "[path][name]__[local]--[hash:base64:5]",
+                      localIdentName: PRODUCTION
+                        ? "[name]__[local]--[hash:base64:5]"
+                        : "[path][name]__[local]--[hash:base64:5]",
                     },
                   },
                 },

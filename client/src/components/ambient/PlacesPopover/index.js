@@ -2,7 +2,7 @@ import React, { useContext, useEffect, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
 import DetailsPopover from "~/components/ambient/DetailsPopover";
-import { AppContext } from "~/AppContext";
+import { AppActionsContext, LocationContext, SystemContext } from "~/AppContext";
 import styles from "./styles.css";
 
 // Two-tap confirm window for the destructive Remove action, mirroring
@@ -36,10 +36,13 @@ const REMOVE_CONFIRM_MS = 4000;
  */
 const PlacesPopover = ({ open, onClose, triggerRef = null, onNotify = null }) => {
   const {
-    favorites, mapGeo, browserGeo, isLocal, homeLabel,
+    favorites, mapGeo, browserGeo, homeLabel,
     canRenameFavorite, removeFavorite, renameFavorite, setFavoriteAsDefault,
+  } = useContext(LocationContext);
+  const { isLocal } = useContext(SystemContext);
+  const {
     setMapPosition, resetMapPosition, saveDefaultMapZoom,
-  } = useContext(AppContext);
+  } = useContext(AppActionsContext);
   const { t } = useTranslation();
 
   const [editing, setEditing] = useState(false);
@@ -52,6 +55,19 @@ const PlacesPopover = ({ open, onClose, triggerRef = null, onNotify = null }) =>
   // Clear the pending disarm timer on unmount — the popover is conditionally
   // rendered, so it unmounts on every close, armed or not.
   useEffect(() => () => clearTimeout(armTimerRef.current), []);
+
+  // Reset transient edit/confirm/rename state whenever the popover closes so
+  // reopening starts clean in navigate mode.
+  useEffect(() => {
+    if (!open) {
+      clearTimeout(armTimerRef.current);
+      setEditing(false);
+      setArmedId(null);
+      setRenamingId(null);
+      setDraftLabel("");
+      setFailed(false);
+    }
+  }, [open]);
 
   // Leaving edit mode (or closing) must not leave a row armed or a rename
   // half-open: reopening would show a confirm state the user never asked for.
@@ -155,7 +171,13 @@ const PlacesPopover = ({ open, onClose, triggerRef = null, onNotify = null }) =>
             onBlur={() => commitRename(f)}
             onKeyDown={(e) => {
               if (e.key === "Enter") commitRename(f);
-              if (e.key === "Escape") { setRenamingId(null); setDraftLabel(""); }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                e.nativeEvent?.stopImmediatePropagation?.();
+                setRenamingId(null);
+                setDraftLabel("");
+              }
             }}
           />
         ) : (

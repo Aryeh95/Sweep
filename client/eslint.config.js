@@ -8,6 +8,7 @@ const eslintComments = require("@eslint-community/eslint-plugin-eslint-comments"
 module.exports = [
   js.configs.recommended,
   react.configs.flat.recommended,
+  react.configs.flat["jsx-runtime"],
   jsdoc.configs["flat/recommended"],
   // eslint-comments flat config (plugin doesn't yet export one natively)
   {
@@ -62,7 +63,7 @@ module.exports = [
     },
     rules: {
       ...reactHooks.configs["recommended-latest"].rules,
-      "react/jsx-uses-react": 1,
+      "react/jsx-uses-react": 2,
       "semi": 1,
       "camelcase": 1,
       "no-useless-return": 2,

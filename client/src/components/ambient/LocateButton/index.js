@@ -40,9 +40,12 @@ const LocateButton = () => {
   // Survives unmount: a fix can land after the layout has switched away.
   const aliveRef = useRef(true);
   const resetRef = useRef(null);
-  useEffect(() => () => {
-    aliveRef.current = false;
-    clearTimeout(resetRef.current);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      clearTimeout(resetRef.current);
+    };
   }, []);
 
   const handleClick = useCallback(() => {

@@ -102,6 +102,7 @@ export default function useRadarRadial({
   // run and cleanup, so a slow answer for a previous site / pin is dropped
   // (a shared `cancelled` boolean is reset by the next run and let it in).
   const genRef = useRef(0);
+  const reqSeqRef = useRef(0);
   const retryRef = useRef(null);
   const retriesRef = useRef(0);
   // scanTime of the clean frame on screen, or null when it is not clean.
@@ -159,16 +160,29 @@ export default function useRadarRadial({
     };
     retriesRef.current = 0;
 
+    let activeController = null;
+    const abortActive = () => {
+      if (activeController) {
+        activeController.abort();
+        activeController = null;
+      }
+    };
+
     const fetchAndRender = () => {
       clearRetry();
+      abortActive();
+      const reqSeq = ++reqSeqRef.current;
+      const controller = new AbortController();
+      activeController = controller;
       // The mask is applied server-side, before the bins are packed, so
       // the payload and the render are identical either way — only the
       // gates that survive differ.
       const params = { site, product };
       if (dualPolClean) params.clean = 1;
-      axios.get("/api/radar/radial", { params })
+      axios.get("/api/radar/radial", { params, signal: controller.signal })
         .then((res) => {
-          if (genRef.current !== gen) return;
+          if (activeController === controller) activeController = null;
+          if (genRef.current !== gen || reqSeqRef.current !== reqSeq) return;
           const d = res.data || {};
           if (!d.available) {
             // No recent product — clear so the tile fallback shows (or, for
@@ -193,6 +207,7 @@ export default function useRadarRadial({
           if (pending) {
             if (retriesRef.current < CLEAN_RETRY_LIMIT) {
               retriesRef.current += 1;
+              clearRetry();
               retryRef.current = setTimeout(fetchAndRender, CLEAN_RETRY_MS);
             }
           } else {
@@ -243,14 +258,15 @@ export default function useRadarRadial({
           const bins = decodeBins(d.bins);
           const { canvas, bounds } = renderRadialImage(d, bins, minDbz, palette);
           canvas.toBlob((blob) => {
-            if (genRef.current !== gen || !blob) return;
+            if (genRef.current !== gen || reqSeqRef.current !== reqSeq || !blob) return;
             lastKeyRef.current = renderKey;
             binsRef.current = { d, bins };
             publish(URL.createObjectURL(blob), bounds, d.scanTime, cleanApplied);
           }, "image/png");
         })
-        .catch(() => {
-          if (genRef.current !== gen) return;
+        .catch((err) => {
+          if (activeController === controller) activeController = null;
+          if (axios.isCancel(err) || genRef.current !== gen || reqSeqRef.current !== reqSeq) return;
           // Keep the last rendered frame, flagged stale — consistent with
           // the frame-list and storm-track pollers.
           setState((prev) => ({ ...prev, stale: true }));
@@ -263,6 +279,7 @@ export default function useRadarRadial({
       genRef.current += 1;
       clearInterval(id);
       clearRetry();
+      abortActive();
     };
   }, [site, enabled, noiseFilter, dualPolClean, product, paused, palette]);
 

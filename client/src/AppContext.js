@@ -25,6 +25,15 @@ import tzlookup from "tz-lookup";
 // Accumulation products in dock-cycle order (see cycleRadarAccumulation).
 const ACCUMULATION_CYCLE = ["DAA", "DU3", "DTA"];
 
+/**
+ * True when a persisted coordinate value is present and finite (including `0`
+ * on the Equator or Prime Meridian, which bare truthiness checks reject).
+ *
+ * @param {*} v candidate coordinate
+ * @returns {boolean}
+ */
+const hasCoord = (v) => v !== undefined && v !== null && v !== "" && Number.isFinite(Number(v));
+
 export const AppContext = createContext();
 
 // ——— Context slices (step 2b of the AppContext split) ———
@@ -234,14 +243,16 @@ export function AppContextProvider({ children }) {
   // moment. Falls back to undefined → Intl uses host TZ → Clock
   // behaves like before.
   const [mapTimezone, setMapTimezone] = useState(undefined);
+  const mapTimezoneRef = useRef(mapTimezone);
+  mapTimezoneRef.current = mapTimezone;
   useEffect(() => {
     if (!mapGeo) return;
     try {
       setMapTimezone(tzlookup(mapGeo.latitude, mapGeo.longitude));
     } catch {
       // tz-lookup throws on out-of-range coords (e.g. ocean buoy with
-      // no nearby polygon) — fall back to host timezone silently.
-      setMapTimezone(undefined);
+      // no nearby polygon) — fall back to host timezone or UTC.
+      setMapTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
     }
   }, [mapGeo]);
 
@@ -280,6 +291,7 @@ export function AppContextProvider({ children }) {
   // the default changes, which is a paid call for no new information.
   const [homeLabel, setHomeLabel] = useState(null);
   const browserGeoRef = useRef(browserGeo);
+  browserGeoRef.current = browserGeo;
   useEffect(() => { browserGeoRef.current = browserGeo; }, [browserGeo]);
   const homeLabelCapturedRef = useRef(false);
 
@@ -353,6 +365,8 @@ export function AppContextProvider({ children }) {
   // mode that holds the GPS radio open would be a poor default, and the
   // button is one tap away.
   const [followLocation, setFollowLocation] = useState(false);
+  const followLocationRef = useRef(followLocation);
+  followLocationRef.current = followLocation;
 
   // Keep-screen-on (app only). Per-device and PERSISTED, unlike follow mode:
   // it is a standing preference about this phone, and the case for it —
@@ -586,6 +600,9 @@ export function AppContextProvider({ children }) {
   const [defaultMapZoom, setDefaultMapZoom] = useState(() => readStoredZoom() ?? DEFAULT_MAP_ZOOM_FALLBACK);
   const [currentMapZoom, setCurrentMapZoom] = useState(() => readStoredZoom() ?? DEFAULT_MAP_ZOOM_FALLBACK);
   const [zoomToLevel, setZoomToLevel] = useState(null);
+  const bootZoomRef = useRef(readStoredZoom() ?? DEFAULT_MAP_ZOOM_FALLBACK);
+  const currentMapZoomRef = useRef(currentMapZoom);
+  currentMapZoomRef.current = currentMapZoom;
   // Freshness signal for the radar-anchored NowcastLine calm copy: the UNIX
   // timestamp (ms) of the newest frame, pushed up by WeatherMap when the
   // frame list refreshes. NowcastLine compares it against a staleness threshold
@@ -961,6 +978,8 @@ export function AppContextProvider({ children }) {
   // a copy only for the Settings field and to refetch frames the moment
   // it changes rather than on the next 60 s poll.
   const [radarSite, setRadarSite] = useState("");
+  const radarSiteRef = useRef(radarSite);
+  radarSiteRef.current = radarSite;
   const [customLon, setCustomLon] = useState(null);
   const [mouseHide, setMouseHide] = useState(false);
   // Per-device opt-in to surface yellow-tier (advisory) government
@@ -1310,8 +1329,9 @@ export function AppContextProvider({ children }) {
     setHideRadarLegend(!!hideRadarLegend);
 
 
-    const parsedZoom = parseInt(storedZoom, 10);
+    const parsedZoom = parseFloat(storedZoom);
     if (Number.isFinite(parsedZoom)) {
+      bootZoomRef.current = parsedZoom;
       setDefaultMapZoom(parsedZoom);
       setCurrentMapZoom(parsedZoom);
     }
@@ -1355,10 +1375,10 @@ export function AppContextProvider({ children }) {
         .then((res) => {
           if (res) {
             const { startingLat, startingLon } = res;
-            if (startingLat) {
+            if (hasCoord(startingLat)) {
               setCustomLat(startingLat);
             }
-            if (startingLon) {
+            if (hasCoord(startingLon)) {
               setCustomLon(startingLon);
             }
             setRadarSite(typeof res.radarSite === "string" ? res.radarSite : "");
@@ -1390,7 +1410,13 @@ export function AppContextProvider({ children }) {
                 // came to rest. Rounding here would also disagree with the
                 // localStorage copy and leave the persist effect below
                 // seeing a difference it can never settle.
-                setDefaultMapZoom(advancedDisplay.defaultMapZoom);
+                const hydratedZoom = advancedDisplay.defaultMapZoom;
+                setDefaultMapZoom(hydratedZoom);
+                if (currentMapZoomRef.current === bootZoomRef.current) {
+                  bootZoomRef.current = hydratedZoom;
+                  setCurrentMapZoom(hydratedZoom);
+                  setZoomToLevel(hydratedZoom);
+                }
               }
               if (typeof advancedDisplay.radarOpacityDark === "number") {
                 setRadarOpacityDark(advancedDisplay.radarOpacityDark);
@@ -1479,10 +1505,45 @@ export function AppContextProvider({ children }) {
    */
   const getBrowserGeo = useCallback(() => {
     return new Promise((resolve, reject) => {
+      const fallbackGeo = () => {
+        if (__STANDALONE__ && readLastPosition()) {
+          // Already seeded from the last position at init, and the app does
+          // NOT ask for a fix on launch: acquiring one is what the follow
+          // button is for. Opening the app should not cost a permission
+          // prompt, a GPS lock, or a map that waits.
+          resolve(readLastPosition());
+          return;
+        }
+        // First run (or the kiosk, which has no GPS at all): the IP lookup
+        // is enough to frame a map and costs no permission. A real fix
+        // arrives if and when the user asks for one.
+        getCoordsFromApi()
+          .then((apiRes) => {
+            if (!apiRes) {
+              return reject("Could not get browser geolocation data");
+            }
+            const { latitude, longitude } = apiRes;
+            setBrowserGeo({ latitude, longitude });
+            setMapGeo({ latitude, longitude }); //Set initial map coords to browser geolocation
+            resolve(apiRes);
+          })
+          .catch((err) => {
+            // The app must always end up with a map. Offline on a first
+            // launch, or a rate-limited IP lookup, would otherwise leave
+            // it on the locating placeholder indefinitely.
+            if (__STANDALONE__) {
+              setBrowserGeo(DEFAULT_APP_POSITION);
+              setMapGeo(DEFAULT_APP_POSITION);
+              return resolve(DEFAULT_APP_POSITION);
+            }
+            return reject(err);
+          });
+      };
+
       getCustomLatLon()
         .then((res) => {
-          const { startingLat, startingLon } = res;
-          if (startingLat && startingLon) {
+          const { startingLat, startingLon } = res || {};
+          if (hasCoord(startingLat) && hasCoord(startingLon)) {
             const latLon = {
               latitude: parseFloat(startingLat),
               longitude: parseFloat(startingLon),
@@ -1490,41 +1551,13 @@ export function AppContextProvider({ children }) {
             setBrowserGeo(latLon);
             setMapGeo(latLon); //Set initial map coords to custom lat/lon
             resolve(latLon);
-          } else if (__STANDALONE__ && readLastPosition()) {
-            // Already seeded from the last position at init, and the app does
-            // NOT ask for a fix on launch: acquiring one is what the follow
-            // button is for. Opening the app should not cost a permission
-            // prompt, a GPS lock, or a map that waits.
-            resolve(readLastPosition());
           } else {
-            // First run (or the kiosk, which has no GPS at all): the IP lookup
-            // is enough to frame a map and costs no permission. A real fix
-            // arrives if and when the user asks for one.
-            getCoordsFromApi()
-              .then((res) => {
-                if (!res) {
-                  return reject("Could not get browser geolocation data");
-                }
-                const { latitude, longitude } = res;
-                setBrowserGeo({ latitude, longitude });
-                setMapGeo({ latitude, longitude }); //Set initial map coords to browser geolocation
-                resolve(res);
-              })
-              .catch((err) => {
-                // The app must always end up with a map. Offline on a first
-                // launch, or a rate-limited IP lookup, would otherwise leave
-                // it on the locating placeholder indefinitely.
-                if (__STANDALONE__) {
-                  setBrowserGeo(DEFAULT_APP_POSITION);
-                  setMapGeo(DEFAULT_APP_POSITION);
-                  return resolve(DEFAULT_APP_POSITION);
-                }
-                return reject(err);
-              });
+            fallbackGeo();
           }
         })
         .catch((err) => {
           console.log("err!", err);
+          fallbackGeo();
         });
     });
   }, [getCustomLatLon]);
@@ -1614,10 +1647,11 @@ export function AppContextProvider({ children }) {
     }
   }, [reverseGeoApiKey, getReverseGeoApiKey]);
 
-
+  const solarReqSeqRef = useRef(0);
 
   const updateSunriseSunset = useCallback((coords) => {
     return new Promise((resolve, reject) => {
+      const seq = ++solarReqSeqRef.current;
       if (!coords) {
         setSunriseTime(null);
         setSunsetTime(null);
@@ -1625,16 +1659,34 @@ export function AppContextProvider({ children }) {
       }
       const { latitude, longitude } = coords;
 
-      // Pass today's LOCAL date so the upstream API returns sunrise /
-      // sunset for the user's day rather than "today UTC" — which,
-      // for users west of UTC during evening hours, is already the
-      // next UTC day and skips over today's local sunset (auto
-      // dark-mode flipped early as a result).
-      const d = new Date();
-      const localDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      // Pass today's date in the MAP LOCATION's timezone (not the host
+      // browser's, and not UTC) so sunrise / sunset always describe the
+      // calendar day at the marker.
+      let tz = mapTimezoneRef.current;
+      try {
+        tz = tzlookup(latitude, longitude) || tz;
+      } catch {
+        // Out-of-range or ocean coordinates — fall back to mapTimezoneRef / host TZ.
+      }
+      let localDate;
+      try {
+        localDate = new Intl.DateTimeFormat("en-CA", {
+          timeZone: tz || undefined,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(new Date());
+      } catch {
+        const d = new Date();
+        localDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      }
       axios
         .get(`/api/sunrise-sunset?lat=${latitude}&lon=${longitude}&date=${localDate}&tomorrow=1`)
         .then((res) => {
+          if (seq !== solarReqSeqRef.current) {
+            resolve(null);
+            return;
+          }
           const { results, tomorrowResults } = res.data;
           if (results) {
             const { sunrise, sunset } = results;
@@ -1653,6 +1705,10 @@ export function AppContextProvider({ children }) {
           resolve(results);
         })
         .catch((err) => {
+          if (seq !== solarReqSeqRef.current) {
+            reject(err);
+            return;
+          }
           setSunriseTime(null);
           setSunsetTime(null);
           setSunriseSunsetToday(null);
@@ -1683,8 +1739,8 @@ export function AppContextProvider({ children }) {
    * Return the map position to browser geolocation coordinates
    */
   const resetMapPosition = useCallback(() => {
-    setMapPosition(browserGeo);
-  }, [setMapPosition, browserGeo]);
+    if (browserGeoRef.current) setMapPosition(browserGeoRef.current);
+  }, [setMapPosition]);
 
   /**
    * Follow-me: start or stop tracking the device's position.
@@ -1707,7 +1763,7 @@ export function AppContextProvider({ children }) {
    * @returns {void}
    */
   const clearRadarPick = useCallback(() => {
-    if (!radarSite) return;
+    if (!radarSiteRef.current) return;
     // State changes AFTER the save, not before: the change is what makes
     // the frame and nowcast pollers refetch, and on the kiosk the server's
     // saved pick beats the request — refetching first got TBW back once
@@ -1715,15 +1771,16 @@ export function AppContextProvider({ children }) {
     axios.patch("/setting", { key: "radarSite", val: "" })
       .catch(() => undefined)
       .then(() => setRadarSite(""));
-  }, [radarSite]);
+  }, []);
 
   const toggleFollowLocation = useCallback(() => {
-    setFollowLocation((wasOn) => {
-      if (!wasOn && browserGeo) setMapPosition(browserGeo);
-      return !wasOn;
-    });
-    if (!followLocation) clearRadarPick();
-  }, [browserGeo, setMapPosition, followLocation, clearRadarPick]);
+    const wasOn = followLocationRef.current;
+    if (!wasOn && browserGeoRef.current) {
+      setMapPosition(browserGeoRef.current);
+    }
+    setFollowLocation(!wasOn);
+    if (!wasOn) clearRadarPick();
+  }, [setMapPosition, clearRadarPick]);
 
   /**
    * One-shot "where am I": a single GPS fix, then done.
@@ -2434,8 +2491,10 @@ export function AppContextProvider({ children }) {
   useEffect(() => {
     if (!mapGeo || pollingPaused) return undefined;
     const SOLAR_INTERVAL = 60 * 60 * 1000;
-    updateSunriseSunset(mapGeo);
-    const id = setInterval(() => updateSunriseSunset(mapGeo), SOLAR_INTERVAL);
+    updateSunriseSunset(mapGeo).catch(() => undefined);
+    const id = setInterval(() => {
+      updateSunriseSunset(mapGeo).catch(() => undefined);
+    }, SOLAR_INTERVAL);
     return () => clearInterval(id);
   }, [mapGeo, updateSunriseSunset, pollingPaused]);
 

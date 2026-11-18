@@ -51,12 +51,12 @@ export function getCoordsFromApi() {
     axios
       .get("/geolocation")
       .then((res) => {
-        const { latitude, longitude } = res.data;
+        const { latitude, longitude } = res.data || {};
         if (
-          !latitude ||
-          (!latitude && latitude !== 0) ||
-          !longitude ||
-          (!longitude && longitude !== 0)
+          typeof latitude !== "number" ||
+          !Number.isFinite(latitude) ||
+          typeof longitude !== "number" ||
+          !Number.isFinite(longitude)
         ) {
           reject("Could not get lan/lon");
         } else {

@@ -20,7 +20,8 @@ import { useContext, useMemo } from "react";
 // Both hooks subscribe to the narrow slices their fields live in
 // (step 2b of the AppContext split) so palette/hybrid consumers don't
 // re-render on every legacy-union re-mint.
-import { AlertsContext, SystemContext, UiPrefsContext } from "~/AppContext";
+import { SystemContext, UiPrefsContext } from "~/AppContext";
+import useEligibleGovAlerts from "~/hooks/useEligibleGovAlerts";
 
 // Confidence buckets — duplicated from AlertBanner so we have a single
 // source of truth in `ui/` going forward. Thresholds match the v2.13
@@ -85,15 +86,14 @@ export function hybridLevel(data) {
  * @returns {{ level: "none"|"light"|"full", isHybrid: Boolean }} current escalation tier and a convenience boolean
  */
 export function useHybridMode() {
-  const ctx = useContext(AlertsContext);
-  // AlertsContext exposes government weather alerts as `govAlerts`. Other
-  // alert sources (Tomorrow.io advisories etc.) could be folded in here
-  // later — for now the gov feed is the authoritative severity signal.
-  const alerts = ctx && ctx.govAlerts;
+  // Match the eligible (non-dismissed, advisory-filtered) government alert
+  // set so dismissing an alert or turning off advisories clears the hybrid
+  // emergency tint along with the banner.
+  const { eligibleGovAlerts } = useEligibleGovAlerts();
   return useMemo(() => {
-    const level = hybridLevel({ alerts });
+    const level = hybridLevel({ alerts: eligibleGovAlerts });
     return { level, isHybrid: level !== "none" };
-  }, [alerts]);
+  }, [eligibleGovAlerts]);
 }
 
 /**

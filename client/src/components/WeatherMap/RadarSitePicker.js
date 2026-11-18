@@ -17,7 +17,7 @@
 // plainly that nothing new is arriving. The chip's title carries how long
 // it has been silent.
 
-import React, { useMemo } from "react";
+import React from "react";
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
 import L from "leaflet";
@@ -25,6 +25,32 @@ import { Marker } from "react-leaflet";
 
 import { NEXRAD_SITES, iemSiteId } from "./radarSites";
 import styles from "./styles.css";
+
+const ICON_CACHE = new Map();
+const SITE_POSITIONS = new Map(NEXRAD_SITES.map((s) => [s.id, [s.lat, s.lon]]));
+
+/**
+ * Memoised divIcon per `(id, classList)` so React re-renders do not hand
+ * react-leaflet fresh icon instances for all 155+ WSR-88D sites.
+ *
+ * @param {String} id 4-letter station id
+ * @param {String} cls modifier classes
+ * @returns {import("leaflet").DivIcon}
+ */
+function getSiteIcon(id, cls) {
+  const key = `${id}|${cls}`;
+  let ic = ICON_CACHE.get(key);
+  if (!ic) {
+    ic = L.divIcon({
+      className: styles.radarSiteIcon,
+      html: `<span class="${styles.radarSiteChip} ${cls}">${id}</span>`,
+      iconSize: null,
+      iconAnchor: [0, 0],
+    });
+    ICON_CACHE.set(key, ic);
+  }
+  return ic;
+}
 
 /**
  * How long a radar has been silent, in the coarsest unit that still reads
@@ -51,14 +77,6 @@ export function silentFor(ageMin) {
  */
 const RadarSitePicker = ({ activeSite = null, pinnedSite = "", status = {}, interactive = true, onPick }) => {
   const { t } = useTranslation();
-  // The chip's look is the only per-site difference, so the icon factory
-  // takes the class list; Leaflet clones the html per marker anyway.
-  const icon = useMemo(() => (id, cls) => L.divIcon({
-    className: styles.radarSiteIcon,
-    html: `<span class="${styles.radarSiteChip} ${cls}">${id}</span>`,
-    iconSize: null,
-    iconAnchor: [0, 0],
-  }), []);
 
   return (
     <>
@@ -85,8 +103,8 @@ const RadarSitePicker = ({ activeSite = null, pinnedSite = "", status = {}, inte
             // The key carries the look: react-leaflet updates a Marker's
             // icon in place, but re-keying keeps the title in step too.
             key={`${s.id}-${cls}`}
-            position={[s.lat, s.lon]}
-            icon={icon(s.id, cls)}
+            position={SITE_POSITIONS.get(s.id)}
+            icon={getSiteIcon(s.id, cls)}
             title={title}
             alt={title}
             interactive={interactive}
@@ -110,4 +128,4 @@ RadarSitePicker.propTypes = {
   onPick: PropTypes.func.isRequired,
 };
 
-export default RadarSitePicker;
+export default React.memo(RadarSitePicker);

@@ -12,7 +12,13 @@ import settingsAdjustIcon from "@iconify/icons-carbon/settings-adjust";
 import passwordIcon from "@iconify/icons-carbon/password";
 import constructIcon from "@iconify/icons-ion/construct-outline";
 import i18n from "~/i18n";
-import { AppContext } from "~/AppContext";
+import {
+  AlertsContext,
+  AppActionsContext,
+  LocationContext,
+  SystemContext,
+  UiPrefsContext,
+} from "~/AppContext";
 import { getPalette } from "~/ui/tokens";
 import { isUsableMapboxToken } from "~/standalone/upstream";
 import { useTimeOfDay } from "~/ui/hybrid";
@@ -99,13 +105,9 @@ function unitSystemPreset(s, l, d) {
  */
 const SettingsPanel = () => {
   const { i18n } = useTranslation();
-  const ctx = useContext(AppContext);
-  const {
-    settingsMenuOpen,
-    setSettingsMenuOpen,
-    isLocal,
-    fontSize,
-  } = ctx;
+  const { settingsMenuOpen, isLocal } = useContext(SystemContext);
+  const { setSettingsMenuOpen } = useContext(AppActionsContext);
+  const { fontSize } = useContext(UiPrefsContext);
   // Single-selection rail navigation. Always opens on the first
   // section (`local`) — a settings panel reads better when predictable,
   // so we deliberately do NOT persist the last tab the way DebugPanel
@@ -120,6 +122,17 @@ const SettingsPanel = () => {
   // return so React's hook ordering invariant stays satisfied.
   const tod = useTimeOfDay();
   const palette = getPalette(tod);
+
+  useEffect(() => {
+    if (!settingsMenuOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        setSettingsMenuOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [settingsMenuOpen, setSettingsMenuOpen]);
 
   if (!settingsMenuOpen) return null;
 
@@ -149,7 +162,13 @@ const SettingsPanel = () => {
   };
 
   return (
-    <div className={styles.overlay} role="dialog" aria-modal="true" style={cssVars}>
+    <div
+      className={styles.overlay}
+      role="dialog"
+      aria-modal="true"
+      aria-label={lbl(lang, "Settings", "Paramètres", "Ajustes")}
+      style={cssVars}
+    >
       {/* No title header (Phase 6): the per-section header below already
         * names where you are ("1 · Préférences locales"), so a separate
         * "Paramètres" bar was redundant and cost ~60px of height that the
@@ -205,11 +224,11 @@ const SettingsPanel = () => {
 
         <main className={styles.pane}>
           <div className={styles.paneInner}>
-            {activeSection === "local" && <SectionLocalPrefs ctx={ctx} lang={lang} />}
+            {activeSection === "local" && <SectionLocalPrefs lang={lang} />}
             {activeSection === "api" && (__STANDALONE__
-              ? <SectionAppApi ctx={ctx} lang={lang} />
-              : <SectionConfig ctx={ctx} lang={lang} remote={remote} />)}
-            {activeSection === "avance" && <SectionAdvanced ctx={ctx} lang={lang} remote={remote} />}
+              ? <SectionAppApi lang={lang} />
+              : <SectionConfig lang={lang} remote={remote} />)}
+            {activeSection === "avance" && <SectionAdvanced lang={lang} remote={remote} />}
           </div>
           <PaneFooter lang={lang} section={activeSection} />
         </main>
@@ -228,12 +247,10 @@ const SettingsPanel = () => {
  * `remote === true`.
  *
  * @param {object} props
- * @param {object} props.ctx — AppContext value
- * @param {Function} props.t — react-i18next translator
  * @param {string} props.lang — short locale ("fr" | "en" | "es")
- * @returns {JSX.Element}
+ * @returns {JSX.Element} Component tree.
  */
-const SectionLocalPrefs = ({ ctx, lang }) => {
+const SectionLocalPrefs = ({ lang }) => {
   // Phase 8b wires the writes — every preference is now persisted via
   // the existing AppContext `saveXxx` helpers (each one mirrors the
   // value to localStorage). The v2 Settings overlay uses the same
@@ -241,22 +258,31 @@ const SectionLocalPrefs = ({ ctx, lang }) => {
   // path and a change made in one is immediately reflected by the
   // other on reload.
   const {
-    fontSize, saveFontSize,
-    clockTime, saveClockTime,
-    speedUnit, saveSpeedUnit,
-    lengthUnit, saveLengthUnit,
-    distanceUnit, saveDistanceUnit,
-    mouseHide, saveMouseHide,
-    showAdvisoryAlerts, saveShowAdvisoryAlerts,
-    showTestAlerts, saveShowTestAlerts,
-    showAlertRing, saveShowAlertRing,
-    // Locality gate for the localhost-only "Show test alerts" row. This
-    // section renders for remote clients too, so the row is wrapped in
-    // {isLocal} to keep it (and the feature) invisible to them.
-    isLocal,
-    keepScreenAwake, saveKeepScreenAwake,
-    mapGeo,
-  } = ctx;
+    fontSize,
+    clockTime,
+    speedUnit,
+    lengthUnit,
+    distanceUnit,
+    mouseHide,
+    showAdvisoryAlerts,
+    showTestAlerts,
+    keepScreenAwake,
+  } = useContext(UiPrefsContext);
+  const { showAlertRing } = useContext(AlertsContext);
+  const {
+    saveFontSize,
+    saveClockTime,
+    saveSpeedUnit,
+    saveLengthUnit,
+    saveDistanceUnit,
+    saveMouseHide,
+    saveShowAdvisoryAlerts,
+    saveShowTestAlerts,
+    saveShowAlertRing,
+    saveKeepScreenAwake,
+  } = useContext(AppActionsContext);
+  const { isLocal } = useContext(SystemContext);
+  const { mapGeo } = useContext(LocationContext);
   // Map location picker: the way to set the location now that tapping the
   // radar map no longer moves the pin. Local kiosk and the app only — a
   // remote viewer cannot write the kiosk's settings.
@@ -567,18 +593,23 @@ function i18nChangeLanguage(lang) {
  * like a broken basemap, not a bad key.
  *
  * @param {object} props
- * @param {object} props.ctx — AppContext value
  * @param {string} props.lang — short locale
- * @returns {JSX.Element}
+ * @returns {JSX.Element} Component tree.
  */
-const SectionAppApi = ({ ctx, lang }) => {
-  const { appMapboxToken, saveAppMapboxToken } = ctx;
+const SectionAppApi = ({ lang }) => {
+  const { appMapboxToken } = useContext(UiPrefsContext);
+  const { saveAppMapboxToken } = useContext(AppActionsContext);
   const [draft, setDraft] = useState(appMapboxToken || "");
   const [saved, setSaved] = useState(false);
+  const prevTokenRef = useRef(appMapboxToken || "");
 
-  // Re-sync when the stored value changes underneath an untouched field.
+  // Re-sync only when the stored token prop itself changes underneath.
   useEffect(() => {
-    setDraft((prev) => (prev === "" ? (appMapboxToken || "") : prev));
+    const nextToken = appMapboxToken || "";
+    if (nextToken !== prevTokenRef.current) {
+      prevTokenRef.current = nextToken;
+      setDraft(nextToken);
+    }
   }, [appMapboxToken]);
 
   const trimmed = draft.trim();
@@ -668,22 +699,25 @@ const SectionAppApi = ({ ctx, lang }) => {
  * per the Claude Design canvas RECOMMENDED label.
  *
  * @param {object} props
- * @param {object} props.ctx — AppContext value
- * @param {Function} props.t — translator
  * @param {string} props.lang — short locale
  * @param {boolean} props.remote — true when accessed from non-localhost
- * @returns {JSX.Element}
+ * @returns {JSX.Element} Component tree.
  */
-const SectionConfig = ({ ctx, lang, remote }) => {
+const SectionConfig = ({ lang, remote }) => {
   const {
     mapApiKey, reverseGeoApiKey,
-    customLat, customLon,
     radarSite,
-    brightnessPercent, brightnessAvailable, brightnessMinPercent, setBrightnessLive,
+    brightnessPercent, brightnessAvailable, brightnessMinPercent,
     displayScaleAvailable, displayScaleOverride, displayScaleAuto, displayScaleApplied,
-    displayScaleChoices, saveDisplayScale, relaunchKiosk,
+    displayScaleChoices,
+  } = useContext(SystemContext);
+  const { customLat, customLon } = useContext(LocationContext);
+  const {
+    setBrightnessLive,
+    saveDisplayScale,
+    relaunchKiosk,
     saveSettingsToJson,
-  } = ctx;
+  } = useContext(AppActionsContext);
 
   // What "Auto" currently resolves to, as a percent, for the Auto chip
   // label (no detection / baseline / a downward-lying EDID ⇒ 100 %).
@@ -721,18 +755,38 @@ const SectionConfig = ({ ctx, lang, remote }) => {
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
   const [saveError, setSaveError] = useState(null);
 
-  // Re-sync the draft whenever AppContext sends us fresh persisted
-  // values (e.g. after a save round-trips successfully). Only sync
-  // when the draft is clean for that field — never clobber the user's
-  // in-flight edits.
+  // Re-sync individual draft fields ONLY when the corresponding persisted
+  // prop in AppContext actually changed (e.g. initial settings hydration or
+  // server-side radarSite normalisation after Save) — never via `prev === ""`,
+  // which previously overwrote a field cleared to "" via the « Auto » button.
+  const prevPropsRef = useRef({
+    mapApiKey: mapApiKey || "",
+    reverseGeoApiKey: reverseGeoApiKey || "",
+    customLat: customLat != null ? String(customLat) : "",
+    customLon: customLon != null ? String(customLon) : "",
+    radarSite: radarSite || "",
+  });
   useEffect(() => {
-    setDraft((prev) => ({
-      mapApiKey: prev.mapApiKey === "" ? (mapApiKey || "") : prev.mapApiKey,
-      reverseGeoApiKey: prev.reverseGeoApiKey === "" ? (reverseGeoApiKey || "") : prev.reverseGeoApiKey,
-      customLat: prev.customLat === "" ? (customLat != null ? String(customLat) : "") : prev.customLat,
-      customLon: prev.customLon === "" ? (customLon != null ? String(customLon) : "") : prev.customLon,
-      radarSite: prev.radarSite === "" ? (radarSite || "") : prev.radarSite,
-    }));
+    const nextProps = {
+      mapApiKey: mapApiKey || "",
+      reverseGeoApiKey: reverseGeoApiKey || "",
+      customLat: customLat != null ? String(customLat) : "",
+      customLon: customLon != null ? String(customLon) : "",
+      radarSite: radarSite || "",
+    };
+    const prevProps = prevPropsRef.current;
+    prevPropsRef.current = nextProps;
+    setDraft((prev) => {
+      let changed = false;
+      const updated = { ...prev };
+      for (const k of Object.keys(nextProps)) {
+        if (nextProps[k] !== prevProps[k]) {
+          updated[k] = nextProps[k];
+          changed = true;
+        }
+      }
+      return changed ? updated : prev;
+    });
   }, [mapApiKey, reverseGeoApiKey, customLat, customLon, radarSite]);
 
   // `isDirty` used to gate the Save button's disabled attribute, but
@@ -982,12 +1036,11 @@ const SectionConfig = ({ ctx, lang, remote }) => {
  * navigation.
  *
  * @param {object} props
- * @param {object} props.ctx
  * @param {string} props.lang
  * @param {boolean} props.remote
- * @returns {JSX.Element}
+ * @returns {JSX.Element} Component tree.
  */
-const SectionAdvanced = ({ ctx, lang, remote }) => {
+const SectionAdvanced = ({ lang, remote }) => {
   const {
     sleepEnabled,
     sleepStage1Delay,
@@ -1000,24 +1053,27 @@ const SectionAdvanced = ({ ctx, lang, remote }) => {
     brightnessAvailable,
     brightnessMinPercent,
     debugEnabled,
-    saveAdvancedSleepFlag,
-    // Display group (Phase 8b — ported in 2.14.22)
+  } = useContext(SystemContext);
+  const {
     lightModeStyle,
     darkModeStyle,
     appMapboxToken,
     radarOpacityLight,
     radarOpacityDark,
+    distanceUnit,
+  } = useContext(UiPrefsContext);
+  const {
     radarPalette,
+    alertRadiusKm,
+  } = useContext(AlertsContext);
+  const {
+    saveAdvancedSleepFlag,
     setRadarPalette,
     saveAdvancedDisplayFlag,
     setRadarOpacityLightLive,
     setRadarOpacityDarkLive,
-    // Nearby-alerts radius (Phase 3)
-    alertRadiusKm,
     setAlertRadiusKmLive,
-    distanceUnit,
-    // AI group
-  } = ctx;
+  } = useContext(AppActionsContext);
   // Each save helper returns a promise (POST /api/settings). Errors
   // are non-critical for the UI — log + swallow so a transient
   // network hiccup doesn't crash the panel. Wrap each save fn in a
@@ -1037,9 +1093,7 @@ const SectionAdvanced = ({ ctx, lang, remote }) => {
   return (
     <div className={styles.section} style={{ opacity: remote ? 0.65 : 1 }}>
       <SectionHeader
-        /* Second of two sections in the app, third of three on the kiosk —
-         * the API section between them exists only where a server does. */
-        index={__STANDALONE__ ? "2" : "3"}
+        index="3"
         title={lbl(lang, "Advanced", "Avancé", "Avanzado")}
         subtitle={__STANDALONE__
           ? lbl(lang, "Display · alerts", "Affichage · alertes", "Pantalla · alertas")
@@ -1448,7 +1502,13 @@ const DelaySelect = ({ label, value, options, onChange, disabled, lang }) => {
         setOpen(false);
       }
     };
-    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
     // Defer the pointerdown listener so the click that opened the
     // menu (which is still propagating) doesn't immediately close it.
     const id = setTimeout(() => {

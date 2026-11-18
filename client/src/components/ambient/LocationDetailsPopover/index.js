@@ -2,7 +2,7 @@ import React, { useContext, useState } from "react";
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
 import DetailsPopover from "~/components/ambient/DetailsPopover";
-import { AppContext } from "~/AppContext";
+import { LocationContext, SystemContext } from "~/AppContext";
 import {
   pickLocality, pickDistrict, pickCounty, pickRegion, placeLabelFromAddress,
 } from "~/ui/placeLabel";
@@ -40,9 +40,10 @@ import styles from "./styles.css";
  */
 const LocationDetailsPopover = ({ open, onClose, triggerRef = null, anchor = "left" }) => {
   const {
-    reverseGeoResult, mapGeo, isLocal,
+    reverseGeoResult, mapGeo,
     canPinFavorite, isFavoritePinned, pinFavorite,
-  } = useContext(AppContext);
+  } = useContext(LocationContext);
+  const { isLocal } = useContext(SystemContext);
   const { t } = useTranslation();
   const [pinFailed, setPinFailed] = useState(false);
 
@@ -180,7 +181,11 @@ const LocationDetailsPopover = ({ open, onClose, triggerRef = null, anchor = "le
               <span className={styles.detailValue}>{coordsStr}</span>
             </div>
           ) : null}
-          <div className={styles.source}>{t("location.source")}</div>
+          <div className={styles.source}>
+            {__STANDALONE__
+              ? t("location.sourceNws", { defaultValue: "Source: NOAA / NWS" })
+              : t("location.source")}
+          </div>
           {pinFooter}
         </>
       )}

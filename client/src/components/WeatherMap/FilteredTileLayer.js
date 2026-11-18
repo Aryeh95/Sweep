@@ -121,6 +121,27 @@ function filterCanvas(canvas, minDbz, paletteId) {
 }
 
 const FilteredGridLayer = L.TileLayer.extend({
+  onAdd(map) {
+    this.on("tileunload", this._abortTileImg, this);
+    return L.TileLayer.prototype.onAdd.call(this, map);
+  },
+
+  onRemove(map) {
+    const res = L.TileLayer.prototype.onRemove.call(this, map);
+    this.off("tileunload", this._abortTileImg, this);
+    return res;
+  },
+
+  _abortTileImg(e) {
+    const img = e && e.tile && e.tile._img;
+    if (img) {
+      img.onload = null;
+      img.onerror = null;
+      img.src = "";
+      e.tile._img = null;
+    }
+  },
+
   createTile(coords, done) {
     const size = this.getTileSize();
     const canvas = document.createElement("canvas");
@@ -128,8 +149,10 @@ const FilteredGridLayer = L.TileLayer.extend({
     canvas.height = size.y;
 
     const img = new Image();
+    canvas._img = img;
     img.crossOrigin = "anonymous";
     img.onload = () => {
+      canvas._img = null;
       canvas.getContext("2d").drawImage(img, 0, 0, size.x, size.y);
       // PERFORMANCE: with the timeline open every loop frame is a mounted
       // layer (11 mosaic + up to 30 site), but only one is visible. Filtering
@@ -141,7 +164,10 @@ const FilteredGridLayer = L.TileLayer.extend({
       if (this.options.opacity > 0) filterCanvas(canvas, this.options.minDbz, this.options.palette);
       done(null, canvas);
     };
-    img.onerror = () => done(new Error("tile load failed"), canvas);
+    img.onerror = () => {
+      canvas._img = null;
+      done(new Error("tile load failed"), canvas);
+    };
     img.src = this.getTileUrl(coords);
     return canvas;
   },

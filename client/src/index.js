@@ -1,10 +1,12 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "~/components/App";
+import ErrorBoundary from "~/components/ErrorBoundary";
 import { AppContextProvider } from "~/AppContext";
 import installStandaloneApi from "~/standalone/install";
 import axios from "axios";
 import { EMBED, installEmbed } from "~/ui/embed";
+import { initI18n } from "~/i18n";
 import "~/styles";
 
 // App build (Android): there is no server behind this bundle, so the API the
@@ -25,14 +27,20 @@ if (__STANDALONE__) {
 // read sees the embed's in-memory storage and no write can leave.
 if (EMBED.on) installEmbed(axios);
 
+// Initialise i18next AFTER `installEmbed` has swapped `window.localStorage`,
+// so `i18next-browser-languagedetector` reads the in-memory storage rather
+// than throwing `SecurityError` in third-party iframes.
+initI18n();
+
 if (typeof navigator !== "undefined" && /firefox/i.test(navigator.userAgent)) {
   document.documentElement.setAttribute("data-browser", "firefox");
 }
-import "~/i18n";
 
 const root = createRoot(document.getElementById("root"));
 root.render(
-  <AppContextProvider>
-    <App />
-  </AppContextProvider>
+  <ErrorBoundary label="root">
+    <AppContextProvider>
+      <App />
+    </AppContextProvider>
+  </ErrorBoundary>
 );

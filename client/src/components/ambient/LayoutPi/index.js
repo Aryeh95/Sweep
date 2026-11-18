@@ -4,6 +4,7 @@ import { priorityViewsEnabled } from "~/ui/piLayout";
 import WeatherMap from "~/components/WeatherMap";
 import AlertView from "~/components/ambient/AlertView";
 import RadarHeader from "~/components/ambient/RadarHeader";
+import ErrorBoundary from "~/components/ErrorBoundary";
 import AlertBanner from "~/components/ambient/AlertBanner";
 import NowcastPanel from "~/components/ambient/NowcastPanel";
 import AlertDetailInline from "~/components/ambient/AlertDetailInline";
@@ -134,7 +135,9 @@ const LayoutPi = () => {
             * radar rework — the alert stack returns null in calm weather,
             * so the rail is just the header then. */}
           <RadarHeader compact />
-          <NowcastPanel compact />
+          <ErrorBoundary silent label="NowcastPanel">
+            <NowcastPanel compact />
+          </ErrorBoundary>
           <AlertBanner />
           {/* v3.2 inline expansion — in the v3.3 priority model the alert
             * card opens the full AlertView instead, so drop the inline body. */}

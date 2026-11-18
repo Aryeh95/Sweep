@@ -39,6 +39,11 @@ export default function installStandaloneApi() {
   const adapter = async (config) => {
     if (!isStandaloneRoute(config.url)) return network(config);
 
+    const { signal } = config;
+    if (signal?.aborted) {
+      throw new AxiosError("canceled", AxiosError.ERR_CANCELED, config);
+    }
+
     const path = String(config.url).split("?")[0];
     // Query params reach axios either in `config.params` or already inline in
     // the URL; the hooks use `params`, but honour both so a hand-written call
@@ -53,7 +58,33 @@ export default function installStandaloneApi() {
     }
     const method = String(config.method || "get").toUpperCase();
 
-    const { status, body } = await handleApi(path, query, method, payload);
+    let onAbort = null;
+    let status;
+    let body;
+    try {
+      const apiPromise = handleApi(path, query, method, payload);
+      ({ status, body } = signal
+        ? await Promise.race([
+          apiPromise,
+          new Promise((_, reject) => {
+            onAbort = () => reject(new AxiosError("canceled", AxiosError.ERR_CANCELED, config));
+            if (signal.aborted) {
+              onAbort();
+              return;
+            }
+            signal.addEventListener("abort", onAbort, { once: true });
+          }),
+        ])
+        : await apiPromise);
+    } finally {
+      if (signal && onAbort) {
+        signal.removeEventListener("abort", onAbort);
+      }
+    }
+    if (signal?.aborted) {
+      throw new AxiosError("canceled", AxiosError.ERR_CANCELED, config);
+    }
+
     const response = {
       data: body,
       status,

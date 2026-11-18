@@ -24,13 +24,32 @@ const MAX_FRAME_FAILURES = 2;
 const FRAME_RETRY_MS = 20 * 1000;
 
 /**
- * Decode a refl-mosaic payload into a paintable field.
+ * Decode a refl-mosaic payload into a paintable field whose `cells` buffer
+ * can be lazily inflated on demand and released when off-screen.
  *
  * @param {object} d payload from /api/radar/refl-mosaic
- * @returns {{key: String, grid: object, cells: Uint8Array, validTime: String}} field
+ * @param {object} [opts]
+ * @param {Boolean} [opts.lazy] defer inflation until `field.cells` is read
+ * @returns {{key: String, grid: object, cells: Uint8Array, validTime: String, releaseCells: Function}} field
  */
-export function decodeReflPayload(d) {
-  return { key: d.key, grid: d.grid, cells: inflate(decodeBins(d.data)), validTime: d.validTime };
+export function decodeReflPayload(d, { lazy = false } = {}) {
+  let cells = lazy ? null : inflate(decodeBins(d.data));
+  const decoded = {
+    key: d.key,
+    grid: d.grid,
+    validTime: d.validTime,
+    releaseCells() {
+      cells = null;
+    },
+  };
+  Object.defineProperty(decoded, "cells", {
+    enumerable: true,
+    get() {
+      if (!cells) cells = inflate(decodeBins(d.data));
+      return cells;
+    },
+  });
+  return decoded;
 }
 
 /**
@@ -56,6 +75,15 @@ export default function useReflMosaic({ enabled, liveEnabled, paused = false }) 
     setFrameFailures(0);
     fieldKeyRef.current = null;
   }, [enabled]);
+
+  // Release the 24.5 MB inflated buffer (and its WeakMap pyramid) when
+  // zoomed past the mosaic band, while keeping `field` metadata so
+  // `mrmsReady` stays true and zooming back out never flashes IEM tiles.
+  useEffect(() => {
+    if (!liveEnabled && field && typeof field.releaseCells === "function") {
+      field.releaseCells();
+    }
+  }, [liveEnabled, field]);
 
   useEffect(() => {
     if (!enabled || paused) return undefined;

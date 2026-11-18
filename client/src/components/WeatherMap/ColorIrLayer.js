@@ -106,13 +106,36 @@ function paintTile(canvas, coords, grid, lut) {
 }
 
 const ColorIrGridLayer = L.GridLayer.extend({
+  onAdd(map) {
+    this.on("tileunload", this._abortTilePaint, this);
+    return L.GridLayer.prototype.onAdd.call(this, map);
+  },
+
+  onRemove(map) {
+    const res = L.GridLayer.prototype.onRemove.call(this, map);
+    this.off("tileunload", this._abortTilePaint, this);
+    return res;
+  },
+
+  _abortTilePaint(e) {
+    const tile = e && e.tile;
+    if (tile && tile._paintTimer != null) {
+      clearTimeout(tile._paintTimer);
+      tile._paintTimer = null;
+    }
+  },
+
   createTile(coords, done) {
     const size = this.getTileSize();
     const canvas = document.createElement("canvas");
     canvas.width = size.x;
     canvas.height = size.y;
-    setTimeout(() => {
-      paintTile(canvas, coords, this.options.grid, LUTS[this.options.palette] || LUTS.color);
+    canvas._paintTimer = setTimeout(() => {
+      canvas._paintTimer = null;
+      if (!this._map) return;
+      if (this.options.grid) {
+        paintTile(canvas, coords, this.options.grid, LUTS[this.options.palette] || LUTS.color);
+      }
       done(null, canvas);
     }, 0);
     return canvas;

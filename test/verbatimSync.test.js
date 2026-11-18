@@ -79,7 +79,8 @@ const TOP_LEVEL_DECL_RE = /^(?:export\s+)?(?:async\s+)?(?:function\s+(\w+)\s*\(|
 // +3 (2026-10-07): the reflectivity mosaic's max pyramid (mosaicPyramid).
 // +2 (2026-10-09): hover readout lookups (irKelvinAt, reflDbzAt).
 // +1 (2026-10-11): mrmsReady (MRMS falls back when no frame decodes).
-const EXPECTED_CHECK_COUNT = 90;
+// +8 (2026-11-17): placeLabel (6), exportCsvQuote (1), severityProductType (1).
+const EXPECTED_CHECK_COUNT = 98;
 
 /**
  * The four copy-carrying test files and how to find their copies.
@@ -195,6 +196,28 @@ const PAIRS = [
       "confidenceBucket",
       "hybridLevel",
     ],
+  },
+  {
+    testFile: "test/placeLabel.test.js",
+    sourceFile: "client/src/ui/placeLabel.js",
+    copiedNames: [
+      "pickLocality",
+      "pickDistrict",
+      "pickCounty",
+      "pickRegion",
+      "MAX_LABEL_LEN",
+      "placeLabelFromAddress",
+    ],
+  },
+  {
+    testFile: "test/exportCsvQuote.test.js",
+    sourceFile: "client/src/ui/exportDebugCsv.js",
+    copiedNames: ["q"],
+  },
+  {
+    testFile: "test/severityProductType.test.js",
+    sourceFile: "client/src/ui/alertLogic.js",
+    copiedNames: ["eventProductType"],
   },
 ];
 

@@ -91,9 +91,17 @@ test("the pako zlib shim inflates a deflate stream like Node's zlib", { skip: no
   assert.ok(Buffer.from(pako.inflate(deflated)).equals(payload));
 });
 
-test("the pako zlib shim deflates a stream Node's zlib inflates", { skip: noPako }, () => {
-  // The satellite loop deflates its frames with the shim inside the app and
-  // inflates them with pako in the client; Node's zlib is the reference.
+test("the pako zlib shim deflates a stream Node's zlib inflates and honours level options", { skip: noPako }, async () => {
+  // Load the actual standalone/shims/zlib.js module (not bare pako) so a
+  // dropped parameter — such as `{ level: 1 }` used by mrmsReflCtrl.js for
+  // 3× faster WebView compression — fails here immediately.
+  const zlibShim = await import("../client/src/standalone/shims/zlib.js");
   const payload = Buffer.from(Array.from({ length: 8192 }, (_, i) => (i * 7) % 256));
-  assert.ok(zlib.inflateSync(Buffer.from(pako.deflate(payload))).equals(payload));
+  const defaultOut = zlibShim.deflateSync(payload);
+  const fastOut = zlibShim.deflateSync(payload, { level: 1 });
+  assert.ok(zlib.inflateSync(defaultOut).equals(payload));
+  assert.ok(zlib.inflateSync(fastOut).equals(payload));
+  assert.notEqual(fastOut[1], defaultOut[1], "zlib header FLEVEL flags must reflect { level: 1 } vs default level 6");
+  assert.ok(zlibShim.gunzipSync(zlib.gzipSync(payload)).equals(payload));
+  assert.ok(zlibShim.inflateSync(defaultOut).equals(payload));
 });

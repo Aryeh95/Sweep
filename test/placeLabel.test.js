@@ -23,7 +23,7 @@ const assert = require("node:assert/strict");
 
 // === verbatim copy of client/src/ui/placeLabel.js ===
 
-const pickLocality = (address) => {
+function pickLocality(address) {
   if (!address || typeof address !== "object") return null;
   return address.city
     || address.town
@@ -31,30 +31,30 @@ const pickLocality = (address) => {
     || address.hamlet
     || address.municipality
     || null;
-};
+}
 
-const pickDistrict = (address) => {
+function pickDistrict(address) {
   if (!address || typeof address !== "object") return null;
   return address.suburb || address.neighbourhood || address.quarter || null;
-};
+}
 
-const pickCounty = (address) => {
+function pickCounty(address) {
   if (!address || typeof address !== "object") return null;
   return address.county || address.state_district || null;
-};
+}
 
-const pickRegion = (address) => {
+function pickRegion(address) {
   if (!address || typeof address !== "object") return null;
   return address.state || address.region || null;
-};
+}
 
 const MAX_LABEL_LEN = 40;
 
-const placeLabelFromAddress = (address) => {
+function placeLabelFromAddress(address) {
   const parts = [pickLocality(address), pickRegion(address)].filter(Boolean);
   if (parts.length === 0) return null;
   return parts.join(", ").slice(0, MAX_LABEL_LEN);
-};
+}
 
 // === fallback chains ===
 

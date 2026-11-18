@@ -37,10 +37,10 @@ export default function useReflMosaicLoop({ stamps, enabled, paused = false }) {
   }, [enabled]);
 
   useEffect(() => {
-    if (!enabled || !stamps || !stamps.length) return undefined;
-    if (paused) return undefined;
+    if (!enabled || paused) return undefined;
     const gen = generationRef.current;
     let cancelled = false;
+    let retryTimer = null;
 
     const publish = () => {
       const out = {};
@@ -50,7 +50,7 @@ export default function useReflMosaicLoop({ stamps, enabled, paused = false }) {
       setByStamp(out);
     };
 
-    const wanted = new Set(stamps);
+    const wanted = new Set(stamps || []);
     let evicted = false;
     for (const k of [...cacheRef.current.keys()]) {
       if (!wanted.has(k)) {
@@ -59,6 +59,7 @@ export default function useReflMosaicLoop({ stamps, enabled, paused = false }) {
       }
     }
     if (evicted) publish();
+    if (!stamps || !stamps.length) return undefined;
 
     const nextStamp = () => stamps.find((s) => {
       const v = cacheRef.current.get(s);
@@ -67,6 +68,8 @@ export default function useReflMosaicLoop({ stamps, enabled, paused = false }) {
     });
 
     const pump = async () => {
+      clearTimeout(retryTimer);
+      retryTimer = null;
       let s = nextStamp();
       while (!cancelled && generationRef.current === gen && s) {
         try {
@@ -80,15 +83,22 @@ export default function useReflMosaicLoop({ stamps, enabled, paused = false }) {
             cacheRef.current.set(s, { miss: true, at: Date.now() });
           }
         } catch {
+          if (cancelled || generationRef.current !== gen) return;
           cacheRef.current.set(s, { miss: true, at: Date.now() });
         }
         await new Promise((r) => setTimeout(r, PACE_MS));
         s = nextStamp();
       }
+      if (!cancelled && generationRef.current === gen && stamps.some((st) => cacheRef.current.get(st)?.miss)) {
+        retryTimer = setTimeout(pump, MISS_RETRY_MS + 50);
+      }
     };
     pump();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+    };
   }, [enabled, paused, stamps]);
 
   return { byStamp };

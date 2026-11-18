@@ -327,6 +327,7 @@
     "postcode": "Código postal",
     "coordinates": "Coordenadas",
     "source": "Fuente: LocationIQ",
+    "sourceNws": "Fuente: NOAA / NWS",
     "noAddress": "No se encontró una dirección en este punto."
   },
   "favorites": {
@@ -700,7 +701,9 @@
   "debug": {
     "title": "DEPURACIÓN",
     "loading": "CARGANDO...",
-    "refresh": "ACTUALIZAR"
+    "refresh": "ACTUALIZAR",
+    "fetchError": "No se pudieron cargar los datos de depuración",
+    "pickBucket": "Pulsa una pestaña para ver una sección y otra vez para ocultarla. Se pueden apilar varias secciones."
   },
   "compass": {
     "n": "N",

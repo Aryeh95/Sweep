@@ -1,13 +1,9 @@
 import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import { useTranslation } from "react-i18next";
-import { format } from "date-fns";
-import { fr, es, enUS } from "date-fns/locale";
 import styles from "./styles.css";
-import { AppContext } from "~/AppContext";
+import { LocationContext, UiPrefsContext } from "~/AppContext";
 import { useTimeOfDay } from "~/ui/hybrid";
-
-const DATE_FNS_LOCALES = { fr, es, en: enUS };
 
 // Anti-burn-in: in stage 2 a single 4 px dot rides a 5×5 grid, repositioned
 // every 5 minutes. The mock distributes cells across an inset region (8 %
@@ -37,10 +33,8 @@ const ANTI_BURNIN_INTERVAL_MS = 5 * 60 * 1000;
  */
 const ScreenSaver = ({ stage }) => {
   const { i18n } = useTranslation();
-  const {
-    clockTime,
-    mapTimezone,
-  } = useContext(AppContext);
+  const { clockTime } = useContext(UiPrefsContext);
+  const { mapTimezone } = useContext(LocationContext);
   // Read the active palette through the same hook that drives Direction
   // C surfaces. This unifies the sleep-palette decision under Phase 5
   // of the v3.0.0 rollout. Today the hook is a `darkMode` +
@@ -49,59 +43,6 @@ const ScreenSaver = ({ stage }) => {
   // the dusk / night distinction will start to differentiate visually
   // without any further change in this component.
   const tod = useTimeOfDay();
-
-  // Live wall clock — re-renders every 30 s. Aligned to the next minute on
-  // first mount so the displayed time flips at the same instant as the
-  // wall clock the user might have nearby.
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    let interval;
-    const msToNextMinute = 60_000 - (Date.now() % 60_000);
-    const timeout = setTimeout(() => {
-      setNow(new Date());
-      interval = setInterval(() => setNow(new Date()), 60_000);
-    }, msToNextMinute);
-    return () => {
-      clearTimeout(timeout);
-      if (interval) clearInterval(interval);
-    };
-  }, []);
-
-  // Anti-burn-in dot position — recomputed every 5 min. Position is a
-  // {left, top} pair in CSS pixels relative to the viewport, refusing to
-  // repeat the previous cell. We re-shuffle on viewport resize so the
-  // 8 % inset always lands inside the new bounds.
-  const [dotPos, setDotPos] = useState({ left: 0, top: 0 });
-  const lastCellRef = useMemo(() => ({ current: -1 }), []);
-  useEffect(() => {
-    function placeDot() {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      let cell;
-      do {
-        cell = Math.floor(Math.random() * GRID * GRID);
-      } while (cell === lastCellRef.current && GRID * GRID > 1);
-      lastCellRef.current = cell;
-      const col = cell % GRID;
-      const row = Math.floor(cell / GRID);
-      const usableW = w * (1 - 2 * INSET);
-      const usableH = h * (1 - 2 * INSET);
-      const stepX = usableW / (GRID - 1);
-      const stepY = usableH / (GRID - 1);
-      // Centre the 4 px dot on the grid cell rather than top-left aligning
-      // it (otherwise it'd appear shifted up-left by 2 px from the math).
-      const x = Math.round(w * INSET + col * stepX) - 2;
-      const y = Math.round(h * INSET + row * stepY) - 2;
-      setDotPos({ left: x, top: y });
-    }
-    placeDot();
-    const id = setInterval(placeDot, ANTI_BURNIN_INTERVAL_MS);
-    window.addEventListener("resize", placeDot);
-    return () => {
-      clearInterval(id);
-      window.removeEventListener("resize", placeDot);
-    };
-  }, [lastCellRef]);
 
   // Ghost-click absorption on wake. The chain we need to defeat:
   //   1. user touches the screen → pointerdown
@@ -132,7 +73,61 @@ const ScreenSaver = ({ stage }) => {
     };
   }, [stage]);
 
-  if (stage === 0 && !fadingOut) return null;
+  const visible = stage > 0 || fadingOut;
+
+  // Live wall clock — gated on `visible` so awake sessions run zero timers.
+  // Aligned to the next minute so the displayed time flips with the wall clock.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    if (!visible) return undefined;
+    setNow(new Date());
+    let interval;
+    const msToNextMinute = 60_000 - (Date.now() % 60_000);
+    const timeout = setTimeout(() => {
+      setNow(new Date());
+      interval = setInterval(() => setNow(new Date()), 60_000);
+    }, msToNextMinute);
+    return () => {
+      clearTimeout(timeout);
+      if (interval) clearInterval(interval);
+    };
+  }, [visible]);
+
+  // Anti-burn-in dot position — recomputed every 5 min while visible.
+  const [dotPos, setDotPos] = useState({ left: 0, top: 0 });
+  const lastCellRef = useMemo(() => ({ current: -1 }), []);
+  useEffect(() => {
+    if (!visible) return undefined;
+    function placeDot() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      let cell;
+      do {
+        cell = Math.floor(Math.random() * GRID * GRID);
+      } while (cell === lastCellRef.current && GRID * GRID > 1);
+      lastCellRef.current = cell;
+      const col = cell % GRID;
+      const row = Math.floor(cell / GRID);
+      const usableW = w * (1 - 2 * INSET);
+      const usableH = h * (1 - 2 * INSET);
+      const stepX = usableW / (GRID - 1);
+      const stepY = usableH / (GRID - 1);
+      // Centre the 4 px dot on the grid cell rather than top-left aligning
+      // it (otherwise it'd appear shifted up-left by 2 px from the math).
+      const x = Math.round(w * INSET + col * stepX) - 2;
+      const y = Math.round(h * INSET + row * stepY) - 2;
+      setDotPos({ left: x, top: y });
+    }
+    placeDot();
+    const id = setInterval(placeDot, ANTI_BURNIN_INTERVAL_MS);
+    window.addEventListener("resize", placeDot);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("resize", placeDot);
+    };
+  }, [lastCellRef, visible]);
+
+  if (!visible) return null;
 
   // Variant + stage classes composed onto the root. The mock keeps the
   // base variant active when stage 2 layers on top so the dot picks the
@@ -150,16 +145,17 @@ const ScreenSaver = ({ stage }) => {
   else variantClass = styles.dusk; // "dusk" or "night"
   const stage2Class = stage === 2 ? styles.stage2 : "";
 
-  // Date formatted via date-fns with the locale-specific pattern from i18n
-  // (`dateFormat` key — "cccc d LLLL" for fr → "vendredi 1 mai"). Reusing
-  // the same key the rest of the app uses keeps the screensaver
-  // typographically consistent with the InfoPanel header.
-  const lang = (i18n && i18n.language ? i18n.language.slice(0, 2) : "en");
-  const locale = DATE_FNS_LOCALES[lang] || enUS;
+  // Format date in `mapTimezone` alongside `timeStr` so date and clock never
+  // straddle midnight across host vs. map timezones.
+  const localeTag = (i18n && i18n.language) || "en";
   let dateStr;
   try {
-    const pattern = i18n.t("dateFormat") || "EEEE, MMMM d";
-    dateStr = format(now, pattern, { locale });
+    dateStr = new Intl.DateTimeFormat(localeTag, {
+      timeZone: mapTimezone || undefined,
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    }).format(now);
   } catch {
     dateStr = now.toLocaleDateString();
   }

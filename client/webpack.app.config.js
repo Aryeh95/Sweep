@@ -41,6 +41,10 @@ module.exports = (env) => {
     ...config.resolve,
     alias: {
       ...config.resolve.alias,
+      // `server/*.js` resolves `axios` from root `node_modules` while
+      // `client/src/**` resolves from `client/node_modules`. Pin both trees to
+      // one copy so `installStandaloneApi()` wraps every `axios` consumer.
+      axios: path.resolve(__dirname, "node_modules/axios"),
       // `glmLightningCtrl` imports "h5wasm/node", whose entry reads the WASM
       // binary off disk with fs. The package's default export is the same
       // library built to fetch its WASM instead, which is what a WebView can
@@ -85,7 +89,7 @@ module.exports = (env) => {
     // The Level III library builds its product and packet tables by reading
     // its own folders with fs.readdirSync, which a bundle has no way to do.
     // Replaced by static equivalents (src/standalone/shims/nexrad*.js),
-    // guarded by test/standaloneProducts.test.js.
+    // guarded by test/standaloneShims.test.js.
     //
     // Matched on the RESOLVED path, not the request: the library reaches these
     // two modules by relative path from inside the package ("./products",

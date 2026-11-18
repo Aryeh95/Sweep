@@ -85,7 +85,8 @@ export default function useSatelliteLoop({ enabled, active, spanFrom, spanTo, sc
     if (!enabled || paused) return undefined;
     const gen = generationRef.current;
     let cancelled = false;
-    const wanted = new Set(stamps);
+    let retryTimer = null;
+    const wanted = new Set(stamps || []);
     let evicted = false;
     for (const k of [...cacheRef.current.keys()]) {
       if (!wanted.has(k)) {
@@ -99,11 +100,14 @@ export default function useSatelliteLoop({ enabled, active, spanFrom, spanTo, sc
       setByStamp(out);
     };
     if (evicted) publish();
+    if (!stamps || !stamps.length) return undefined;
     const next = () => stamps.find((s) => {
       const v = cacheRef.current.get(s);
       return v === undefined || Boolean(v && v.miss && Date.now() - v.at > MISS_RETRY_MS);
     });
     const pump = async () => {
+      clearTimeout(retryTimer);
+      retryTimer = null;
       let s = next();
       while (!cancelled && generationRef.current === gen && s) {
         try {
@@ -118,14 +122,21 @@ export default function useSatelliteLoop({ enabled, active, spanFrom, spanTo, sc
             cacheRef.current.set(s, { miss: true, at: Date.now() });
           }
         } catch {
+          if (cancelled || generationRef.current !== gen) return;
           cacheRef.current.set(s, { miss: true, at: Date.now() });
         }
         await new Promise((r) => setTimeout(r, PACE_MS));
         s = next();
       }
+      if (!cancelled && generationRef.current === gen && stamps.some((st) => cacheRef.current.get(st)?.miss)) {
+        retryTimer = setTimeout(pump, MISS_RETRY_MS + 50);
+      }
     };
     pump();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+    };
   }, [enabled, paused, stamps]);
 
   return { scans, byStamp };

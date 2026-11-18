@@ -1132,8 +1132,19 @@ const ControlButtons = ({ labelled = false }) => {
    */
   const withLabel = (node) => {
     if (!node) return node;
-    if (!labelled) return withHint(node);
-    return React.cloneElement(node, {}, (
+    const a11yProps = {
+      role: node.props.role || "button",
+      tabIndex: node.props.tabIndex ?? 0,
+      onKeyDown: (e) => {
+        if (node.props.onKeyDown) node.props.onKeyDown(e);
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          if (node.props.onClick) node.props.onClick(e);
+        }
+      },
+    };
+    if (!labelled) return withHint(React.cloneElement(node, a11yProps));
+    return React.cloneElement(node, a11yProps, (
       <>
         {node.props.children}
         <span className={styles.buttonLabel}>{node.props["aria-label"]}</span>

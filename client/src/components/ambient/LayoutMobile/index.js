@@ -7,6 +7,7 @@ import AppDrawer from "~/components/ambient/AppDrawer";
 import LocateButton from "~/components/ambient/LocateButton";
 import WeatherMap from "~/components/WeatherMap";
 import RadarHeader from "~/components/ambient/RadarHeader";
+import ErrorBoundary from "~/components/ErrorBoundary";
 import AlertBanner from "~/components/ambient/AlertBanner";
 import NowcastPanel from "~/components/ambient/NowcastPanel";
 import AlertDetailInline from "~/components/ambient/AlertDetailInline";
@@ -117,7 +118,9 @@ const LayoutMobile = () => {
           * strip. Every child returns null with no active alert, so on a
           * calm day this slot is an empty, click-through box. */}
         <div className={styles.alertSlot}>
-          <NowcastPanel compact />
+          <ErrorBoundary silent label="NowcastPanel">
+            <NowcastPanel compact />
+          </ErrorBoundary>
           <AlertBanner />
           <AlertDetailInline />
           <AlertMiniCards />

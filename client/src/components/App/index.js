@@ -4,6 +4,7 @@ import styles from "./styles.css";
 import { AppActionsContext, UiPrefsContext, SystemContext } from "~/AppContext";
 
 import AmbientLayers from "~/components/AmbientLayers";
+import ErrorBoundary from "~/components/ErrorBoundary";
 import AmbientSettingsPanel from "~/components/ambient/SettingsPanel";
 import AmbientDebugPanel from "~/components/ambient/DebugPanel";
 import UpdateModal from "~/components/UpdateModal";
@@ -25,7 +26,6 @@ import "!style-loader!css-loader!./overrides.css";
 const App = () => {
   const {
     getBrowserGeo,
-    getCustomLatLon,
     loadStoredData,
     checkIsLocal,
   } = useContext(AppActionsContext);
@@ -42,6 +42,9 @@ const App = () => {
     brightnessAvailable,
     brightnessPercent,
     brightnessMinPercent,
+    settingsMenuOpen,
+    debugMenuOpen,
+    updateModalOpen,
   } = useContext(SystemContext);
 
   // `stage` (0/1/2) now comes from AppContext — the underlying
@@ -81,6 +84,12 @@ const App = () => {
     }
 
     if (stage === 2) {
+      // Capture pre-sleep brightness if sleep jumped directly from stage 0
+      // to stage 2 (e.g. stage1Delay === 0 or rapid transition) so waking
+      // still restores the user's brightness instead of leaving the panel dark.
+      if (brightnessBeforeSleepRef.current === null) {
+        brightnessBeforeSleepRef.current = brightnessPercent;
+      }
       // Stage 2 always writes brightness 0 with allowOff: true so the
       // server bypasses its 10 % MIN_PERCENT floor. On panels that
       // honour 0, the backlight goes fully off (cleanest anti-burn-in
@@ -145,9 +154,9 @@ const App = () => {
   }, [stage, brightnessAvailable, sleepStage1Brightness, brightnessMinPercent]); // eslint-disable-line react-hooks/exhaustive-deps -- brightnessPercent intentionally omitted, see comment above
 
   useEffect(() => {
-    getCustomLatLon();
-    // Rejects only on the kiosk, where a failed IP lookup means the map
-    // stays on its placeholder; the app substitutes a default position.
+    // getBrowserGeo() reads settings via getCustomLatLon() first, then falls
+    // back to browser/IP geolocation when no starting coords are configured.
+    // Rejects only on the kiosk when IP lookup also fails.
     getBrowserGeo().catch(() => undefined);
     loadStoredData();
     checkIsLocal();
@@ -164,15 +173,23 @@ const App = () => {
           their own palette tokens because CSS custom properties don't
           propagate to siblings. */}
       <div className={styles.settingsContainer}>
-        <AmbientSettingsPanel />
-        <AmbientDebugPanel />
+        <ErrorBoundary silent label="SettingsPanel" resetKey={settingsMenuOpen}>
+          <AmbientSettingsPanel />
+        </ErrorBoundary>
+        <ErrorBoundary silent label="DebugPanel" resetKey={debugMenuOpen}>
+          <AmbientDebugPanel />
+        </ErrorBoundary>
       </div>
-      <UpdateModal />
+      <ErrorBoundary silent label="UpdateModal" resetKey={updateModalOpen}>
+        <UpdateModal />
+      </ErrorBoundary>
       <AmbientLayers />
       {/* Sleep-mode overlay — rendered outside the ambient tree so it
           covers everything (settings, debug, layout) when active.
           Stage 0 = unmounted entirely. */}
-      <ScreenSaver stage={stage} />
+      <ErrorBoundary silent label="ScreenSaver" resetKey={stage}>
+        <ScreenSaver stage={stage} />
+      </ErrorBoundary>
     </div>
   );
 };

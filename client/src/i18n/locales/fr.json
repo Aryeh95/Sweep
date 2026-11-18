@@ -327,6 +327,7 @@
     "postcode": "Code postal",
     "coordinates": "Coordonnées",
     "source": "Source : LocationIQ",
+    "sourceNws": "Source : NOAA / NWS",
     "noAddress": "Aucune adresse trouvée à ce point."
   },
   "favorites": {
@@ -700,7 +701,9 @@
   "debug": {
     "title": "DÉBOGAGE",
     "loading": "CHARGEMENT...",
-    "refresh": "ACTUALISER"
+    "refresh": "ACTUALISER",
+    "fetchError": "Impossible de charger les données de débogage",
+    "pickBucket": "Appuyez sur un onglet pour afficher une section, puis à nouveau pour la masquer. Plusieurs sections peuvent s'empiler."
   },
   "compass": {
     "n": "N",

@@ -1,10 +1,34 @@
 import React, { useContext, useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { CSSTransition } from "react-transition-group";
-import { AppContext } from "~/AppContext";
+import { AppActionsContext, SystemContext, UiPrefsContext } from "~/AppContext";
 import { useTimeOfDay } from "~/ui/hybrid";
 import styles from "./styles.css";
 import "!style-loader!css-loader!./animations.css";
+
+/**
+ * Fallback clipboard write for plain-HTTP (`:8080`) contexts where
+ * `navigator.clipboard` is undefined.
+ *
+ * @param {string} text text to copy
+ * @returns {boolean} whether `execCommand("copy")` succeeded
+ */
+function fallbackCopyText(text) {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return Boolean(ok);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Update modal — shows changelog (feat/fix commits) and provides
@@ -15,21 +39,22 @@ import "!style-loader!css-loader!./animations.css";
 const UpdateModal = () => {
   const {
     updateModalOpen,
-    setUpdateModalOpen,
     latestVersion,
     latestSha,
     updateCommits,
     changedDeployFiles,
     needsManualUpgrade,
-    saveSkippedSha,
     updateState,
-    setUpdateState,
     updateErrorMessage,
-    triggerUpdate,
     isSystemd,
-    darkMode,
-    mouseHide,
-  } = useContext(AppContext);
+  } = useContext(SystemContext);
+  const {
+    setUpdateModalOpen,
+    saveSkippedSha,
+    setUpdateState,
+    triggerUpdate,
+  } = useContext(AppActionsContext);
+  const { darkMode, mouseHide } = useContext(UiPrefsContext);
 
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -64,10 +89,19 @@ const UpdateModal = () => {
   }
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(cmdDisplay).then(() => {
+    const markCopied = () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(cmdDisplay)
+        .then(markCopied)
+        .catch(() => {
+          if (fallbackCopyText(cmdDisplay)) markCopied();
+        });
+    } else if (fallbackCopyText(cmdDisplay)) {
+      markCopied();
+    }
   }, [cmdDisplay]);
 
   const handleSkip = () => {

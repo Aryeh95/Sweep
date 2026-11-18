@@ -114,6 +114,7 @@ const ROUTES = {
   // them those controls would look editable and lose every change.
   "GET /settings": getSettings,
   "POST /settings": createSettings,
+  "PUT /settings": createSettings,
   "PATCH /setting": setSetting,
 };
 
@@ -135,12 +136,16 @@ const STUBS = {
     status: 200,
     body: { updateAvailable: false, standalone: true },
   }),
+  "/api/update-check/force": () => ({
+    status: 200,
+    body: { updateAvailable: false, standalone: true },
+  }),
   // The health panel classifies upstreams from the SERVER's request log,
   // which does not exist here. Report the app shell as healthy and say so,
   // rather than inventing per-service verdicts the app cannot observe.
   "/api/health": () => ({
     status: 200,
-    body: { status: "ok", standalone: true, services: [], issues: [] },
+    body: { status: "green", standalone: true, services: [], issues: [] },
   }),
   "/api/brightness": () => ({ status: 200, body: { percent: 100 } }),
   "/api/display-scale": () => ({ status: 200, body: { scale: 1 } }),

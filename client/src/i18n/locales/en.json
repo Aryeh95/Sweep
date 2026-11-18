@@ -327,6 +327,7 @@
     "postcode": "Postal code",
     "coordinates": "Coordinates",
     "source": "Source: LocationIQ",
+    "sourceNws": "Source: NOAA / NWS",
     "noAddress": "No address found at this point."
   },
   "favorites": {
@@ -700,7 +701,9 @@
   "debug": {
     "title": "DEBUG",
     "loading": "LOADING...",
-    "refresh": "REFRESH"
+    "refresh": "REFRESH",
+    "fetchError": "Could not load debug data",
+    "pickBucket": "Press a tab to view a section. Press again to hide it. Multiple sections can stack."
   },
   "compass": {
     "n": "N",

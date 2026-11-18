@@ -76,10 +76,10 @@ export default function useRadarRadialLoop({
   }, [site, product, noiseFilter, dualPolClean, enabled, palette]);
 
   useEffect(() => {
-    if (!enabled || !site || !stamps || !stamps.length) return undefined;
-    if (paused) return undefined;
+    if (!enabled || !site || paused) return undefined;
     const gen = generationRef.current;
     let cancelled = false;
+    let retryTimer = null;
 
     const publish = () => {
       const out = {};
@@ -91,13 +91,17 @@ export default function useRadarRadialLoop({
 
     // Frames that rolled off the list free their URLs before new work
     // starts — keeps the cache bounded at the loop length by construction.
-    const wanted = new Set(stamps);
-    for (const [k, v] of cacheRef.current) {
+    const wanted = new Set(stamps || []);
+    let evicted = false;
+    for (const [k, v] of [...cacheRef.current.entries()]) {
       if (!wanted.has(k)) {
         if (v && v.url) URL.revokeObjectURL(v.url);
         cacheRef.current.delete(k);
+        evicted = true;
       }
     }
+    if (evicted) publish();
+    if (!stamps || !stamps.length) return undefined;
 
     const nextStamp = () => stamps.find((s) => {
       const v = cacheRef.current.get(s);
@@ -106,6 +110,8 @@ export default function useRadarRadialLoop({
     });
 
     const pump = async () => {
+      clearTimeout(retryTimer);
+      retryTimer = null;
       let s = nextStamp();
       while (!cancelled && generationRef.current === gen && s) {
         try {
@@ -128,6 +134,7 @@ export default function useRadarRadialLoop({
             cacheRef.current.set(s, { miss: true, at: Date.now() });
           }
         } catch {
+          if (cancelled || generationRef.current !== gen) return;
           // Transient failure — treat like a miss so it retries later
           // instead of hot-looping against a down server.
           cacheRef.current.set(s, { miss: true, at: Date.now() });
@@ -135,10 +142,16 @@ export default function useRadarRadialLoop({
         await new Promise((r) => setTimeout(r, PACE_MS));
         s = nextStamp();
       }
+      if (!cancelled && generationRef.current === gen && stamps.some((st) => cacheRef.current.get(st)?.miss)) {
+        retryTimer = setTimeout(pump, MISS_RETRY_MS + 50);
+      }
     };
     pump();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+    };
   }, [site, product, enabled, paused, noiseFilter, dualPolClean, stamps, palette]);
 
   // Revoke everything on unmount — each URL pins a blob for the life of

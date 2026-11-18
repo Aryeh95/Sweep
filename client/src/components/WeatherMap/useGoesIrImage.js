@@ -61,8 +61,9 @@ export default function useGoesIrImage({ enabled, paused = false }) {
 
   useEffect(() => {
     if (!enabled || !newest) return undefined;
+    const controller = new AbortController();
     let cancelled = false;
-    axios.get("/api/satellite/ir/frame", { params: { stamp: newest } })
+    axios.get("/api/satellite/ir/frame", { params: { stamp: newest }, signal: controller.signal })
       .then((res) => {
         const d = res.data || {};
         if (cancelled || !d.counts) return;
@@ -70,9 +71,14 @@ export default function useGoesIrImage({ enabled, paused = false }) {
         setGrid({ ...geometry, data: inflate(decodeBins(counts)) });
       })
       .catch((err) => {
-        if (!cancelled) console.warn("[satellite] infrared scan unavailable:", err.message);
+        if (!cancelled && !axios.isCancel(err)) {
+          console.warn("[satellite] infrared scan unavailable:", err.message);
+        }
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [enabled, newest]);
 
   return enabled ? grid : null;

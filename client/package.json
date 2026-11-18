@@ -4,6 +4,7 @@
   "description": "Sweep radar kiosk — client bundle",
   "main": "webpack.config.js",
   "scripts": {
+    "lint": "eslint \"src/**/*.{js,jsx}\"",
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "webpack --progress --watch --mode development",
     "prod": "webpack --mode production --env BUILD_PRODUCTION=1",
@@ -12,14 +13,10 @@
   "author": "Eric Lewin",
   "license": "MIT",
   "dependencies": {
-    "@babel/core": "^8.0.1",
-    "@babel/preset-env": "^8.0.2",
-    "@babel/preset-react": "^8.0.1",
     "@iconify/icons-carbon": "^1.0.4",
     "@iconify/icons-ion": "^1.0.13",
     "@iconify/react": "^6.0.2",
     "axios": "^1.20.0",
-    "babel-loader": "^10.1.1",
     "buffer": "^6.0.3",
     "date-fns": "^4.4.0",
     "debounce": "^3.0.0",
@@ -37,9 +34,12 @@
     "tz-lookup": "^6.1.25"
   },
   "devDependencies": {
+    "@babel/core": "^8.0.1",
+    "@babel/preset-env": "^8.0.2",
+    "@babel/preset-react": "^8.0.1",
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.2",
     "@eslint/js": "^9.39.4",
-    "autoprefixer": "^10.5.4",
+    "babel-loader": "^10.1.1",
     "css-loader": "^7.1.4",
     "eslint": "^9.39.5",
     "eslint-plugin-jsdoc": "^64.2.1",

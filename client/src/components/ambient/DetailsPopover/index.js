@@ -121,7 +121,7 @@ const DetailsPopover = ({ open, onClose, title, anchor = "right", triggerRef = n
   // a listener attached when the popover isn't visible.
   useEffect(() => {
     if (!open) return undefined;
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e) => { if (e.key === "Escape" && !e.defaultPrevented) onClose(); };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);

@@ -206,6 +206,7 @@ const PrecipMosaicLayer = ({ field, opacity, minDbz, kind = "ptype", palette = "
   // field.key|minDbz → {url, bounds}; insertion order is eviction order.
   const cacheRef = useRef(new Map());
   const aliveRef = useRef(true);
+  const renderSeqRef = useRef(0);
 
   const clearCache = useCallback(() => {
     for (const v of cacheRef.current.values()) URL.revokeObjectURL(v.url);
@@ -213,6 +214,7 @@ const PrecipMosaicLayer = ({ field, opacity, minDbz, kind = "ptype", palette = "
   }, []);
 
   const render = useCallback(() => {
+    const seq = ++renderSeqRef.current;
     if (!field) {
       setImg(null);
       return;
@@ -251,7 +253,12 @@ const PrecipMosaicLayer = ({ field, opacity, minDbz, kind = "ptype", palette = "
       if (!blob || !aliveRef.current) return;
       // The view may have moved while encoding; a stale render must not
       // enter the cache for the new view.
-      if (renderedRef.current && renderedRef.current.bounds !== bounds) return;
+      if (!renderedRef.current || renderedRef.current.bounds !== bounds) return;
+      if (seq !== renderSeqRef.current && cacheRef.current.has(cacheKey)) return;
+      if (cacheRef.current.has(cacheKey)) {
+        URL.revokeObjectURL(cacheRef.current.get(cacheKey).url);
+        cacheRef.current.delete(cacheKey);
+      }
       const url = URL.createObjectURL(blob);
       const leaflet = [[bounds.south, bounds.west], [bounds.north, bounds.east]];
       cacheRef.current.set(cacheKey, { url, leaflet });
@@ -260,7 +267,9 @@ const PrecipMosaicLayer = ({ field, opacity, minDbz, kind = "ptype", palette = "
         URL.revokeObjectURL(cacheRef.current.get(oldest).url);
         cacheRef.current.delete(oldest);
       }
-      setImg({ url, bounds: leaflet });
+      if (seq === renderSeqRef.current) {
+        setImg({ url, bounds: leaflet });
+      }
     }, "image/png");
   }, [map, field, minDbz, kind, palette, clearCache]);
 
@@ -278,9 +287,12 @@ const PrecipMosaicLayer = ({ field, opacity, minDbz, kind = "ptype", palette = "
     },
   });
 
-  useEffect(() => () => {
-    aliveRef.current = false;
-    clearCache();
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      clearCache();
+    };
   }, [clearCache]);
 
   if (!img) return null;
@@ -292,7 +304,6 @@ const PrecipMosaicLayer = ({ field, opacity, minDbz, kind = "ptype", palette = "
 PrecipMosaicLayer.propTypes = {
   field: PropTypes.shape({
     grid: PropTypes.object.isRequired,
-    cells: PropTypes.instanceOf(Uint8Array).isRequired,
     key: PropTypes.string.isRequired,
   }),
   opacity: PropTypes.number.isRequired,
