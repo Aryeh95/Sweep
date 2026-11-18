@@ -39,12 +39,14 @@ module.exports = (env) => {
 
   config.resolve = {
     ...config.resolve,
+    // Prefer client/node_modules first while keeping package.json `exports`
+    // conditional resolution intact (`require("axios")` in CJS server/*.js
+    // MUST hit `exports["."].browser.require` -> `dist/browser/axios.cjs`,
+    // whereas `alias: { axios: path }` bypasses `exports` and hands CJS an
+    // ESM namespace where `axios.get` is undefined!).
+    modules: [path.resolve(__dirname, "node_modules"), "node_modules"],
     alias: {
       ...config.resolve.alias,
-      // `server/*.js` resolves `axios` from root `node_modules` while
-      // `client/src/**` resolves from `client/node_modules`. Pin both trees to
-      // one copy so `installStandaloneApi()` wraps every `axios` consumer.
-      axios: path.resolve(__dirname, "node_modules/axios"),
       // `glmLightningCtrl` imports "h5wasm/node", whose entry reads the WASM
       // binary off disk with fs. The package's default export is the same
       // library built to fetch its WASM instead, which is what a WebView can

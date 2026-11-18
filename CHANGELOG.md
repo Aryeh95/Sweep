@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed (2026-11-17, Android 2.13.25 hotfix)
+- **Site radar and nowcast broke in App 2.13.25.** Aliasing `axios` to a filesystem directory in `client/webpack.app.config.js` bypassed `axios/package.json`'s conditional `exports["."].browser.require` entry (`dist/browser/axios.cjs`) and handed CommonJS `require("axios")` callers (`s3Get`, `iemRadarCtrl`, `radarStatusCtrl`) an ES module namespace where `axios.get` was `undefined`. Replaced with `resolve.modules` so both trees share one `axios` while keeping `exports` resolution intact, verified live in headless Chromium, and pinned in `test/standaloneShims.test.js`. App 2.13.26 (versionCode 43).
+
 ### Fixed (2026-11-17, codebase & security review)
 - **Fresh Linux installs into `~/sweep` start cleanly under systemd.** `deploy/pi-weather-server.service` keeps its historical `WorkingDirectory` for existing `~/pi-weather-station` checkouts, while `deploy/install.sh` now writes the actual clone path into `override.conf` so new installs cloned as `sweep` no longer fail with `200/CHDIR`.
 - **Canadian (ECCC) warnings now wake a sleeping kiosk and appear on the nowcast card.** ECCC alerts carry sentence-case titles (`"Tornado warning"`) and lowercase `alert_code`s, which missed the Title Case `"Warning"` checks in `server/warningWake.js` and `server/nearHome.js`. Both now match case-insensitively while still excluding watches, advisories, statements and test messages.

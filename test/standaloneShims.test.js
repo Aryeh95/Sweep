@@ -105,3 +105,21 @@ test("the pako zlib shim deflates a stream Node's zlib inflates and honours leve
   assert.ok(zlibShim.gunzipSync(zlib.gzipSync(payload)).equals(payload));
   assert.ok(zlibShim.inflateSync(defaultOut).equals(payload));
 });
+
+test("webpack.app.config.js preserves package.json exports resolution for CJS require('axios')", () => {
+  // Incident (2026-11-17, App 2.13.25): aliasing `axios` to a filesystem
+  // directory (`path.resolve(__dirname, "node_modules/axios")`) bypassed
+  // axios/package.json's `exports["."].browser.require` (`dist/browser/axios.cjs`)
+  // and handed CJS `const axios = require("axios")` in `server/*.js` (`s3Get`,
+  // `iemRadarCtrl`, `radarStatusCtrl`) an ESM namespace `{ default: axios }`
+  // where `axios.get` was `undefined` — breaking site radar and nowcast in the
+  // Android app while passing webpack compilation cleanly.
+  const appConfigFn = require("../client/webpack.app.config.js");
+  const cfg = appConfigFn({});
+  const alias = (cfg.resolve && cfg.resolve.alias) || {};
+  assert.equal(
+    "axios" in alias,
+    false,
+    "webpack.app.config.js must not alias bare `axios` to a path (use resolve.modules so package.json exports['.'].browser.require stays intact)"
+  );
+});
