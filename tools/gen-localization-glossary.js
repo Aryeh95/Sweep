@@ -19,8 +19,10 @@
  * (a native speaker confirming a translation reads right), which no generator
  * can reconstruct. Before writing, the existing glossary is parsed and every
  * ☑/✓ is carried forward, matched on the row's key for locale rows and on the
- * EN string for inline rows. A regeneration therefore never silently discards
- * review work — the whole reason it is safe to re-run.
+ * (section, EN, FR, ES) tuple for inline rows (so short English words like
+ * "Off" or "Auto" with different context-specific translations never collide).
+ * A regeneration therefore never silently discards review work — the whole
+ * reason it is safe to re-run.
  *
  * Usage:  node tools/gen-localization-glossary.js
  *         node tools/gen-localization-glossary.js --check   (exit 1 if stale)
@@ -185,31 +187,49 @@ function cell(s) {
 /** Parse the previous glossary for human validation marks.
  *
  * @param {string} file path to the existing glossary (may not exist)
- * @returns {{byKey: Map<string,string>, byEn: Map<string,string>, rows: number}} preserved
- *   marks indexed both ways, plus the count of marked rows found
+ * @returns {{byKey: Map<string,string>, bySectionTuple: Map<string,string>, byTuple: Map<string,string>, rows: number}}
+ *   preserved marks indexed by locale key and by (section, en, fr, es) /
+ *   (en, fr, es) tuple, plus the count of marked rows found
  */
 function readExistingMarks(file) {
   const byKey = new Map();
-  const byEn = new Map();
+  const bySectionTuple = new Map();
+  const byTuple = new Map();
   let rows = 0;
-  if (!fs.existsSync(file)) return { byKey, byEn, rows };
+  if (!fs.existsSync(file)) return { byKey, bySectionTuple, byTuple, rows };
+  let currentSection = "";
   for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    if (line.startsWith("## ")) {
+      currentSection = line.slice(3).trim();
+      continue;
+    }
     if (!line.startsWith("|")) continue;
     const cols = line.split("|").map((c) => c.trim());
     // cols[0] is the empty string before the leading pipe.
     const mark = cols[1];
     if (mark !== "☑" && mark !== "✓") continue;
     rows += 1;
-    const en = cols[2];
+    const en = cols[2] || "";
+    const fr = cols[3] || "";
+    const es = cols[4] || "";
     const last = cols[cols.length - 2] || "";
     const keyMatch = last.match(/`([^`]+)`/);
-    // A locale row is matched on its key; an inline row has no key, so it is
-    // matched on its EN wording. Both indexes are populated for locale rows so
-    // a key that later moves namespace still keeps its mark.
-    if (keyMatch) byKey.set(keyMatch[1], mark);
-    if (en) byEn.set(en, mark);
+    // A locale row carries a dotted i18n key (`ns.key`); an inline row's last
+    // column is a `:line` reference, so it is matched on its (section, EN, FR,
+    // ES) tuple (with an (EN, FR, ES) fallback if a row moves across panels or
+    // a locale key moves namespace without changing wording). Keying on the
+    // full trilingual tuple prevents short English labels ("Off", "Auto") with
+    // distinct FR/ES translations from overwriting one another's marks.
+    const tuple = `${en}\0${fr}\0${es}`;
+    if (keyMatch && !keyMatch[1].startsWith(":")) {
+      byKey.set(keyMatch[1], mark);
+      if (en) byTuple.set(tuple, mark);
+    } else if (en) {
+      bySectionTuple.set(`${currentSection}\0${tuple}`, mark);
+      byTuple.set(tuple, mark);
+    }
   }
-  return { byKey, byEn, rows };
+  return { byKey, bySectionTuple, byTuple, rows };
 }
 
 function main() {
@@ -220,8 +240,13 @@ function main() {
   const es = flatten(JSON.parse(fs.readFileSync(path.join(LOCALE_DIR, "es.json"), "utf8")));
 
   const marks = readExistingMarks(OUT);
-  const markFor = (key, enText) =>
-    marks.byKey.get(key) || (key ? "☐" : marks.byEn.get(cell(enText)) || "☐");
+  const tupleKey = (r) => `${cell(r.en)}\0${cell(r.fr)}\0${cell(r.es)}`;
+  const markForLocale = (r) =>
+    marks.byKey.get(r.key) || marks.byTuple.get(tupleKey(r)) || "☐";
+  const markForInline = (section, r) =>
+    marks.bySectionTuple.get(`${section}\0${tupleKey(r)}`) ||
+    marks.byTuple.get(tupleKey(r)) ||
+    "☐";
 
   // Locale keys whose three translations are byte-identical get their own
   // section at the bottom: listing "mph | mph | mph" 40 times buries the rows
@@ -272,7 +297,7 @@ function main() {
   L.push("touching a locale file or an inline `lbl()` string — every row below is derived, so a");
   L.push("hand edit will be overwritten. The one exception is the **Validé** column: it is human");
   L.push("review state and the generator carries existing `☑` marks forward, matching on the key");
-  L.push("(locale rows) or on the EN string (inline rows).");
+  L.push("(locale rows) or on the (section, EN, FR, ES) tuple (inline rows).");
   L.push("");
   L.push("Replace `☐` with `☑` when a native speaker has confirmed the FR and ES wording of a row.");
   L.push("");
@@ -332,7 +357,7 @@ function main() {
     L.push("| Validé | EN | FR | ES | Clé |");
     L.push("|--------|----|----|-----|-----|");
     for (const r of rows) {
-      L.push(`| ${markFor(r.key)} | ${cell(r.en)} | ${cell(r.fr)} | ${cell(r.es)} | \`${r.key}\` |`);
+      L.push(`| ${markForLocale(r)} | ${cell(r.en)} | ${cell(r.fr)} | ${cell(r.es)} | \`${r.key}\` |`);
     }
     L.push("");
   }
@@ -356,7 +381,7 @@ function main() {
     L.push("| Validé | EN | FR | ES | Ligne |");
     L.push("|--------|----|----|-----|-------|");
     for (const r of src.rows) {
-      L.push(`| ${markFor(null, r.en)} | ${cell(r.en)} | ${cell(r.fr)} | ${cell(r.es)} | \`:${r.line}\` |`);
+      L.push(`| ${markForInline(src.label, r)} | ${cell(r.en)} | ${cell(r.fr)} | ${cell(r.es)} | \`:${r.line}\` |`);
     }
     L.push("");
   }

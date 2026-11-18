@@ -1,12 +1,26 @@
 #!/bin/bash
 # Pi Weather Station — start-weather (without systemd)
 # Starts the Node.js server, waits for it to be ready,
-# then launches Chromium in kiosk mode.
+# then launches a Chromium-family browser in kiosk mode.
 # Works with labwc, wayfire, and X11/LXDE display servers.
 #
 # To allow access from the local network, uncomment the ALLOW_REMOTE line.
 
-cd "$HOME/pi-weather-station"
+# Resolve the repository checkout dynamically when invoked from deploy/,
+# falling back to ~/sweep or ~/pi-weather-station when copied into ~/.local/bin.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR=""
+for _cand in "${SWEEP_REPO_DIR:-}" "$SCRIPT_DIR/.." "$HOME/sweep" "$HOME/pi-weather-station"; do
+    if [ -n "$_cand" ] && [ -f "$_cand/package.json" ] && [ -d "$_cand/server" ]; then
+        REPO_DIR="$(cd "$_cand" && pwd)"
+        break
+    fi
+done
+if [ -z "$REPO_DIR" ]; then
+    echo "start-weather: could not locate Sweep repository (set SWEEP_REPO_DIR=/path/to/sweep)." >&2
+    exit 1
+fi
+cd "$REPO_DIR" || exit 1
 
 # Load nvm if available — check common install locations
 for _NVM_DIR in "$HOME/.nvm" "${XDG_CONFIG_HOME:-$HOME/.config}/nvm" "$HOME/.config/nvm"; do
@@ -17,18 +31,33 @@ for _NVM_DIR in "$HOME/.nvm" "${XDG_CONFIG_HOME:-$HOME/.config}/nvm" "$HOME/.con
     fi
 done
 
+# Detect browser binary up front before starting the server process
+CHROMIUM=$(command -v chromium 2>/dev/null \
+    || command -v chromium-browser 2>/dev/null \
+    || command -v google-chrome 2>/dev/null \
+    || command -v brave-browser 2>/dev/null \
+    || command -v microsoft-edge 2>/dev/null \
+    || true)
+if [ -z "$CHROMIUM" ]; then
+    echo "start-weather: no Chromium-family browser found in PATH — aborting." >&2
+    exit 1
+fi
+
 # Start the Node.js server. Logs go to the same persistent XDG path the
 # systemd install uses (/tmp is a tmpfs on Trixie — logs there are lost
-# at reboot).
+# at reboot). Clean up the background server when the kiosk session exits.
 LOG_FILE="$HOME/.local/state/pi-weather-station/server.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 # ALLOW_REMOTE=true npm start >> "$LOG_FILE" 2>&1 &
 # DEBUG=true npm start >> "$LOG_FILE" 2>&1 &
 npm start >> "$LOG_FILE" 2>&1 &
+SERVER_PID=$!
+trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
 
 # Wait for server on 8443 (HTTPS) or 8080 (HTTP). Allow up to 5 min so
 # cold boots after a power outage (router/switch still booting, slow
 # DNS) don't expire the wait window before `npm start` is ready.
+URL=""
 SERVER_WAIT_TIMEOUT=300
 for i in $(seq 1 $SERVER_WAIT_TIMEOUT); do
     if (echo > /dev/tcp/localhost/8443) 2>/dev/null; then
@@ -44,13 +73,17 @@ for i in $(seq 1 $SERVER_WAIT_TIMEOUT); do
     sleep 1
 done
 
-# Detect Chromium binary (name varies by OS version)
-CHROMIUM=$(which chromium 2>/dev/null || which chromium-browser 2>/dev/null)
+if [ -z "$URL" ]; then
+    echo "start-weather: server did not come up within ${SERVER_WAIT_TIMEOUT}s — aborting." >&2
+    exit 1
+fi
 
 # Chromium flags based on display server
+FLAGS=""
 if [ -n "$WAYLAND_DISPLAY" ]; then
     FLAGS="--ozone-platform=wayland --enable-features=OverlayScrollbar --start-maximized"
 fi
 
+# shellcheck disable=SC2086
 "$CHROMIUM" --kiosk --noerrdialogs --disable-infobars --no-first-run \
     --ignore-certificate-errors $FLAGS "$URL"

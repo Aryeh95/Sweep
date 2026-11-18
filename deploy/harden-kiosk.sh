@@ -45,20 +45,30 @@ confirm() {
 echo "=== Pi Weather Station — Kiosk Hardening ==="
 echo ""
 
-# --- 1. Blacklist usb-storage -----------------------------------------------
+# --- 1. Block usb-storage + uas ---------------------------------------------
 
-echo ">> [1/5] Blacklisting USB mass storage module..."
+echo ">> [1/5] Blocking USB mass storage modules (usb-storage + uas)..."
 BLACKLIST_FILE="/etc/modprobe.d/disable-usb-storage.conf"
-if [[ ! -f "$BLACKLIST_FILE" ]] || ! grep -q "^blacklist usb-storage" "$BLACKLIST_FILE"; then
-    echo "blacklist usb-storage" > "$BLACKLIST_FILE"
+if [[ ! -f "$BLACKLIST_FILE" ]] \
+    || ! grep -q "^blacklist usb-storage$" "$BLACKLIST_FILE" \
+    || ! grep -q "^blacklist uas$" "$BLACKLIST_FILE" \
+    || ! grep -q "^install usb-storage /bin/false$" "$BLACKLIST_FILE" \
+    || ! grep -q "^install uas /bin/false$" "$BLACKLIST_FILE"; then
+    cat > "$BLACKLIST_FILE" <<'EOF'
+# Pi Weather Station — block USB mass storage (BOT + UASP)
+blacklist usb-storage
+blacklist uas
+install usb-storage /bin/false
+install uas /bin/false
+EOF
     echo "   $BLACKLIST_FILE written."
     if command -v update-initramfs >/dev/null 2>&1; then
         update-initramfs -u >/dev/null
         echo "   initramfs updated."
     fi
-    echo "   (Takes effect at next reboot — module may still be loaded this session)"
+    echo "   (Takes effect at next reboot — modules may still be loaded this session)"
 else
-    echo "   Already blacklisted, skipping."
+    echo "   Already blocked, skipping."
 fi
 echo ""
 
@@ -128,12 +138,19 @@ echo "   lose your connection. Make sure you're on the same LAN, or add your"
 echo "   own rule before enabling."
 echo ""
 if confirm "   Apply firewall rules and enable ufw?"; then
-    # Detect local subnet (first ethernet interface with an IPv4 address)
-    LAN_CIDR=$(ip -4 -o addr show scope global | awk '{print $4}' | head -1)
+    # Derive the local subnet from the interface carrying the default IPv4
+    # route — `ip -4 -o addr show scope global | head -1` picks virtual
+    # bridges/tunnels (docker0, virbr0, tailscale0) first when present and
+    # locks out LAN SSH.
+    DEFAULT_IF=$(ip -4 route show default | awk '{print $5; exit}')
+    LAN_CIDR=""
+    if [[ -n "$DEFAULT_IF" ]]; then
+        LAN_CIDR=$(ip -4 -o addr show dev "$DEFAULT_IF" scope global | awk '{print $4; exit}')
+    fi
     if [[ -z "$LAN_CIDR" ]]; then
-        echo "   Could not detect local subnet. Aborting firewall step."
+        echo "   Could not detect local subnet from default route interface (${DEFAULT_IF:-none}). Aborting firewall step."
     else
-        echo "   Detected local subnet: $LAN_CIDR"
+        echo "   Detected local subnet: $LAN_CIDR (via $DEFAULT_IF)"
         ufw --force reset >/dev/null
         ufw default deny incoming >/dev/null
         ufw default deny outgoing >/dev/null

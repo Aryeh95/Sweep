@@ -30,8 +30,8 @@ const { fetchRadialByKey } = require("../server/radarRadialCtrl");
 const { keyNearest, fetchGrid } = require("../server/mrmsHailCtrl");
 const { keyForEpoch } = require("../server/radarRadialCtrl");
 const { parseCellRows, toGeoCell } = require("../server/stormTracksCtrl");
+const { s3Get } = require("../server/s3Get");
 const parseLevel3 = require("nexrad-level-3-data");
-const axios = require("axios");
 const nc = require("../server/nowcastCtrl");
 
 const LEADS = [15, 30, 45, 60];
@@ -70,7 +70,7 @@ const L3_BASE = "https://unidata-nexrad-level3.s3.amazonaws.com";
 async function cellsAtEpoch(site, epoch) {
   const key = await keyForEpoch(site, "NST", epoch);
   if (!key) return null;
-  const res = await axios.get(`${L3_BASE}/${key}`, { responseType: "arraybuffer", timeout: 15000 });
+  const res = await s3Get(`${L3_BASE}/${key}`, { responseType: "arraybuffer", timeout: 15000 });
   const parsed = parseLevel3(Buffer.from(res.data));
   const pd = parsed && parsed.productDescription;
   if (!pd || !Number.isFinite(pd.latitude)) return null;
@@ -139,17 +139,35 @@ function newTable() {
 }
 
 async function main() {
-  const [site, startIso, endIso, latStr, lonStr, spreadStr, configStr] = process.argv.slice(2);
-  if (!site || !startIso || !endIso || !latStr || !lonStr) {
+  const [rawSite, startIso, endIso, latStr, lonStr, spreadStr, configStr] = process.argv.slice(2);
+  if (!rawSite || !startIso || !endIso || !latStr || !lonStr) {
     console.error("usage: nowcastHindcast.js SITE START END LAT LON [spreadDeg] [configs]");
     process.exit(2);
   }
+  const siteTrim = rawSite.trim().toUpperCase();
+  if (!/^[A-Z]{3,4}$/.test(siteTrim)) {
+    console.error(`invalid SITE '${rawSite}' (expected 3- or 4-letter NEXRAD id, e.g. DIX or KDIX)`);
+    process.exit(2);
+  }
+  const site = siteTrim.length === 4 ? siteTrim.slice(1) : siteTrim;
   const startMs = Date.parse(startIso);
   const endMs = Date.parse(endIso);
-  const lat0 = parseFloat(latStr);
-  const lon0 = parseFloat(lonStr);
-  const spread = spreadStr ? parseFloat(spreadStr) : 0.3;
-  const configNames = configStr ? configStr.split(",") : DEFAULT_CONFIGS;
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+    console.error(`invalid START/END window '${startIso}' .. '${endIso}' (must be valid ISO timestamps with END >= START)`);
+    process.exit(2);
+  }
+  const lat0 = Number(latStr);
+  const lon0 = Number(lonStr);
+  if (!Number.isFinite(lat0) || lat0 < -90 || lat0 > 90 || !Number.isFinite(lon0) || lon0 < -180 || lon0 > 180) {
+    console.error(`invalid LAT/LON '${latStr}', '${lonStr}' (expected finite degrees in [-90,90] and [-180,180])`);
+    process.exit(2);
+  }
+  const spread = spreadStr !== undefined ? Number(spreadStr) : 0.3;
+  if (!Number.isFinite(spread) || spread < 0 || spread > 10) {
+    console.error(`invalid spreadDeg '${spreadStr}' (expected finite number in [0, 10])`);
+    process.exit(2);
+  }
+  const configNames = configStr ? configStr.split(",").filter(Boolean) : DEFAULT_CONFIGS;
   const homes = [];
   for (const di of [-1, 0, 1]) for (const dj of [-1, 0, 1]) homes.push({ lat: lat0 + di * spread, lon: lon0 + dj * spread });
 

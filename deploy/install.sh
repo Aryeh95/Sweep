@@ -149,6 +149,8 @@ preflight_check_tool() {
 echo ">> Pre-flight checks..."
 preflight_check_tool curl
 preflight_check_tool git
+preflight_check_tool python3
+preflight_check_tool openssl
 echo ""
 
 # ============================================================================
@@ -245,7 +247,7 @@ if ! command -v node &>/dev/null || [ "${NODE_VERSION:-0}" -lt "$NODE_MIN" ]; th
                     if [[ -z "$REPLY" || $REPLY =~ ^[Yy]$ ]]; then
                         echo ">> Installing nvm..."
                         unset NVM_DIR
-                        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+                        (set -o pipefail && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash)
                         _load_nvm || true
                         echo ">> Installing Node.js v22 LTS via nvm..."
                         nvm install 22
@@ -352,7 +354,7 @@ if [ "$CONFIGURE_SETTINGS" = "yes" ]; then
     # the user typed a replacement, unknown blocks pass through verbatim,
     # and the previous file is kept as settings.json.bak.
     if [ -f "$REPO_DIR/settings.json" ]; then
-        cp "$REPO_DIR/settings.json" "$REPO_DIR/settings.json.bak"
+        (umask 077 && cp "$REPO_DIR/settings.json" "$REPO_DIR/settings.json.bak")
         chmod 600 "$REPO_DIR/settings.json.bak"
         echo ">> Existing settings backed up to settings.json.bak."
     fi
@@ -360,10 +362,13 @@ if [ "$CONFIGURE_SETTINGS" = "yes" ]; then
     # argv is world-readable (`ps aux`, /proc/PID/cmdline mode 0444), so secrets
     # on the command line are visible to any local user for the lifetime of the
     # process; /proc/PID/environ is owner-only (0600). Only the non-secret
-    # output path stays on argv.
-    WS_mapApiKey="$MAP_KEY" WS_reverseGeoApiKey="$GEO_KEY" \
-    WS_startingLat="$LAT" WS_startingLon="$LON" \
-    python3 - "$REPO_DIR/settings.json" <<'PYEOF' > "$REPO_DIR/settings.json.tmp"
+    # output path stays on argv. Create settings.json.tmp under umask 077 so
+    # API keys are never world-readable even briefly, and remove it on error.
+    if ! (
+        umask 077
+        WS_mapApiKey="$MAP_KEY" WS_reverseGeoApiKey="$GEO_KEY" \
+        WS_startingLat="$LAT" WS_startingLon="$LON" \
+        python3 - "$REPO_DIR/settings.json" <<'PYEOF' > "$REPO_DIR/settings.json.tmp"
 import json, os, sys
 keys = ["mapApiKey", "reverseGeoApiKey", "startingLat", "startingLon"]
 answers = {k: os.environ.get("WS_" + k, "") for k in keys}
@@ -387,11 +392,16 @@ for k in ("weatherApiKey", "anthropicApiKey", "airNowApiKey", "openAqApiKey",
     merged.pop(k, None)
 print(json.dumps(merged, indent=2))
 PYEOF
+    ); then
+        rm -f "$REPO_DIR/settings.json.tmp"
+        echo ">> ERROR: failed to write settings.json." >&2
+        exit 1
+    fi
     mv "$REPO_DIR/settings.json.tmp" "$REPO_DIR/settings.json"
     echo ">> settings.json written (existing values preserved unless replaced)."
 else
     if [ ! -f "$REPO_DIR/settings.json" ]; then
-        cp "$REPO_DIR/settings.example.json" "$REPO_DIR/settings.json"
+        (umask 077 && cp "$REPO_DIR/settings.example.json" "$REPO_DIR/settings.json")
         echo ">> settings.json created from settings.example.json. Remember to add your API keys."
     else
         echo ">> settings.json unchanged."
@@ -447,14 +457,20 @@ if [ "$REMOTE_ANSWER" = "yes" ]; then
         DETECTED_IP=${DETECTED_IP:-127.0.0.1}
     fi
     echo ""
-    read -p "   IP address [$DETECTED_IP]: " CUSTOM_IP
+    read -p "   LAN IP address for summary URL [$DETECTED_IP]: " CUSTOM_IP
     REMOTE_IP=${CUSTOM_IP:-$DETECTED_IP}
     echo ""
-    echo ">> The server will auto-generate its SSL certificate on first start,"
-    echo "   covering every active LAN interface (including $REMOTE_IP)."
-    echo "   If the Pi's IP changes later, the server detects the SAN mismatch"
-    echo "   on restart and re-signs the leaf cert — the root CA is preserved,"
-    echo "   so clients that already trust this Pi stay trusted."
+    echo ">> The server auto-generates its SSL certificate on start, covering"
+    echo "   localhost, the machine hostname, and every active IPv4 interface"
+    echo "   on this host."
+    if [ -n "$CUSTOM_IP" ] && [ "$CUSTOM_IP" != "$DETECTED_IP" ]; then
+        echo "   NOTE: Custom addresses not assigned to a local network interface"
+        echo "   are NOT added to the auto-generated SAN — use a custom certificate"
+        echo "   for external/NAT addresses (see docs/ssl-custom-cert_en.md)."
+    fi
+    echo "   If the host's LAN IP changes later, the server detects the SAN"
+    echo "   mismatch on restart and re-signs the leaf cert — the root CA is"
+    echo "   preserved, so clients that already trust this device stay trusted."
 else
     ALLOW_REMOTE="no"
 fi
@@ -548,7 +564,7 @@ if [ "$KIOSK_MODE" = "yes" ]; then
     # Build the list of installed browsers (in preferred order)
     KNOWN_BROWSERS=(
         chromium chromium-browser google-chrome google-chrome-stable
-        microsoft-edge microsoft-edge-stable firefox firefox-esr
+        brave-browser microsoft-edge microsoft-edge-stable firefox firefox-esr
     )
     INSTALLED_BROWSERS=()
     for b in "${KNOWN_BROWSERS[@]}"; do
@@ -561,7 +577,7 @@ if [ "$KIOSK_MODE" = "yes" ]; then
 
     if [ ${#INSTALLED_BROWSERS[@]} -eq 0 ]; then
         echo ""
-        echo "   No supported browser found (chromium, chrome, edge, firefox)."
+        echo "   No supported browser found (chromium, chrome, brave, edge, firefox)."
         echo "   Kiosk mode requires one of these. Install one and re-run install.sh."
         echo "   Disabling kiosk mode for now."
         KIOSK_MODE="no"
@@ -681,11 +697,25 @@ data["StandardOutPath"]  = repo_dir + "/server.log"
 data["StandardErrorPath"] = repo_dir + "/server.log"
 
 env = data.get("EnvironmentVariables", {})
+default_path = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+existing_path = env.get("PATH", "")
+if existing_path:
+    parts = existing_path.split(":")
+    for p in ("/usr/local/bin", "/opt/homebrew/bin"):
+        if p not in parts:
+            parts.insert(0, p)
+    env["PATH"] = ":".join(parts)
+else:
+    env["PATH"] = default_path
 env["NODE_ENV"] = "production"
 if allow_remote == "yes":
     env["ALLOW_REMOTE"] = "true"
+else:
+    env.pop("ALLOW_REMOTE", None)
 if debug_mode == "yes":
     env["DEBUG"] = "true"
+else:
+    env.pop("DEBUG", None)
 data["EnvironmentVariables"] = env
 
 with open(plist_dest, "wb") as f:
@@ -736,8 +766,13 @@ EOF
     LOG_DIR="$HOME/.local/state/pi-weather-station"
     LOG_FILE="$LOG_DIR/server.log"
     mkdir -p "$LOG_DIR"
+    # Pin WorkingDirectory=$REPO_DIR in override.conf rather than editing
+    # deploy/pi-weather-server.service: fresh clones into ~/sweep (or any
+    # custom directory) start cleanly under systemd while existing
+    # ~/pi-weather-station installs keep SHA-256 parity with the repo unit.
     cat > ~/.config/systemd/user/pi-weather-server.service.d/override.conf << EOF
 [Service]
+WorkingDirectory=$REPO_DIR
 StandardOutput=append:$LOG_FILE
 StandardError=append:$LOG_FILE
 # Environment=DEBUG=true
@@ -750,7 +785,7 @@ EOF
         cat > ~/.config/systemd/user/pi-weather-server.service.d/nvm.conf << EOF
 [Service]
 ExecStart=
-ExecStart=/bin/bash -c '. ${NVM_DIR}/nvm.sh && exec npm start'
+ExecStart=/bin/bash -c '. "${NVM_DIR}/nvm.sh" && exec npm start'
 EOF
         echo ">> nvm sourcing configured for systemd service (${NVM_DIR})."
     else
@@ -775,6 +810,7 @@ EOF
     # user isn't `pi` (Bookworm/Trixie ask at imaging; Debian/Ubuntu/
     # openSUSE desktops) logrotate rejected the directive and silently
     # skipped the config forever — the log grew unbounded.
+    esc_sed() { printf '%s' "$1" | sed 's/[\\&|]/\\&/g'; }
     if command -v logrotate >/dev/null 2>&1 && [ -d /etc/logrotate.d ]; then
         echo ""
         echo ">> Configuring log rotation..."
@@ -785,9 +821,9 @@ EOF
         # about placeholders and "do not copy verbatim", which is confusing
         # in the installed file (and trips naive __ greps on the result).
         sed -e '/^[[:space:]]*#/d' -e '/^$/d' \
-            -e "s|__LOG_FILE__|$LOG_FILE|g" \
-            -e "s|__USER__|$USER|g" \
-            -e "s|__GROUP__|$(id -gn)|g" \
+            -e "s|__LOG_FILE__|$(esc_sed "$LOG_FILE")|g" \
+            -e "s|__USER__|$(esc_sed "$USER")|g" \
+            -e "s|__GROUP__|$(esc_sed "$(id -gn)")|g" \
             "$REPO_DIR/deploy/logrotate-weather-server" > "$LOGROTATE_PENDING"
         # Guarded: a declined sudo password under `set -e` used to abort the
         # whole install here, leaving phases 6-8 (autostart, brightness,
@@ -865,6 +901,7 @@ EOF
                 if grep -qs "start-server" "$LABWC_AUTOSTART"; then
                     echo ">> $LABWC_AUTOSTART already configured, no changes made."
                 elif [ -s "$LABWC_AUTOSTART" ]; then
+                    [ -n "$(tail -c 1 "$LABWC_AUTOSTART")" ] && printf '\n' >> "$LABWC_AUTOSTART"
                     cat "$REPO_DIR/deploy/autostart" >> "$LABWC_AUTOSTART"
                     echo ">> start-server appended to existing $LABWC_AUTOSTART."
                 else
@@ -878,10 +915,10 @@ EOF
                 if grep -q "start-server" "$WAYFIRE_INI" 2>/dev/null; then
                     echo ">> ~/.config/wayfire.ini already configured, no changes made."
                 elif grep -q "\[autostart\]" "$WAYFIRE_INI" 2>/dev/null; then
-                    sed -i '/\[autostart\]/a start-server = start-server' "$WAYFIRE_INI"
+                    sed -i "/\[autostart\]/a start-server = $(esc_sed "$HOME")/.local/bin/start-server" "$WAYFIRE_INI"
                     echo ">> ~/.config/wayfire.ini updated."
                 else
-                    printf "\n[autostart]\nstart-server = start-server\n" >> "$WAYFIRE_INI"
+                    printf "\n[autostart]\nstart-server = %s/.local/bin/start-server\n" "$HOME" >> "$WAYFIRE_INI"
                     echo ">> [autostart] section added to ~/.config/wayfire.ini."
                 fi
                 ;;
@@ -898,7 +935,8 @@ EOF
                         if [ ! -f "$LXDE_AUTOSTART" ] && [ -f "/etc/xdg/lxsession/LXDE-pi/autostart" ]; then
                             cp "/etc/xdg/lxsession/LXDE-pi/autostart" "$LXDE_AUTOSTART"
                         fi
-                        echo "@start-server" >> "$LXDE_AUTOSTART"
+                        [ -s "$LXDE_AUTOSTART" ] && [ -n "$(tail -c 1 "$LXDE_AUTOSTART")" ] && printf '\n' >> "$LXDE_AUTOSTART"
+                        echo "@$HOME/.local/bin/start-server" >> "$LXDE_AUTOSTART"
                         echo ">> $LXDE_AUTOSTART updated."
                     fi
                 else

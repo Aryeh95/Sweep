@@ -18,7 +18,7 @@
 
 set -euo pipefail
 
-REPO="${REPO:-thicla01/pi-weather-station}"
+REPO="${REPO:-Aryeh95/sweep}"
 OUT="${OUT:-$HOME/.local/share/pi-weather-station/traffic-history.csv}"
 
 # Non-interactive schedulers (launchd, cron) run outside the login session and
@@ -68,7 +68,14 @@ merged="$(
   ' | sort
 )"
 
-{ echo "date,clones,clone_uniques,views,view_uniques"; echo "$merged"; } > "$OUT"
+tmp="${OUT}.tmp.$$"
+trap 'rm -f "$tmp"' EXIT
+{
+  echo "date,clones,clone_uniques,views,view_uniques"
+  [ -n "$merged" ] && printf '%s\n' "$merged"
+} > "$tmp"
+mv "$tmp" "$OUT"
+trap - EXIT
 
 rows="$(( $(wc -l < "$OUT") - 1 ))"
 echo "OK — $rows jour(s) archivé(s) dans $OUT"

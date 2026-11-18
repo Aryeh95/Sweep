@@ -103,11 +103,11 @@ if [[ "$PLATFORM" != "Darwin" ]]; then
     fi
 fi
 
-# --- 2. start-server and start-weather scripts (Linux only) ---
+# --- 2. Kiosk helper scripts (Linux only) ---
 if [[ "$PLATFORM" != "Darwin" ]]; then
     echo ""
     echo ">> Removing scripts from ~/.local/bin..."
-    for SCRIPT in start-server start-weather; do
+    for SCRIPT in start-server start-weather detect-display-scale.sh; do
         if [ -f "$HOME/.local/bin/$SCRIPT" ]; then
             rm "$HOME/.local/bin/$SCRIPT"
             echo "   ~/.local/bin/$SCRIPT removed."
@@ -116,57 +116,56 @@ if [[ "$PLATFORM" != "Darwin" ]]; then
 fi
 
 # --- 3. Autostart configuration (Linux only) ---
+# Clean every supported autostart file unconditionally when present, rather
+# than gating on `ps aux` — uninstall.sh is often run over SSH or on a
+# headless session where no compositor process is currently running.
 if [[ "$PLATFORM" != "Darwin" ]]; then
     echo ""
-    echo ">> Detecting display server..."
-    DISPLAY_SERVER=$(ps aux | grep -E 'labwc|wayfire|Xorg' | grep -v grep | awk '{print $11}' | xargs -I{} basename {} 2>/dev/null | head -1)
+    echo ">> Cleaning autostart entries..."
+    AUTOSTART_CLEANED=0
 
-    case "$DISPLAY_SERVER" in
-        labwc)
-            echo ">> Display server detected: labwc"
-            # Remove only our entry (install.sh appends to this shared
-            # shell-style file — the user's own autostart lines must
-            # survive); drop the file only if nothing meaningful remains.
-            LABWC_AUTOSTART="$HOME/.config/labwc/autostart"
-            if [ -f "$LABWC_AUTOSTART" ]; then
-                sed -i '/start-server/d' "$LABWC_AUTOSTART"
-                if ! grep -q '[^[:space:]]' "$LABWC_AUTOSTART"; then
-                    rm "$LABWC_AUTOSTART"
-                    echo "   ~/.config/labwc/autostart removed (contained only our entry)."
-                else
-                    echo "   start-server entry removed from ~/.config/labwc/autostart (user entries kept)."
-                fi
-            fi
-            ;;
-        wayfire)
-            echo ">> Display server detected: wayfire"
-            WAYFIRE_INI="$HOME/.config/wayfire.ini"
-            if grep -qE "start-server|start-weather" "$WAYFIRE_INI" 2>/dev/null; then
-                sed -i '/start-server\|start-weather/d' "$WAYFIRE_INI"
-                echo "   start-server/start-weather entry removed from ~/.config/wayfire.ini."
-            fi
-            ;;
-        Xorg)
-            echo ">> Display server detected: X11/LXDE"
-            LXDE_AUTOSTART="$HOME/.config/lxsession/LXDE-pi/autostart"
-            if grep -qE "start-server|start-weather" "$LXDE_AUTOSTART" 2>/dev/null; then
-                sed -i '/start-server\|start-weather/d' "$LXDE_AUTOSTART"
-                echo "   start-server/start-weather entry removed from $LXDE_AUTOSTART."
-            fi
-            ;;
-        *)
-            echo ">> Display server not detected. Skipping autostart cleanup."
-            ;;
-    esac
+    # labwc — remove only our entry (install.sh appends to this shared
+    # shell-style file — the user's own autostart lines must survive);
+    # drop the file only if nothing meaningful remains.
+    LABWC_AUTOSTART="$HOME/.config/labwc/autostart"
+    if [ -f "$LABWC_AUTOSTART" ] && grep -qE "start-server|start-weather" "$LABWC_AUTOSTART" 2>/dev/null; then
+        sed -i '/start-server\|start-weather/d' "$LABWC_AUTOSTART"
+        if ! grep -q '[^[:space:]]' "$LABWC_AUTOSTART"; then
+            rm "$LABWC_AUTOSTART"
+            echo "   ~/.config/labwc/autostart removed (contained only our entry)."
+        else
+            echo "   start-server/start-weather entry removed from ~/.config/labwc/autostart (user entries kept)."
+        fi
+        AUTOSTART_CLEANED=1
+    fi
+
+    # wayfire
+    WAYFIRE_INI="$HOME/.config/wayfire.ini"
+    if [ -f "$WAYFIRE_INI" ] && grep -qE "start-server|start-weather" "$WAYFIRE_INI" 2>/dev/null; then
+        sed -i '/start-server\|start-weather/d' "$WAYFIRE_INI"
+        echo "   start-server/start-weather entry removed from ~/.config/wayfire.ini."
+        AUTOSTART_CLEANED=1
+    fi
+
+    # X11 / LXDE-pi
+    LXDE_AUTOSTART="$HOME/.config/lxsession/LXDE-pi/autostart"
+    if [ -f "$LXDE_AUTOSTART" ] && grep -qE "start-server|start-weather" "$LXDE_AUTOSTART" 2>/dev/null; then
+        sed -i '/start-server\|start-weather/d' "$LXDE_AUTOSTART"
+        echo "   start-server/start-weather entry removed from $LXDE_AUTOSTART."
+        AUTOSTART_CLEANED=1
+    fi
 
     # XDG autostart entry (GNOME, KDE Plasma, and any other DE following the
-    # freedesktop.org spec). Independent of the display server above — the
-    # install script writes here when it detects a desktop environment that
-    # isn't labwc/wayfire/LXDE-pi.
+    # freedesktop.org spec).
     XDG_AUTOSTART="$HOME/.config/autostart/pi-weather-station.desktop"
     if [ -f "$XDG_AUTOSTART" ]; then
         rm "$XDG_AUTOSTART"
         echo "   $XDG_AUTOSTART removed."
+        AUTOSTART_CLEANED=1
+    fi
+
+    if [ "$AUTOSTART_CLEANED" -eq 0 ]; then
+        echo "   No autostart entries found."
     fi
 fi
 
@@ -188,12 +187,15 @@ fi
 
 # --- 4. settings.json (optional) ---
 echo ""
-if [ -f "$REPO_DIR/settings.json" ]; then
-    read -p ">> Remove settings.json (contains your API keys)? (y/N) " -n 1 -r
+shopt -s nullglob
+SETTINGS_PWX=( "$REPO_DIR"/settings.json.pwx.* )
+shopt -u nullglob
+if [ -f "$REPO_DIR/settings.json" ] || [ -f "$REPO_DIR/settings.json.bak" ] || [ "${#SETTINGS_PWX[@]}" -gt 0 ]; then
+    read -p ">> Remove settings.json and backups (contains your API keys)? (y/N) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        rm "$REPO_DIR/settings.json"
-        echo "   settings.json removed."
+        rm -f "$REPO_DIR/settings.json" "$REPO_DIR/settings.json.bak" "$REPO_DIR/settings.json.tmp" "$REPO_DIR"/settings.json.pwx.*
+        echo "   settings.json (+ backups / temp files) removed."
     else
         echo "   settings.json kept."
     fi
@@ -201,25 +203,31 @@ fi
 
 # --- 5. SSL certificates (optional) ---
 echo ""
-if [ -f "$REPO_DIR/server/cert.pem" ] || [ -f "$REPO_DIR/server/key.pem" ]; then
-    read -p ">> Remove SSL certificates (server/cert.pem, server/key.pem)? (y/N) " -n 1 -r
+if [ -f "$REPO_DIR/server/cert.pem" ] || [ -f "$REPO_DIR/server/key.pem" ] \
+    || [ -f "$REPO_DIR/server/ca-cert.pem" ] || [ -f "$REPO_DIR/server/ca-key.pem" ] \
+    || [ -f "$REPO_DIR/server/ca-cert.srl" ]; then
+    read -p ">> Remove SSL certificates (server/{cert,key,ca-cert,ca-key}.pem, ca-cert.srl)? (y/N) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        rm -f "$REPO_DIR/server/cert.pem" "$REPO_DIR/server/key.pem"
-        echo "   SSL certificates removed."
+        rm -f "$REPO_DIR/server/cert.pem" "$REPO_DIR/server/key.pem" \
+              "$REPO_DIR/server/ca-cert.pem" "$REPO_DIR/server/ca-key.pem" \
+              "$REPO_DIR/server/ca-cert.srl"
+        echo "   SSL certificates and CA removed."
     else
         echo "   SSL certificates kept."
     fi
 fi
 
-# --- 6. node_modules (optional) ---
+# --- 6. node_modules and app build artefacts (optional) ---
 echo ""
-if [ -d "$REPO_DIR/node_modules" ] || [ -d "$REPO_DIR/client/node_modules" ]; then
-    read -p ">> Remove node_modules directories? (Y/n) " -n 1 -r
+if [ -d "$REPO_DIR/node_modules" ] || [ -d "$REPO_DIR/client/node_modules" ] \
+    || [ -d "$REPO_DIR/app/node_modules" ] || [ -d "$REPO_DIR/client/dist-app" ]; then
+    read -p ">> Remove node_modules directories (and client/dist-app)? (Y/n) " -n 1 -r
     echo
     if [[ -z "$REPLY" || $REPLY =~ ^[Yy]$ ]]; then
-        rm -rf "$REPO_DIR/node_modules" "$REPO_DIR/client/node_modules"
-        echo "   node_modules removed."
+        rm -rf "$REPO_DIR/node_modules" "$REPO_DIR/client/node_modules" \
+               "$REPO_DIR/app/node_modules" "$REPO_DIR/client/dist-app"
+        echo "   node_modules (and client/dist-app) removed."
     else
         echo "   node_modules kept."
     fi
@@ -304,9 +312,15 @@ RUNTIME_FILES=(
     "$REPO_DIR/server/geolocation-cache.json"
     "$REPO_DIR/server/request-counts.json"
 )
-# Server logs outside the repo: the XDG state dir (current installs) and
-# /tmp (pre-2026-06 installs), including rotated .1/.2.gz copies.
-rm -f "$HOME/.local/state/pi-weather-station/server.log"* /tmp/weather-server.log* 2>/dev/null || true
+# Server logs and runtime state outside the repo: the XDG state dir
+# (current installs) and /tmp (pre-2026-06 installs), including rotated
+# .1/.2.gz copies, nowcast verification state, kiosk relaunch log, and any
+# pending logrotate snippet.
+rm -f "$HOME/.local/state/pi-weather-station/server.log"* \
+      "$HOME/.local/state/pi-weather-station/kiosk.log"* \
+      "$HOME/.local/state/pi-weather-station/nowcast-skill.json" \
+      "$HOME/.local/state/pi-weather-station/logrotate-weather-server.pending" \
+      /tmp/weather-server.log* 2>/dev/null || true
 rmdir "$HOME/.local/state/pi-weather-station" 2>/dev/null || true
 RUNTIME_REMOVED=0
 for FILE in "${RUNTIME_FILES[@]}"; do

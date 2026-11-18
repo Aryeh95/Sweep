@@ -50,6 +50,8 @@
 
     <key>EnvironmentVariables</key>
     <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>NODE_ENV</key>
         <string>production</string>
         <!-- <key>ALLOW_REMOTE</key> <string>true</string> -->
@@ -60,9 +62,13 @@
     <key>RunAtLoad</key>
     <true/>
 
-    <!-- Restart automatically if the server crashes -->
+    <!-- Restart automatically if the server crashes (non-zero exit),
+         but allow `launchctl stop` and clean shutdowns to stay stopped -->
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
 
     <!-- Log output — same file used by the server -->
     <key>StandardOutPath</key>

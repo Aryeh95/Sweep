@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [master]
 
+permissions:
+  contents: read
+
 jobs:
   server:
     name: server tests
@@ -25,6 +28,8 @@ jobs:
         run: npm ci
         working-directory: client
       - run: npm test
+      - name: Verify localization glossary is up to date
+        run: node tools/gen-localization-glossary.js --check
 
   client:
     name: client build (lint + webpack)
@@ -38,9 +43,21 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: client/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+      # standalone/api.js imports ../server/* controllers, whose dependencies
+      # (nexrad-level-3-data, h5wasm, axios) live in the root node_modules.
+      - name: Install root deps (for standalone app bundle)
+        run: npm ci
+        working-directory: .
       - run: npm ci
       - run: npm run prod
+      # Also build + ESLint-check client/src/standalone/** and
+      # webpack.app.config.js on every PR. Writes to client/dist-app, so the
+      # committed client/dist reproducibility check below stays unaffected.
+      - name: Build standalone Android web bundle (dist-app)
+        run: npm run app:build
       # Structural reproducibility of the committed client/dist (the artifact
       # every Pi serves on `git pull`). A fresh build (with webpack
       # `output.clean`) must produce the same SET of files as committed: a

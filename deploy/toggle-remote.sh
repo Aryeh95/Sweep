@@ -69,6 +69,10 @@ PYEOF
 }
 
 if [ "$PLATFORM" = "Darwin" ]; then
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "ERROR: python3 is required on macOS to inspect/update $PLIST_FILE" >&2
+        exit 1
+    fi
     CURRENT="$(read_current_state_macos)"
 else
     CURRENT="$(read_current_state_linux)"
@@ -80,7 +84,7 @@ if [ "$CURRENT" = "enabled" ]; then
     echo ">> Remote access is currently ENABLED."
     read -p "   Disable remote access? (Y/n) " -n 1 -r
     echo
-    if [[ $REPLY =~ ^[Nn]$ ]]; then
+    if ! [[ -z "$REPLY" || $REPLY =~ ^[Yy]$ ]]; then
         echo ">> No change. Exiting."
         exit 0
     fi
@@ -89,14 +93,14 @@ else
     echo ">> Remote access is currently DISABLED."
     read -p "   Enable remote access? (Y/n) " -n 1 -r
     echo
-    if [[ $REPLY =~ ^[Nn]$ ]]; then
+    if ! [[ -z "$REPLY" || $REPLY =~ ^[Yy]$ ]]; then
         echo ">> No change. Exiting."
         exit 0
     fi
     TARGET="enabled"
 fi
 
-# --- Detect IP and regenerate certificate (only when enabling) --------------
+# --- Detect IP for summary URL (only when enabling) -------------------------
 REMOTE_IP=""
 if [ "$TARGET" = "enabled" ]; then
     if [ "$PLATFORM" = "Darwin" ]; then
@@ -106,14 +110,19 @@ if [ "$TARGET" = "enabled" ]; then
         DETECTED_IP=${DETECTED_IP:-127.0.0.1}
     fi
     echo ""
-    read -p "   IP address [$DETECTED_IP]: " CUSTOM_IP
+    read -p "   LAN IP address for summary URL [$DETECTED_IP]: " CUSTOM_IP
     REMOTE_IP=${CUSTOM_IP:-$DETECTED_IP}
 
     echo ""
-    echo ">> The server will detect the new SAN coverage requirement on restart"
-    echo "   and re-sign the leaf cert to include $REMOTE_IP. The root CA file"
-    echo "   (ca-cert.pem) is preserved, so clients that already installed the"
-    echo "   CA stay trusted — no re-trust on phones/laptops required."
+    echo ">> On restart the server verifies that its leaf certificate covers"
+    echo "   localhost, the machine hostname, and every active IPv4 interface"
+    echo "   on this host (re-signing under the existing root CA if needed, so"
+    echo "   devices that already trust ca-cert.pem stay trusted)."
+    if [ -n "$CUSTOM_IP" ] && [ "$CUSTOM_IP" != "$DETECTED_IP" ]; then
+        echo "   NOTE: Custom addresses not assigned to a local network interface"
+        echo "   are NOT added to the auto-generated SAN — use a custom certificate"
+        echo "   for external/NAT addresses (see docs/ssl-custom-cert_en.md)."
+    fi
 fi
 
 # --- Apply the toggle -------------------------------------------------------

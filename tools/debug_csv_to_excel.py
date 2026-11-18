@@ -15,13 +15,13 @@ Requirements:
 
 import sys
 import csv
-import os
 import glob
+import re
 from pathlib import Path
 
 try:
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
 except ImportError:
     print("Error: openpyxl is not installed.")
@@ -111,8 +111,25 @@ def parse_csv(path):
 
 # ---------- Excel writing ----------
 
-def write_overview(ws, rows):
-    ws.title = "Overview"
+INVALID_SHEET_CHARS = re.compile(r"[\\/*?:\[\]]")
+
+
+def make_sheet_title(raw_name, used_titles):
+    """Sanitize Excel-illegal characters and deduplicate 31-char sheet names."""
+    cleaned = INVALID_SHEET_CHARS.sub("-", raw_name).strip().strip("'")
+    base = (cleaned or "Sheet")[:31]
+    candidate = base
+    idx = 2
+    while candidate.lower() in used_titles:
+        suffix = f" ({idx})"
+        candidate = f"{base[:31 - len(suffix)]}{suffix}"
+        idx += 1
+    used_titles.add(candidate.lower())
+    return candidate
+
+
+def write_overview(ws, rows, used_titles):
+    ws.title = make_sheet_title("Overview", used_titles)
     for i, row in enumerate(rows, start=1):
         for j, val in enumerate(row, start=1):
             cell = ws.cell(row=i, column=j, value=val)
@@ -121,9 +138,9 @@ def write_overview(ws, rows):
     auto_width(ws)
 
 
-def write_section(ws, name, rows):
-    # Truncate sheet name to 31 chars (Excel limit)
-    ws.title = name[:31]
+def write_section(ws, name, rows, used_titles):
+    # Sanitize and deduplicate sheet name within Excel's 31-char limit
+    ws.title = make_sheet_title(name, used_titles)
 
     if not rows:
         return
@@ -136,7 +153,6 @@ def write_section(ws, name, rows):
         ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
 
     # Detect if first data row looks like a header (all uppercase or short labels)
-    data_start = 2
     header_row = None
     if rows and all(cell == cell.upper() for cell in rows[0] if cell.strip()):
         header_row = rows[0]
@@ -150,7 +166,6 @@ def write_section(ws, name, rows):
             ws.cell(row=row_idx, column=j, value=val)
         style_header_row(ws, row_idx, len(header_row))
         row_idx += 1
-        data_start = row_idx
 
     for row in data_rows:
         for j, val in enumerate(row, start=1):
@@ -166,6 +181,7 @@ def convert(input_path, output_path):
 
     wb = Workbook()
     first = True
+    used_titles = set()
 
     for sec in sections:
         if first:
@@ -175,9 +191,9 @@ def convert(input_path, output_path):
             ws = wb.create_sheet()
 
         if sec["name"] == "Overview":
-            write_overview(ws, sec["rows"])
+            write_overview(ws, sec["rows"], used_titles)
         else:
-            write_section(ws, sec["name"], sec["rows"])
+            write_section(ws, sec["name"], sec["rows"], used_titles)
 
     wb.save(output_path)
     print(f"Saved:    {output_path}")

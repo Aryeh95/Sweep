@@ -63,6 +63,10 @@ PYEOF
 }
 
 if [ "$PLATFORM" = "Darwin" ]; then
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "ERROR: python3 is required on macOS to inspect/update $PLIST_FILE" >&2
+        exit 1
+    fi
     CURRENT="$(read_current_state_macos)"
 else
     CURRENT="$(read_current_state_linux)"
@@ -74,7 +78,7 @@ if [ "$CURRENT" = "enabled" ]; then
     echo ">> Debug mode is currently ENABLED."
     read -p "   Disable debug mode? (Y/n) " -n 1 -r
     echo
-    if [[ $REPLY =~ ^[Nn]$ ]]; then
+    if ! [[ -z "$REPLY" || $REPLY =~ ^[Yy]$ ]]; then
         echo ">> No change. Exiting."
         exit 0
     fi
@@ -83,7 +87,7 @@ else
     echo ">> Debug mode is currently DISABLED."
     read -p "   Enable debug mode? (Y/n) " -n 1 -r
     echo
-    if [[ $REPLY =~ ^[Nn]$ ]]; then
+    if ! [[ -z "$REPLY" || $REPLY =~ ^[Yy]$ ]]; then
         echo ">> No change. Exiting."
         exit 0
     fi

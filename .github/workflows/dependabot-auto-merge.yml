@@ -53,10 +53,13 @@ jobs:
         # Gated on:
         #   - `ghsa-id` non-empty → this PR fixes a published security
         #     advisory (Dependabot only sets this for security PRs).
+        #   - package-ecosystem != 'github-actions' → workflow file edits
+        #     always get human review (and GITHUB_TOKEN lacks workflows: write).
         #   - update-type ∈ {semver-patch, semver-minor} → major bumps
         #     still need human eyes for breaking-change review.
         if: |
           steps.metadata.outputs.ghsa-id != '' &&
+          steps.metadata.outputs.package-ecosystem != 'github-actions' &&
           (steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
            steps.metadata.outputs.update-type == 'version-update:semver-minor')
         run: |

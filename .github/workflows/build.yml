@@ -14,8 +14,9 @@
 #      machine that built the last APK; here it is decoded from repository
 #      secrets, so any push can produce an installable update that Android
 #      accepts as the same app. Uploaded as a workflow artefact on every
-#      run, and published as a GitHub Release the first time a new
-#      versionName appears in app/android/app/build.gradle.
+#      run, and published to a GitHub Release tagged app-v<versionName> —
+#      created on first sight of a version in app/android/app/build.gradle
+#      and updated in place on rebuilds of the same version.
 #
 # Secrets (Settings → Secrets and variables → Actions):
 #   ANDROID_KEYSTORE_BASE64   base64 of app/android/app/sweep-release.jks
@@ -68,16 +69,43 @@ jobs:
       - name: Commit the rebuilt bundle when it differs
         id: commit
         run: |
-          if git diff --quiet -- client/dist && [ -z "$(git status --porcelain -- client/dist)" ]; then
-            echo "client/dist already matches the source ✓"
-            echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Sync with origin/master before committing in case back-to-back
+          # pushes advanced master while this job was queued or building.
+          BUILT_AT="$(git rev-parse HEAD)"
+          git fetch origin master
+          if [ "$(git rev-parse origin/master)" != "$BUILT_AT" ]; then
+            echo "origin/master advanced from ${BUILT_AT} — rebasing and rebuilding client/dist..."
+            git checkout -- client/dist
+            git clean -fd client/dist
+            git pull --rebase origin master
+            (cd client && npm ci && npm run prod)
+          fi
+
+          if git diff --quiet -- client/dist && [ -z "$(git status --porcelain -- client/dist)" ]; then
+            echo "client/dist already matches the source ✓"
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           git add -A client/dist
-          git commit -m "Rebuild client bundle from $(git rev-parse --short "$GITHUB_SHA") [skip ci]"
-          git push origin HEAD:master
+          git commit -m "Rebuild client bundle from $(git rev-parse --short HEAD) [skip ci]"
+          if ! git push origin HEAD:master; then
+            echo "Push raced with a new commit on master — rebasing once and rebuilding..."
+            git reset --soft HEAD~1
+            git restore --staged client/dist
+            git checkout -- client/dist
+            git clean -fd client/dist
+            git pull --rebase origin master
+            (cd client && npm ci && npm run prod)
+            if ! git diff --quiet -- client/dist || [ -n "$(git status --porcelain -- client/dist)" ]; then
+              git add -A client/dist
+              git commit -m "Rebuild client bundle from $(git rev-parse --short HEAD) [skip ci]"
+              git push origin HEAD:master
+            fi
+          fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "::notice::client/dist rebuilt and committed"
 
@@ -93,9 +121,13 @@ jobs:
           ref: ${{ needs.bundle.outputs.dist_sha }}
       - name: Check signing secrets
         id: secrets
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE_B64" ]; then
-            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set — skipping the APK build. Add the four ANDROID_* secrets to enable it."
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::warning::One or more ANDROID_* signing secrets are not set — skipping the APK build. Set ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD to enable it."
             echo "present=false" >> "$GITHUB_OUTPUT"
           else
             echo "present=true" >> "$GITHUB_OUTPUT"
@@ -109,7 +141,7 @@ jobs:
             package-lock.json
             client/package-lock.json
             app/package-lock.json
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         if: steps.secrets.outputs.present == 'true'
         with:
           distribution: temurin
@@ -138,13 +170,43 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          umask 077
           echo "$KEYSTORE_B64" | base64 -d > sweep-release.jks
-          {
-            echo "storeFile=sweep-release.jks"
-            echo "storePassword=$STORE_PASSWORD"
-            echo "keyAlias=$KEY_ALIAS"
-            echo "keyPassword=$KEY_PASSWORD"
-          } > keystore.properties
+          python3 - <<'PYEOF'
+          import os
+
+          # Escape values for java.util.Properties.load(InputStream) so
+          # backslashes, leading spaces, and non-ASCII characters in secrets
+          # are never mangled.
+          def prop_escape(val):
+              out = []
+              for idx, ch in enumerate(val):
+                  code = ord(ch)
+                  if ch == "\\":
+                      out.append("\\\\")
+                  elif ch == "\t":
+                      out.append("\\t")
+                  elif ch == "\n":
+                      out.append("\\n")
+                  elif ch == "\r":
+                      out.append("\\r")
+                  elif idx == 0 and ch == " ":
+                      out.append("\\ ")
+                  elif code < 0x20 or code > 0x7E:
+                      out.append(f"\\u{code:04x}")
+                  else:
+                      out.append(ch)
+              return "".join(out)
+
+          lines = [
+              "storeFile=sweep-release.jks",
+              f"storePassword={prop_escape(os.environ['STORE_PASSWORD'])}",
+              f"keyAlias={prop_escape(os.environ['KEY_ALIAS'])}",
+              f"keyPassword={prop_escape(os.environ['KEY_PASSWORD'])}",
+          ]
+          with open("keystore.properties", "w", encoding="ascii") as fh:
+              fh.write("\n".join(lines) + "\n")
+          PYEOF
       - name: Build the release APK
         if: steps.secrets.outputs.present == 'true'
         working-directory: app/android
@@ -160,26 +222,29 @@ jobs:
         if: always() && steps.secrets.outputs.present == 'true'
         working-directory: app/android/app
         run: rm -f sweep-release.jks keystore.properties
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: steps.secrets.outputs.present == 'true'
         with:
           name: Sweep-${{ env.version }}
           path: app/android/Sweep-${{ env.version }}.apk
           if-no-files-found: error
-      - name: Publish a release for a new version
+      - name: Publish a release
         if: steps.secrets.outputs.present == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIST_SHA: ${{ needs.bundle.outputs.dist_sha }}
         working-directory: app/android
         run: |
           TAG="app-v${version}"
+          NOTES="Signed release APK built from ${DIST_SHA} by the Build workflow."
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "release $TAG exists — replacing its APK with this build"
+            echo "release $TAG exists — replacing its APK and updating notes for ${DIST_SHA}"
             gh release upload "$TAG" "Sweep-${version}.apk" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$TAG" --notes "$NOTES" --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$TAG" "Sweep-${version}.apk" \
               --repo "$GITHUB_REPOSITORY" \
               --title "Sweep ${version}" \
-              --notes "Signed release APK built from ${GITHUB_SHA} by the Build workflow." \
-              --target "${{ needs.bundle.outputs.dist_sha }}"
+              --notes "$NOTES" \
+              --target "$DIST_SHA"
           fi

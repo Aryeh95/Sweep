@@ -46,10 +46,31 @@ pkill -TERM -f -- '--kiosk' 2>/dev/null
 sleep 2
 pkill -KILL -f -- '--kiosk' 2>/dev/null
 
-# Clear Chromium's hostname-stamped singleton locks so the relaunch doesn't
-# bail with "profile in use" (harmless no-op when the files don't exist, e.g.
-# Firefox).
-rm -f "$HOME/.config/chromium/Singleton"{Lock,Cookie,Socket} 2>/dev/null
+# Clear stale Chromium-family singleton locks (hostname mismatch or dead PID
+# left behind by SIGKILL above) across all supported Chromium browsers, while
+# leaving a non-kiosk browser genuinely running on this host untouched.
+clean_orphan_chromium_lock() {
+    profile_dir="$1"
+    lock="$profile_dir/SingletonLock"
+    [ -L "$lock" ] || return 0
+    target=$(readlink "$lock" 2>/dev/null) || return 0
+    lock_host="${target%-*}"
+    lock_pid="${target##*-}"
+    if [ -n "$lock_host" ] && {
+        [ "$lock_host" != "$(hostname)" ] \
+        || { [[ "$lock_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$lock_pid" 2>/dev/null; }
+    }; then
+        rm -f "$lock" "$profile_dir/SingletonCookie" "$profile_dir/SingletonSocket" 2>/dev/null
+    fi
+}
+
+for _profile_dir in \
+    "$HOME/.config/chromium" \
+    "$HOME/.config/google-chrome" \
+    "$HOME/.config/BraveSoftware/Brave-Browser" \
+    "$HOME/.config/microsoft-edge"; do
+    clean_orphan_chromium_lock "$_profile_dir"
+done
 
 # Relaunch via the installed launcher. CRITICAL: launch it in a transient
 # systemd --user scope so the kiosk's whole process tree does NOT live in

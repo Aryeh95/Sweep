@@ -11,7 +11,7 @@
 # whatever accumulates in a day, 10 MB-checked once per run). Plain `size`
 # *replaces* the schedule entirely (rotation only ever on threshold) — the
 # old config silently disabled the documented daily cycle.
-__LOG_FILE__ {
+"__LOG_FILE__" {
     su __USER__ __GROUP__
     daily
     rotate 7
