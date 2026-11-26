@@ -12,7 +12,7 @@ const assert = require("node:assert/strict");
 
 const { __test } = require("../server/govAlertsCtrl");
 
-const { filterTestAlerts } = __test;
+const { filterTestAlerts, filterExpiredAlerts } = __test;
 
 const A = { id: "a", isTest: false, tier: "red" }; // real NWS alert
 const T = { id: "t", isTest: true, tier: "red" };  // NWS test/exercise alert
@@ -33,6 +33,18 @@ test("a real (Actual / status-less) alert is NEVER dropped — regression vs ove
   assert.deepEqual(filterTestAlerts([A], true).map((x) => x.id), ["a"]);
   // An alert with no isTest field (e.g. every ECCC alert) survives default-hide.
   assert.deepEqual(filterTestAlerts([U], false).map((x) => x.id), ["u"]);
+});
+
+test("filterExpiredAlerts drops expired alerts while keeping future and undated alerts", () => {
+  const nowMs = Date.parse("2026-11-26T12:00:00Z");
+  const list = [
+    { id: "expired", expiresAt: "2026-11-25T15:24:48Z" },
+    { id: "at-boundary", expiresAt: "2026-11-26T12:00:00Z" },
+    { id: "active", expiresAt: "2026-11-26T19:00:00Z" },
+    { id: "no-expiry", expiresAt: null },
+  ];
+  assert.deepEqual(filterExpiredAlerts(list, nowMs).map((x) => x.id), ["active", "no-expiry"]);
+  assert.deepEqual(filterExpiredAlerts(null, nowMs), []);
 });
 
 // MANUAL VERIFICATION (not unit-testable): the security boundary that a REMOTE

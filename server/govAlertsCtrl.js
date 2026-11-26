@@ -69,6 +69,22 @@ function filterTestAlerts(alerts, showTest) {
 }
 
 /**
+ * Drop alerts whose `expiresAt` timestamp has already passed. Alerts with a
+ * missing or non-finite `expiresAt` are kept.
+ *
+ * @param {Array<Object>} alerts
+ * @param {Number} [nowMs]
+ * @returns {Array<Object>}
+ */
+function filterExpiredAlerts(alerts, nowMs = Date.now()) {
+  if (!Array.isArray(alerts)) return [];
+  return alerts.filter((a) => {
+    const exp = Date.parse(a?.expiresAt || "");
+    return !(Number.isFinite(exp) && exp <= nowMs);
+  });
+}
+
+/**
  * Merge every regional source's normalised alerts at the given
  * point and return them sorted by severity. Exposed as a reusable
  * helper so other controllers can resolve "is there an active gov alert
@@ -89,7 +105,7 @@ async function getActiveAlertsAt(lat, lon, { showTest = false } = {}) {
     Object.values(sources).map((src) => src.tryAlerts(lat, lon, { showTest }).catch(() => null))
   );
   const merged = results.filter(Array.isArray).flat();
-  return filterTestAlerts(sortBySeverity(merged), showTest);
+  return filterExpiredAlerts(filterTestAlerts(sortBySeverity(merged), showTest));
 }
 
 /**
@@ -184,7 +200,7 @@ async function getNearbyAlertsAt(lat, lon, radiusKm, { showTest = false } = {}) 
     const k = a.id || `${a.source}|${a.eventType}|${a.areaDesc}|${a.expiresAt}`;
     if (!byId.has(k)) byId.set(k, a);
   }
-  const unique = filterTestAlerts([...byId.values()], showTest);
+  const unique = filterExpiredAlerts(filterTestAlerts([...byId.values()], showTest));
 
   const mappable = unique.filter((a) => a.geometry);
   const residualCount = unique.length - mappable.length;
@@ -228,5 +244,5 @@ async function getNearbyAlerts(req, res) {
 module.exports = {
   getWeatherAlerts, getActiveAlertsAt, getNearbyAlerts, getNearbyAlertsAt,
   // Internal helpers exposed for unit tests (see test/alertTestStrip.test.js).
-  __test: { filterTestAlerts, sortBySeverity },
+  __test: { filterTestAlerts, filterExpiredAlerts, sortBySeverity },
 };

@@ -19,7 +19,12 @@ const assert = require("node:assert/strict");
 const { isTestStatus } = require("../server/govAlertSources/_shared");
 const { __test: nwsTest } = require("../server/govAlertSources/nws");
 
-const { normalize, mapInBatches } = nwsTest;
+const {
+  normalize,
+  mapInBatches,
+  isSupersededNwsFeature,
+  isExpiredAlert,
+} = nwsTest;
 
 test("isTestStatus: non-Actual CAP statuses are test", () => {
   for (const s of ["Test", "Exercise", "System", "Draft"]) {
@@ -74,4 +79,61 @@ test("mapInBatches preserves input order and bounds concurrency to the limit", a
 test("mapInBatches handles an empty list and a list shorter than the limit", async () => {
   assert.deepEqual(await mapInBatches([], 10, async (n) => n), []);
   assert.deepEqual(await mapInBatches([1, 2, 3], 10, async (n) => n + 1), [2, 3, 4]);
+});
+
+test("normalize drops NWS upgraded/cancelled/replaced alert stubs while keeping active and mixed VTEC alerts", () => {
+  // Exact live Baltimore Wind Advisory stub returned past `expires` while `ends` is still ahead.
+  const baltimoreUpgStub = feature({
+    event: "Wind Advisory",
+    severity: "Moderate",
+    status: "Actual",
+    messageType: "Alert",
+    sent: "2026-11-25T10:09:00-05:00",
+    expires: "2026-11-25T10:24:48-05:00",
+    ends: "2026-11-26T16:00:00-05:00",
+    parameters: {
+      VTEC: ["/O.UPG.KLWX.WI.Y.0015.261126T0900Z-261126T2100Z/"],
+    },
+  });
+  assert.equal(isSupersededNwsFeature(baltimoreUpgStub), true);
+  assert.equal(normalize(baltimoreUpgStub), null);
+
+  // Cancel messageType, CAN/EXP VTEC, and replacedAt/replacedBy are also dropped.
+  assert.equal(normalize(feature({ messageType: "Cancel" })), null);
+  assert.equal(normalize(feature({ replacedAt: "2026-11-26T12:00:00-05:00" })), null);
+  assert.equal(normalize(feature({ replacedBy: "urn:oid:new" })), null);
+  assert.equal(normalize(feature({ parameters: { VTEC: ["/O.CAN.KLWX.WI.Y.0015.000000T0000Z-261126T2100Z/"] } })), null);
+  assert.equal(normalize(feature({ parameters: { VTEC: ["/O.EXP.KLWX.WI.Y.0015.261126T0900Z-261126T1200Z/"] } })), null);
+
+  // Multi-VTEC message upgrading one event while issuing/continuing another must NOT be dropped.
+  const mixed = feature({
+    event: "High Wind Warning",
+    parameters: {
+      VTEC: [
+        "/O.UPG.KLWX.WI.Y.0015.261126T0900Z-261126T2100Z/",
+        "/O.NEW.KLWX.HW.W.0005.261126T0900Z-261126T2100Z/",
+      ],
+    },
+  });
+  assert.equal(isSupersededNwsFeature(mixed), false);
+  assert.equal(normalize(mixed)?.eventType, "High Wind Warning");
+
+  // Standard active CON / EXT / NEW Update alerts stay intact.
+  for (const act of ["NEW", "CON", "EXT"]) {
+    const active = feature({
+      event: "High Wind Warning",
+      messageType: "Update",
+      parameters: { VTEC: [`/O.${act}.KLWX.HW.W.0005.261126T0900Z-261127T0000Z/`] },
+    });
+    assert.equal(normalize(active)?.eventType, "High Wind Warning");
+  }
+});
+
+test("isExpiredAlert checks finite expiresAt timestamps against nowMs", () => {
+  const nowMs = Date.parse("2026-11-26T12:00:00-05:00");
+  assert.equal(isExpiredAlert({ expiresAt: "2026-11-25T10:24:48-05:00" }, nowMs), true);
+  assert.equal(isExpiredAlert({ expiresAt: "2026-11-26T12:00:00-05:00" }, nowMs), true);
+  assert.equal(isExpiredAlert({ expiresAt: "2026-11-26T12:01:00-05:00" }, nowMs), false);
+  assert.equal(isExpiredAlert({ expiresAt: null }, nowMs), false);
+  assert.equal(isExpiredAlert({ expiresAt: "not-a-date" }, nowMs), false);
 });

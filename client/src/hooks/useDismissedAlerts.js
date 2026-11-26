@@ -1,14 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { purgeStale } from "~/ui/dismissedAlerts";
 
 // Storage key for dismissed alerts. Persists across reloads + reboots.
 const STORAGE_KEY = "dismissedAlerts";
-
-// Auto-resurface floor. A kiosk where someone dismisses a severe alert
-// and the kiosk goes quiet for the rest of the storm is dangerous —
-// after this window the alert reappears regardless of severity. Tuned
-// long enough that a user reading the alert detail then collapsing
-// the banner doesn't see it re-appear in their next coffee break.
-const AUTO_RESURFACE_MS = 4 * 60 * 60 * 1000;
 
 // Numeric ranking so "severity escalated" comparisons are simple.
 // The set mirrors the orchestrator's CAP-normalised tier vocabulary.
@@ -57,32 +51,6 @@ function writeStore(store) {
     /* localStorage full / private mode — silent fail, the user
      * just sees the alert un-dismiss after a reload */
   }
-}
-
-/**
- * Strip stale dismissal entries. An entry is stale when:
- *   - the upstream `expiresAt` is in the past (the alert is gone
- *     for everyone, no need to keep tracking it),
- *   - OR the dismissal is older than `AUTO_RESURFACE_MS`.
- *
- * Pure function on a snapshot, returns the cleaned map.
- *
- * @param {Record<string, object>} store
- * @returns {Record<string, object>}
- */
-function purgeStale(store) {
-  const now = Date.now();
-  const next = {};
-  for (const [id, entry] of Object.entries(store)) {
-    if (!entry || typeof entry.ts !== "number") continue;
-    if (now - entry.ts > AUTO_RESURFACE_MS) continue;
-    if (entry.expiresAt) {
-      const exp = Date.parse(entry.expiresAt);
-      if (Number.isFinite(exp) && exp < now) continue;
-    }
-    next[id] = entry;
-  }
-  return next;
 }
 
 /**

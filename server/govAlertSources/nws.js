@@ -48,17 +48,57 @@ function cacheKey(lat, lon) {
   return `${lat.toFixed(1)},${lon.toFixed(1)}`;
 }
 
+const TERMINAL_VTEC_RE = /^\/[A-Z]\.(?:CAN|EXP|UPG)\./i;
+
+/**
+ * Whether an NWS CAP feature is a superseded, cancelled, or upgraded stub
+ * (`messageType === "Cancel"`, `replacedAt`/`replacedBy` populated, or every
+ * VTEC action code is `CAN` / `EXP` / `UPG`). Checking `.every()` preserves
+ * multi-VTEC alerts that upgrade one event while issuing/continuing another.
+ *
+ * @param {Object} feature GeoJSON feature from api.weather.gov
+ * @returns {Boolean}
+ */
+function isSupersededNwsFeature(feature) {
+  const p = feature?.properties;
+  if (!p) return false;
+  if (String(p.messageType || "").toLowerCase() === "cancel") return true;
+  if (p.replacedAt || p.replacedBy) return true;
+  const rawVtec = p.parameters?.VTEC;
+  const vtecs = Array.isArray(rawVtec)
+    ? rawVtec.filter((v) => typeof v === "string" && v.trim())
+    : [];
+  if (vtecs.length > 0 && vtecs.every((v) => TERMINAL_VTEC_RE.test(v.trim()))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a normalised alert's `expiresAt` timestamp has already passed.
+ * Alerts missing a finite `expiresAt` are treated as unexpired.
+ *
+ * @param {Object} alert
+ * @param {Number} [nowMs]
+ * @returns {Boolean}
+ */
+function isExpiredAlert(alert, nowMs = Date.now()) {
+  const exp = Date.parse(alert?.expiresAt || "");
+  return Number.isFinite(exp) && exp <= nowMs;
+}
+
 /**
  * Translate one NWS feature into the orchestrator's normalised
  * shape. NWS is English-only — the FR fields mirror EN so the
  * client can pick by locale without branching on source.
  *
  * @param {Object} feature GeoJSON feature from /alerts/active
- * @returns {Object|null} normalised alert, or null if missing required fields
+ * @returns {Object|null} normalised alert, or null if missing required fields or superseded
  */
 function normalize(feature) {
   const p = feature?.properties;
   if (!p || !p.event) return null;
+  if (isSupersededNwsFeature(feature)) return null;
   // Cap watches at moderate so a CAP-Severe Flood/Tornado Watch doesn't
   // render red like a Warning (see capWatchSeverity / ROADMAP item #184).
   const severity = capWatchSeverity(normalizeSeverity(p.severity), isWatchEvent(p.event));
@@ -133,7 +173,8 @@ async function tryAlerts(lat, lon, { showTest = false } = {}) {
   const key = `${cacheKey(lat, lon)}${showTest ? "|t" : ""}`;
   const cached = cache.get(key);
   if (cached && Date.now() < cached.expiresAt) {
-    return cached.alerts;
+    const nowMs = Date.now();
+    return cached.alerts.filter((a) => !isExpiredAlert(a, nowMs));
   }
 
   const url = `https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`;
@@ -169,9 +210,10 @@ async function tryAlerts(lat, lon, { showTest = false } = {}) {
   // resolving those zones the "Voir sur la carte" button never
   // appears for them.
   const pairs = [];
+  const nowMs = Date.now();
   for (const f of features) {
     const n = normalize(f);
-    if (n) pairs.push({ alert: n, feature: f });
+    if (n && !isExpiredAlert(n, nowMs)) pairs.push({ alert: n, feature: f });
   }
 
   // Resolve zone-only alerts (no inline polygon) to polygons via their
@@ -369,7 +411,10 @@ async function resolveStatesForCircle(lat, lon, radiusKm) {
 async function fetchAlertsForArea(area, { showTest = false } = {}) {
   const cacheK = `${area}${showTest ? "|t" : ""}`;
   const cached = areaCache.get(cacheK);
-  if (cached && Date.now() < cached.expiresAt) return cached.alerts;
+  if (cached && Date.now() < cached.expiresAt) {
+    const nowMs = Date.now();
+    return cached.alerts.filter((a) => !isExpiredAlert(a, nowMs));
+  }
 
   let resp;
   try {
@@ -384,9 +429,10 @@ async function fetchAlertsForArea(area, { showTest = false } = {}) {
 
   const features = resp.data?.features || [];
   const pairs = [];
+  const nowMs = Date.now();
   for (const f of features) {
     const n = normalize(f);
-    if (n) pairs.push({ alert: n, feature: f });
+    if (n && !isExpiredAlert(n, nowMs)) pairs.push({ alert: n, feature: f });
   }
   await enrichGeometries(pairs, showTest);
   const alerts = pairs.map((p) => p.alert);
@@ -403,6 +449,13 @@ module.exports = {
   resolveStatesForCircle,
   fetchAlertsForArea,
   // Internal helpers exposed for unit tests (circleBboxCorners →
-  // test/nearbyAlerts.test.js; normalize + mapInBatches → test/nwsTestStatus.test.js).
-  __test: { circleBboxCorners, normalize, mapInBatches },
+  // test/nearbyAlerts.test.js; normalize + mapInBatches + superseded/expiry →
+  // test/nwsTestStatus.test.js).
+  __test: {
+    circleBboxCorners,
+    normalize,
+    mapInBatches,
+    isSupersededNwsFeature,
+    isExpiredAlert,
+  },
 };
