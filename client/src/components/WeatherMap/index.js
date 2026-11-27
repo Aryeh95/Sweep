@@ -1045,6 +1045,7 @@ const WeatherMap = ({ zoom, dark }) => {
   // that an instant cutover reads as a rendering glitch.
   const {
     site: iemSite,
+    fallbackFrom: iemFallbackFrom,
     frames: iemSiteFrames,
     mosaic: iemMosaicMeta,
     satellite: iemSatelliteMeta,
@@ -1513,6 +1514,7 @@ const WeatherMap = ({ zoom, dark }) => {
     else if (radarPrecipType) siteLabel = `${iemSite} ${t("radar.agePrecipType")}`;
     else if (radarCorrelation) siteLabel = `${iemSite} ${t("radar.ageCorrelation")}`;
     else if (radarAccumulationProduct) siteLabel = `${iemSite} ${t(`radar.ageAccum.${radarAccumulationProduct}`)}`;
+    if (iemFallbackFrom) siteLabel = `${siteLabel} ${t("radar.siteFallback", { site: iemFallbackFrom })}`;
     ageRows.push({
       key: "site",
       label: siteLabel,

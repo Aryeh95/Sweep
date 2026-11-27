@@ -230,11 +230,14 @@ const NowcastPanel = ({ compact = false }) => {
     );
   }
   if (!data.available) {
+    const siteLabel = data.site && data.fallbackFrom
+      ? `${data.site} ${t("radar.siteFallback", { site: data.fallbackFrom })}`
+      : data.site;
     return (
       <section className={cardClass} aria-label={t("nowcast.title")}>
         <header className={styles.head}>
           <span className={styles.title}>{t("nowcast.title")}</span>
-          {data.site ? <span className={styles.site}>{data.site}</span> : null}
+          {siteLabel ? <span className={styles.site}>{siteLabel}</span> : null}
         </header>
         <div className={styles.headline}>{t("nowcast.unavailable")}</div>
         <div className={styles.detail}>
@@ -247,8 +250,9 @@ const NowcastPanel = ({ compact = false }) => {
 
   // ---- The answer ---------------------------------------------------
   const {
-    now: scanNow, arrival, peak, end, series, motion, trend, confidence, horizonMin, scanTime, site, hindcast, liveSkill, mrms, nearby, nearestRain, cells,
+    now: scanNow, arrival, peak, end, series, motion, trend, confidence, horizonMin, scanTime, site, fallbackFrom, hindcast, liveSkill, mrms, nearby, nearestRain, cells,
   } = data;
+  const siteLabel = fallbackFrom ? `${site} ${t("radar.siteFallback", { site: fallbackFrom })}` : site;
   const at = (lead) => clockAt(scanTime, lead, clockTime, mapTimezone);
   // Every distance the card prints goes through the user's distance unit
   // (kiosk report 2026-09-28: imperial settings, card still in km).
@@ -271,7 +275,7 @@ const NowcastPanel = ({ compact = false }) => {
         <header className={styles.head}>
           <span className={styles.title}>{t("nowcast.title")}</span>
           <span className={`${styles.age} ${styles["age-stale"] || ""}`}>
-            <span className={styles.site}>{site}</span>
+            <span className={styles.site}>{siteLabel}</span>
             <span className={styles.ageDot} aria-hidden="true" />
             {t("radar.ageMinutes", { count: ageMinutes })}
           </span>
@@ -398,7 +402,7 @@ const NowcastPanel = ({ compact = false }) => {
       <header className={styles.head}>
         <span className={styles.title}>{t("nowcast.title")}</span>
         <span className={`${styles.age} ${styles[`age-${stale ? "stale" : level}`] || ""}`}>
-          <span className={styles.site}>{site}</span>
+          <span className={styles.site}>{siteLabel}</span>
           <span className={styles.ageDot} aria-hidden="true" />
           {ageMinutes < 1 ? t("radar.ageNow") : t("radar.ageMinutes", { count: ageMinutes })}
         </span>

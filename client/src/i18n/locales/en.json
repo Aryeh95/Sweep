@@ -532,7 +532,8 @@
       "DU3": "MRMS 3 h"
     },
     "siteOfflineFor": "{{site}} · offline · no data for {{age}}",
-    "siteOffline": "{{site}} · offline"
+    "siteOffline": "{{site}} · offline",
+    "siteFallback": "({{site}} offline)"
   },
   "controls": {
     "resetMapPosition": "Recenter the map on the home position",

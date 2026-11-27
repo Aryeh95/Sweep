@@ -37,9 +37,15 @@ const { recordServiceCall } = require("./serviceStatus");
 const { getSettingsData } = require("./settingsCtrl");
 const { increment } = require("./requestCounter");
 const { BoundedMap } = require("./boundedCache");
+const { fetchRadarStatus, OFFLINE_AFTER_MIN } = require("./radarStatusCtrl");
+const NEXRAD_SITES = require("../client/src/components/WeatherMap/nexradSites.json");
 
 const SERVICE_NAME = "IEM (radar)";
 const API_TIMEOUT_MS = 10_000;
+
+const FAILOVER_MAX_KM = 250;
+const STALE_AFTER_MS = OFFLINE_AFTER_MIN * 60 * 1000;
+const EARTH_R_KM = 6371;
 
 const IEM_JSON_BASE = "https://mesonet.agron.iastate.edu/json/radar.py";
 const NWS_POINTS_BASE = "https://api.weather.gov/points";
@@ -108,6 +114,7 @@ let satelliteMetaCache = null;
 const SITE_TTL_MS = 24 * 60 * 60 * 1000;
 const SITE_CACHE_MAX = 64;
 const siteCache = new BoundedMap(SITE_CACHE_MAX);
+const activeFailovers = new BoundedMap(SITE_CACHE_MAX);
 
 /**
  * Convert an IEM scan timestamp into the compact form the RIDGE tile
@@ -175,6 +182,170 @@ function normalizeSiteId(station) {
   return null;
 }
 
+const STATIC_SITES = NEXRAD_SITES
+  .map((s) => {
+    const site = normalizeSiteId(s && s.id);
+    if (!site || !Number.isFinite(s.lat) || !Number.isFinite(s.lon)) return null;
+    return { site, name: s.name || null, lat: s.lat, lon: s.lon };
+  })
+  .filter(Boolean);
+const STATIC_SITE_MAP = new Map(STATIC_SITES.map((s) => [s.site, s]));
+
+/**
+ * Great-circle distance in km between two {lat, lon} coordinates.
+ *
+ * @param {{lat: Number, lon: Number}} a
+ * @param {{lat: Number, lon: Number}} b
+ * @returns {Number} distance in km
+ */
+function distanceKm(a, b) {
+  const p1 = (a.lat * Math.PI) / 180;
+  const p2 = (b.lat * Math.PI) / 180;
+  const dl = ((b.lon - a.lon) * Math.PI) / 180;
+  const x = Math.sin(p1) * Math.sin(p2) + Math.cos(p1) * Math.cos(p2) * Math.cos(dl);
+  return EARTH_R_KM * Math.acos(Math.max(-1, Math.min(1, x)));
+}
+
+/**
+ * Whether an ordered (oldest-first) scan frame list is empty or its newest
+ * scan is older than STALE_AFTER_MS (matching NWS offline latency threshold).
+ *
+ * @param {Array<Object>} frames
+ * @param {Number} [nowMs]
+ * @returns {Boolean}
+ */
+function framesAreStale(frames, nowMs = Date.now()) {
+  if (!Array.isArray(frames) || frames.length === 0) return true;
+  const newest = frames[frames.length - 1];
+  const epoch = newest && newest.epoch;
+  if (!Number.isFinite(epoch)) return true;
+  return nowMs - epoch > STALE_AFTER_MS;
+}
+
+/**
+ * Build a distance-ranked list of alternative NEXRAD sites within
+ * FAILOVER_MAX_KM around `refPoint` (or the primary radar's coordinates).
+ *
+ * @param {String} primarySite 3-letter id
+ * @param {{lat: Number, lon: Number}|null} refPoint
+ * @param {Array<Object>} [extraCandidates]
+ * @returns {Array<{site: String, name: String|null, lat: Number|null, lon: Number|null, distKm: Number}>}
+ */
+function rankFallbackCandidates(primarySite, refPoint, extraCandidates = []) {
+  const origin = (refPoint && Number.isFinite(refPoint.lat) && Number.isFinite(refPoint.lon))
+    ? refPoint
+    : STATIC_SITE_MAP.get(primarySite);
+  if (!origin) return [];
+
+  const bySite = new Map();
+  for (const c of extraCandidates || []) {
+    const id = normalizeSiteId(c && (c.site || c.id));
+    if (!id || id === primarySite) continue;
+    const base = STATIC_SITE_MAP.get(id);
+    const lat = Number.isFinite(c.lat) ? c.lat : base?.lat ?? null;
+    const lon = Number.isFinite(c.lon) ? c.lon : base?.lon ?? null;
+    const distKm = (Number.isFinite(lat) && Number.isFinite(lon))
+      ? distanceKm(origin, { lat, lon })
+      : (Number.isFinite(c.distKm) ? c.distKm : null);
+    if (!Number.isFinite(distKm)) continue;
+    bySite.set(id, {
+      site: id,
+      name: c.name || base?.name || null,
+      lat,
+      lon,
+      distKm,
+    });
+  }
+  for (const s of STATIC_SITES) {
+    if (s.site === primarySite || bySite.has(s.site)) continue;
+    bySite.set(s.site, {
+      site: s.site,
+      name: s.name,
+      lat: s.lat,
+      lon: s.lon,
+      distKm: distanceKm(origin, s),
+    });
+  }
+
+  return Array.from(bySite.values())
+    .filter((c) => Number.isFinite(c.distKm) && c.distKm <= FAILOVER_MAX_KM)
+    .sort((a, b) => a.distKm - b.distKm);
+}
+
+/**
+ * Pick the nearest online candidate when NWS confirms `primarySite` is offline.
+ * Fails open (returns null) when status is unavailable or primary is not
+ * explicitly "offline".
+ *
+ * @param {String} primarySite 3-letter id
+ * @param {Array<Object>} candidates distance-sorted candidates
+ * @param {Object|null} statusPayload payload from radarStatusCtrl
+ * @returns {Object|null} winning candidate or null
+ */
+function pickOnlineFallback(primarySite, candidates, statusPayload) {
+  if (!primarySite || !statusPayload || !statusPayload.available || !statusPayload.sites) return null;
+  if (statusPayload.sites[primarySite]?.state !== "offline") return null;
+  for (const c of candidates || []) {
+    if (!c || !c.site || c.site === primarySite) continue;
+    if (Number.isFinite(c.distKm) && c.distKm > FAILOVER_MAX_KM) continue;
+    if (statusPayload.sites[c.site]?.state === "online") return c;
+  }
+  return null;
+}
+
+/**
+ * Whether `primarySite` is currently failed over to an alternate radar.
+ *
+ * @param {String} primarySite 3-letter id
+ * @returns {Boolean}
+ */
+function isFailoverActive(primarySite) {
+  return Boolean(primarySite && activeFailovers.has(primarySite));
+}
+
+/**
+ * Consult NWS station status and return either the nearest online fallback
+ * within FAILOVER_MAX_KM (recording active failover) or the primary site.
+ *
+ * @param {String} primarySite 3-letter id
+ * @param {Object} [opts]
+ * @param {Number|null} [opts.lat]
+ * @param {Number|null} [opts.lon]
+ * @param {Array<Object>} [opts.candidates]
+ * @param {Function} [opts.statusLoader]
+ * @param {Number} [opts.nowMs]
+ * @returns {Promise<{site: String, name: String|null, fallbackFrom: String|null}>}
+ */
+async function resolveFailover(primarySite, { lat, lon, candidates = [], statusLoader = fetchRadarStatus, nowMs = Date.now() } = {}) {
+  if (!primarySite) return { site: primarySite, name: null, fallbackFrom: null };
+  let statusPayload = null;
+  try {
+    statusPayload = await statusLoader();
+  } catch {
+    statusPayload = null;
+  }
+  const refPoint = (Number.isFinite(lat) && Number.isFinite(lon)) ? { lat, lon } : null;
+  const ranked = rankFallbackCandidates(primarySite, refPoint, candidates);
+  const fallback = pickOnlineFallback(primarySite, ranked, statusPayload);
+  if (fallback) {
+    activeFailovers.set(primarySite, { site: fallback.site, since: nowMs });
+    return { site: fallback.site, name: fallback.name || null, fallbackFrom: primarySite };
+  }
+  activeFailovers.delete(primarySite);
+  return { site: primarySite, name: null, fallbackFrom: null };
+}
+
+/**
+ * Clear all module caches and active failover state (for tests).
+ */
+function clearRadarCaches() {
+  siteCache.clear();
+  framesCache.clear();
+  activeFailovers.clear();
+  mosaicMetaCache = null;
+  satelliteMetaCache = null;
+}
+
 /**
  * Coarse cache key for a coordinate. Two decimal places is ~1 km,
  * far finer than the scale at which the assigned radar changes, so
@@ -232,19 +403,22 @@ async function resolveRadarSite(lat, lon) {
         && Number.isFinite(r.lat) && Number.isFinite(r.lon)
     );
     if (nexrads.length) {
-      // Equirectangular approximation — plenty for ranking candidates
-      // that are all within a few hundred km.
-      const cosLat = Math.cos((lat * Math.PI) / 180);
-      nexrads.sort((a, b) => {
-        const da = ((a.lat - lat) ** 2) + (((a.lon - lon) * cosLat) ** 2);
-        const db = ((b.lat - lat) ** 2) + (((b.lon - lon) * cosLat) ** 2);
-        return da - db;
-      });
-      const nearest = nexrads[0];
+      const origin = { lat, lon };
+      const ranked = nexrads
+        .map((r) => ({
+          site: normalizeSiteId(r.id) || r.id,
+          name: r.name || null,
+          lat: r.lat,
+          lon: r.lon,
+          distKm: distanceKm(origin, r),
+        }))
+        .sort((a, b) => a.distKm - b.distKm);
+      const nearest = ranked[0];
       resolved = {
-        site: normalizeSiteId(nearest.id) || nearest.id,
+        site: nearest.site,
         name: nearest.name || null,
         source: "iem",
+        candidates: ranked,
       };
       recordServiceCall(SERVICE_NAME, 200, `site ${resolved.site} via IEM (nearest)`);
     } else {
@@ -268,7 +442,7 @@ async function resolveRadarSite(lat, lon) {
       recordServiceCall(SERVICE_NAME, 200, "no NEXRAD site near coord");
       throw new Error("No NEXRAD site available for this location");
     }
-    resolved = { site, name: null, source: "nws" };
+    resolved = { site, name: null, source: "nws", candidates: [] };
     recordServiceCall(SERVICE_NAME, 200, `site ${site} via NWS fallback`);
   }
 
@@ -312,12 +486,38 @@ async function getRadarSite(req, res) {
 
   const forced = await overrideSite();
   if (forced) {
-    return res.status(200).json({ available: true, site: forced, name: null, source: "override" }).end();
+    if (activeFailovers.has(forced)) {
+      const fo = await resolveFailover(forced, { lat, lon });
+      return res.status(200).json({
+        available: true,
+        site: fo.site,
+        name: fo.name ?? null,
+        source: "override",
+        fallbackFrom: fo.fallbackFrom,
+      }).end();
+    }
+    return res.status(200).json({ available: true, site: forced, name: null, source: "override", fallbackFrom: null }).end();
   }
 
   try {
     const resolved = await resolveRadarSite(lat, lon);
-    return res.status(200).json({ available: true, ...resolved }).end();
+    if (activeFailovers.has(resolved.site)) {
+      const fo = await resolveFailover(resolved.site, { lat, lon, candidates: resolved.candidates || [] });
+      return res.status(200).json({
+        available: true,
+        site: fo.site,
+        name: fo.name ?? resolved.name,
+        source: resolved.source,
+        fallbackFrom: fo.fallbackFrom,
+      }).end();
+    }
+    return res.status(200).json({
+      available: true,
+      site: resolved.site,
+      name: resolved.name,
+      source: resolved.source,
+      fallbackFrom: null,
+    }).end();
   } catch (err) {
     // A location with no NEXRAD coverage (outside the US) is a normal
     // answer, not a server fault: the client hides the single-site
@@ -479,37 +679,71 @@ async function getRadarFrames(req, res) {
   if (!Number.isFinite(count) || count < 1) count = DEFAULT_FRAME_COUNT;
   count = Math.min(count, MAX_FRAME_COUNT);
 
+  // Always parse coordinates when present so failover can rank nearby
+  // online radars relative to the map/pin even under a manual site pin.
+  const rawLat = parseFloat(req.query.lat);
+  const rawLon = parseFloat(req.query.lon);
+  const validCoord = Number.isFinite(rawLat) && Number.isFinite(rawLon)
+    && rawLat >= -90 && rawLat <= 90 && rawLon >= -180 && rawLon <= 180;
+  const lat = validCoord ? rawLat : null;
+  const lon = validCoord ? rawLon : null;
+
   // A manual override in settings beats both the explicit `site` query
   // and coordinate resolution — it is the user saying "this radar,
   // wherever the map is".
-  let site = (await overrideSite()) || normalizeSiteId(req.query.site);
+  let primarySite = (await overrideSite()) || normalizeSiteId(req.query.site);
+  let resolvedCandidates = [];
 
   // Coordinate form: resolve the site first so the client can make a
   // single call on startup.
-  if (!site) {
-    const lat = parseFloat(req.query.lat);
-    const lon = parseFloat(req.query.lon);
-    if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+  if (!primarySite) {
+    if (!validCoord) {
       return res.status(400).json("Provide either site, or valid lat and lon").end();
     }
     try {
-      ({ site } = await resolveRadarSite(lat, lon));
+      const resolved = await resolveRadarSite(lat, lon);
+      primarySite = resolved.site;
+      resolvedCandidates = Array.isArray(resolved.candidates) ? resolved.candidates : [];
     } catch {
       const [mosaic, satellite] = await Promise.all([fetchMosaicMeta(), fetchSatelliteMeta()]);
       return res.status(200).json({ available: false, frames: [], reason: "no-radar-coverage", mosaic, satellite }).end();
     }
   }
 
+  let activeSite = primarySite;
   try {
+    if (activeFailovers.has(primarySite)) {
+      const fo = await resolveFailover(primarySite, { lat, lon, candidates: resolvedCandidates });
+      activeSite = fo.site;
+      const [payload, mosaic, satellite] = await Promise.all([
+        fetchFrames(activeSite, product, count), fetchMosaicMeta(), fetchSatelliteMeta(),
+      ]);
+      return res.status(200).json({ available: true, ...payload, fallbackFrom: fo.fallbackFrom, mosaic, satellite }).end();
+    }
+
     // The mosaic and satellite times ride along with every frame list so
     // the client's single 60 s poll refreshes every layer's age.
     const [payload, mosaic, satellite] = await Promise.all([
-      fetchFrames(site, product, count), fetchMosaicMeta(), fetchSatelliteMeta(),
+      fetchFrames(primarySite, product, count), fetchMosaicMeta(), fetchSatelliteMeta(),
     ]);
-    return res.status(200).json({ available: true, ...payload, mosaic, satellite }).end();
+    if (framesAreStale(payload.frames)) {
+      const fo = await resolveFailover(primarySite, { lat, lon, candidates: resolvedCandidates });
+      if (fo.fallbackFrom && fo.site !== primarySite) {
+        activeSite = fo.site;
+        try {
+          const fbPayload = await fetchFrames(fo.site, product, count);
+          if (fbPayload.frames.length > 0 || payload.frames.length === 0) {
+            return res.status(200).json({ available: true, ...fbPayload, fallbackFrom: primarySite, mosaic, satellite }).end();
+          }
+        } catch {
+          // Fall through to returning primary payload when fallback fetch fails.
+        }
+      }
+    }
+    return res.status(200).json({ available: true, ...payload, fallbackFrom: null, mosaic, satellite }).end();
   } catch (err) {
     const status = err?.response?.status || 500;
-    recordServiceCall(SERVICE_NAME, status, `frame list failed for ${site}`);
+    recordServiceCall(SERVICE_NAME, status, `frame list failed for ${activeSite}`);
     // 503 rather than 500: this is an upstream availability problem and
     // the client's correct response is to keep showing the last good
     // frame list flagged stale, not to treat the app as broken.
@@ -520,10 +754,19 @@ async function getRadarFrames(req, res) {
 module.exports = {
   getRadarSite,
   getRadarFrames,
-  // Exported for tests.
+  // Exported for tests and internal controllers.
+  FAILOVER_MAX_KM,
+  STALE_AFTER_MS,
   toTileStamp,
   toEpochMs,
   normalizeSiteId,
+  distanceKm,
+  framesAreStale,
+  rankFallbackCandidates,
+  pickOnlineFallback,
+  isFailoverActive,
+  resolveFailover,
+  clearRadarCaches,
   resolveRadarSite,
   overrideSite,
   parseMosaicMeta,

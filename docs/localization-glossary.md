@@ -4,7 +4,7 @@
      Regenerate with: node tools/gen-localization-glossary.js
      Validation marks (☑) in the first column ARE preserved across runs. -->
 
-**Generated** by `tools/gen-localization-glossary.js` on 2026-11-17. Re-run it after
+**Generated** by `tools/gen-localization-glossary.js` on 2026-11-26. Re-run it after
 touching a locale file or an inline `lbl()` string — every row below is derived, so a
 hand edit will be overwritten. The one exception is the **Validé** column: it is human
 review state and the generator carries existing `☑` marks forward, matching on the key
@@ -16,7 +16,7 @@ Replace `☐` with `☑` when a native speaker has confirmed the FR and ES wordi
 
 | Source | Rows | Notes |
 |---|---|---|
-| `client/src/i18n/locales/{en,fr,es}.json` | 607 translated + 28 identical | Every kiosk-visible surface. 635 leaf keys total. |
+| `client/src/i18n/locales/{en,fr,es}.json` | 608 translated + 28 identical | Every kiosk-visible surface. 636 leaf keys total. |
 | `client/src/components/ambient/SettingsPanel/index.js` | 130 (+7 non-literal, not listed) | Settings overlay — the user-facing configuration surface. |
 | `client/src/components/ambient/DebugPanel/index.js` | 70 | Debug overlay — localhost-only, reached from a desktop browser or an SSH tunnel. |
 
@@ -618,6 +618,7 @@ reported here as a gap table, so an empty check means the three files are aligne
 | ☐ | Rain | Pluie | Lluvia | `radar.ptypeRain` |
 | ☐ | Snow | Neige | Nieve | `radar.ptypeSnow` |
 | ☐ | Show direction arrows | Afficher les flèches de direction | Mostrar flechas de dirección | `radar.showDirectionArrows` |
+| ☐ | ({{site}} offline) | ({{site}} hors service) | ({{site}} fuera de servicio) | `radar.siteFallback` |
 | ☐ | {{site}} · offline | {{site}} · hors service | {{site}} · fuera de servicio | `radar.siteOffline` |
 | ☐ | {{site}} · offline · no data for {{age}} | {{site}} · hors service · aucune donnée depuis {{age}} | {{site}} · fuera de servicio · sin datos desde hace {{age}} | `radar.siteOfflineFor` |
 | ☐ | {{hours}} h ago | Il y a {{hours}} h | Hace {{hours}} h | `radar.timeline.agoHours` |

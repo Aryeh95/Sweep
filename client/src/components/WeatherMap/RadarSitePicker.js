@@ -83,7 +83,7 @@ const RadarSitePicker = ({ activeSite = null, pinnedSite = "", status = {}, inte
       {NEXRAD_SITES.map((s) => {
         const id3 = iemSiteId(s.id);
         const isPinned = pinnedSite && pinnedSite === id3;
-        const isActive = isPinned || (activeSite && activeSite === id3);
+        const isActive = activeSite ? activeSite === id3 : isPinned;
         const st = status[id3];
         const isOffline = Boolean(st && st.state === "offline");
         const cls = [

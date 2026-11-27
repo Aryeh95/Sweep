@@ -150,6 +150,14 @@ async function fetchRadarStatus() {
 }
 
 /**
+ * Clear cached radar status state (for tests).
+ */
+function clearStatusCache() {
+  cache = null;
+  inflight = null;
+}
+
+/**
  * GET /api/radar/status — operating state of every WSR-88D, for the site
  * picker. Never fails the request: an upstream outage answers
  * `available: false` (or the last good map with `stale: true`).
@@ -165,6 +173,7 @@ async function getRadarStatus(req, res) {
 module.exports = {
   getRadarStatus,
   fetchRadarStatus,
+  clearStatusCache,
   classifyStation,
   summarizeStations,
   OFFLINE_AFTER_MIN,

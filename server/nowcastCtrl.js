@@ -48,7 +48,7 @@ const { createKeyedSingleFlight } = require("./singleFlight");
 const { listHourKeys } = require("./nexradBucket");
 const { fetchRadialByKey, keyForEpoch, CLASS_PRODUCT } = require("./radarRadialCtrl");
 const { PRODUCTS: MRMS_TYPE_PRODUCTS } = require("./mrmsPrecipTypeCtrl");
-const { resolveRadarSite, overrideSite } = require("./iemRadarCtrl");
+const { resolveRadarSite, overrideSite, isFailoverActive, resolveFailover, STALE_AFTER_MS } = require("./iemRadarCtrl");
 const { keyNearest, fetchGrid } = require("./mrmsHailCtrl");
 const { fetchTracks } = require("./stormTracksCtrl");
 const precipType = require("./precipType");
@@ -2098,10 +2098,42 @@ async function fetchNowcast(site, home) {
  * @returns {Promise<Object>} payload for /api/radar/nowcast
  */
 async function nowcastForPoint(lat, lon, querySite = "") {
-  let site = await overrideSite();
-  if (!site && querySite) site = querySite.length === 4 ? querySite.slice(1) : querySite;
-  if (!site) site = (await resolveRadarSite(lat, lon)).site;
-  return fetchNowcast(site, { lat, lon });
+  let primarySite = await overrideSite();
+  if (!primarySite && querySite) primarySite = querySite.length === 4 ? querySite.slice(1) : querySite;
+  let candidates = [];
+  if (!primarySite) {
+    const resolved = await resolveRadarSite(lat, lon);
+    primarySite = resolved.site;
+    candidates = Array.isArray(resolved.candidates) ? resolved.candidates : [];
+  }
+
+  let activeSite = primarySite;
+  let fallbackFrom = null;
+  if (isFailoverActive(primarySite)) {
+    const fo = await resolveFailover(primarySite, { lat, lon, candidates });
+    activeSite = fo.site;
+    fallbackFrom = fo.fallbackFrom;
+  }
+
+  const result = await fetchNowcast(activeSite, { lat, lon });
+  const staleOrMissing = !result
+    || (!result.available && (result.reason === "no-recent-scans" || result.reason === "no-decodable-scans"))
+    || (result.available && (!Number.isFinite(Date.parse(result.scanTime || "")) || Date.now() - Date.parse(result.scanTime) > STALE_AFTER_MS));
+
+  if (activeSite === primarySite && staleOrMissing) {
+    const fo = await resolveFailover(primarySite, { lat, lon, candidates });
+    if (fo.fallbackFrom && fo.site !== primarySite) {
+      try {
+        const fbResult = await fetchNowcast(fo.site, { lat, lon });
+        if (fbResult && (fbResult.available || !result || !result.available)) {
+          return { ...fbResult, fallbackFrom: primarySite };
+        }
+      } catch {
+        // Fall through to returning primary result when fallback fetch fails.
+      }
+    }
+  }
+  return { ...result, fallbackFrom };
 }
 
 /**

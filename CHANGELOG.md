@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added (2026-11-26)
+- **Automatic offline-radar failover.** When the nearest WSR-88D radar (or a manually pinned radar via `radarSite` / `?site=`) stops updating (no recent scans past 15 min) and NWS `/radar/stations` confirms it is offline, `/api/radar/frames`, `/api/radar/site`, `/api/radar/nowcast` (and the Home Assistant `/summary` bridge) automatically fail over to the nearest online WSR-88D within 250 km without modifying saved settings. Healthy radars incur zero extra status fetches; active failovers re-check NWS status every 5 minutes and snap back automatically once the primary radar recovers. The map age chip and nowcast card surface the fallback (`DOX (LWX offline)`), and the site picker highlights the served radar while keeping the offline pin marked. App 2.13.28 (versionCode 45).
+
 ### Fixed (2026-11-26, Android report: expired Wind Advisory stuck and undismissable)
 - **Superseded or expired NWS alerts are filtered out.** NWS `/alerts/active` can keep serving an upgraded (`UPG`) or cancelled (`CAN`) stub past its `expires` time until the original event's `ends` time passes. `server/govAlertSources/nws.js` now drops `Cancel` messages, `replacedAt`/`replacedBy` stubs, and features whose VTEC actions are all terminal (`CAN` / `EXP` / `UPG`), and both `nws.js` and `server/govAlertsCtrl.js` exclude alerts whose `expiresAt` has passed (including on cached reads).
 - **Dismissing an alert whose upstream `expiresAt` is already in the past no longer vanishes on click.** `useDismissedAlerts` (`client/src/ui/dismissedAlerts.js`) now purges on `expiresAt` only when the expiry was still in the future at dismissal time (`exp > entry.ts`), falling back to the 4-hour auto-resurface window otherwise so `writeStore`'s synchronous storage sync cannot immediately erase the dismissal. App 2.13.27 (versionCode 44).
